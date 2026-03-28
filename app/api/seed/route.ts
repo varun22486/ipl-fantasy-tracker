@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
           {
             ok: false,
             error:
-              "That fixture was not found for today's IPL slate (India calendar), or it is not an IPL match. Refresh the list and pick again.",
+              "Could not find that fixture via the API. The match may be too old for the live feed — try refreshing the list or check your API quota.",
           },
           { status: 400 }
         );

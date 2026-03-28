@@ -561,22 +561,34 @@ export async function getIplMatchChoicesForToday(): Promise<{
   };
 }
 
+/**
+ * Resolves any CricAPI match ID the user explicitly picked from our IPL picker.
+ * - First checks the recent feed (yesterday/today/tomorrow window).
+ * - Falls back to a direct match_info lookup which works for any match,
+ *   including completed ones that have aged out of the live feed.
+ * - The IPL check is intentionally skipped on the direct lookup because the
+ *   user already selected the match from our filtered IPL picker.
+ */
 export async function getMatchSeedByExternalIdForToday(externalMatchId: string): Promise<MatchSeed | null> {
   const id = cleanEnvText(externalMatchId);
   if (!id) return null;
+
+  // Fast path: match still in the recent feed
   const raw = await collectRawMatchesFromProvider();
   const hit = raw.find((m) => safeString(m.id || m.matchId || m.match_id) === id);
   if (hit && isProbablyIplMatch(hit)) return matchToSeed(hit);
 
+  // Slow path: direct match_info lookup (works for any past/future match)
   if (isCricapiBase(envBaseUrl())) {
     try {
       const payload = await fetchJson(`/v1/match_info?id=${encodeURIComponent(id)}`);
       const m = payload?.data ?? payload;
-      if (m && typeof m === "object" && !Array.isArray(m) && isProbablyIplMatch(m)) {
-        return matchToSeed(m);
+      if (m && typeof m === "object" && !Array.isArray(m) && safeString((m as MaybeRecord).id || id)) {
+        // Trust the selection — user picked it from our IPL-filtered picker
+        return matchToSeed({ ...(m as MaybeRecord), id });
       }
     } catch {
-      // ignore
+      // ignore — will fall through to null
     }
   }
 
@@ -911,27 +923,39 @@ async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<Squa
 }
 
 /**
- * Pull squads/roster for any match phase:
- * - Pre-match: squad API (match_squad) works even before toss/play
- * - Live/completed: falls back to scorecard which has the playing XI
+ * Pull the best available roster for any match phase:
+ *
+ * - Completed / in-progress → scorecard first (gives actual Playing XI, ~22 names)
+ * - Pre-match             → squad API (gives full squad before toss, ~30 names)
+ *
+ * We always prefer the scorecard result when it has ≥ 11 players per side
+ * because it reflects who actually took the field, not just the squad selection.
  */
 export async function fetchMatchRoster(externalMatchId: string): Promise<{ squads: SquadTeam[]; rosterNames: string[] }> {
-  // Try squad API first — works pre-match and doesn't consume a scorecard credit
+  let scorecardSquads: SquadTeam[] = [];
+
+  // 1. Try scorecard — has the actual Playing XI for live/completed matches
+  try {
+    const full = await refreshMatchFromProvider(externalMatchId);
+    if (squadPlayerCount(full.squads) >= 11) {
+      return { squads: full.squads, rosterNames: full.rosterNames };
+    }
+    scorecardSquads = full.squads; // save partial result
+  } catch {
+    // Scorecard not published yet (pre-match) — fall through to squad API
+  }
+
+  // 2. Squad API — works before the match starts
   const squadSquads = await tryFetchSquadsFromSquadApi(externalMatchId);
   if (squadPlayerCount(squadSquads) >= 8) {
     return { squads: squadSquads, rosterNames: uniqueRosterNames(squadSquads) };
   }
 
-  // Fall back to scorecard (in-progress / completed matches)
-  try {
-    const full = await refreshMatchFromProvider(externalMatchId);
-    // Prefer scorecard squads if richer; otherwise blend with squad API result
-    const best = squadPlayerCount(full.squads) >= squadPlayerCount(squadSquads) ? full.squads : squadSquads;
-    return { squads: best, rosterNames: uniqueRosterNames(best) };
-  } catch {
-    // Scorecard not yet available (pre-match) — return whatever squad API gave us
-    return { squads: squadSquads, rosterNames: uniqueRosterNames(squadSquads) };
-  }
+  // 3. Best of what we have
+  const best = squadPlayerCount(scorecardSquads) >= squadPlayerCount(squadSquads)
+    ? scorecardSquads
+    : squadSquads;
+  return { squads: best, rosterNames: uniqueRosterNames(best) };
 }
 
 export async function refreshMatchFromProvider(externalMatchId: string): Promise<ProviderRefresh> {
