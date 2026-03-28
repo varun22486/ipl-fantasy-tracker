@@ -875,6 +875,36 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
     if (out.length) return out;
   }
 
+  // CricAPI match_scorecard: data.players = { "Team Name": [{id, name, role,...}] }
+  const playersByTeam = (data as MaybeRecord).players;
+  if (playersByTeam && typeof playersByTeam === "object" && !Array.isArray(playersByTeam)) {
+    const out: SquadTeam[] = [];
+    for (const [teamName, players] of Object.entries(playersByTeam)) {
+      if (!Array.isArray(players)) continue;
+      const names = (players as any[])
+        .map((p: any) => safeString(typeof p === "string" ? p : p.name || p.playerName || p.fullName))
+        .filter(Boolean);
+      if (names.length) out.push({ teamName: teamName || "Team", players: names });
+    }
+    if (out.length) return out;
+  }
+
+  // CricAPI match_info: data.teamInfo = [{name, img, players:[{id,name,...}]}]
+  const teamInfo = (data as MaybeRecord).teamInfo;
+  if (Array.isArray(teamInfo)) {
+    const out: SquadTeam[] = [];
+    for (const t of teamInfo) {
+      const teamName = safeString((t as any).name || (t as any).teamName);
+      const pl = (t as any).players;
+      if (!Array.isArray(pl)) continue;
+      const names = (pl as any[])
+        .map((p: any) => safeString(typeof p === "string" ? p : p.name || p.playerName || p.fullName))
+        .filter(Boolean);
+      if (names.length) out.push({ teamName: teamName || "Team", players: names });
+    }
+    if (out.length) return out;
+  }
+
   return [];
 }
 
@@ -883,18 +913,39 @@ function extractSquadsFromBatting(data: MaybeRecord): SquadTeam[] {
   if (!Array.isArray(batting)) return [];
   const out: SquadTeam[] = [];
   for (const inn of batting) {
-    const title = safeString((inn as any).title || "Batting");
-    const scores = (inn as any).scores;
-    if (!Array.isArray(scores)) continue;
+    const title = safeString((inn as any).title || (inn as any).inningsTitle || "Batting");
     const set = new Set<string>();
-    for (const row of scores) {
-      const cells = Array.isArray(row) ? row : [row];
-      for (const cell of cells) {
-        const b = safeString((cell as any)?.batsman || (cell as any)?.name);
-        if (!b || b.toLowerCase() === "extras") continue;
-        set.add(b);
+
+    // Format A: scores array of rows/cells
+    const scores = (inn as any).scores;
+    if (Array.isArray(scores)) {
+      for (const row of scores) {
+        const cells = Array.isArray(row) ? row : [row];
+        for (const cell of cells) {
+          const b = safeString((cell as any)?.batsman || (cell as any)?.name);
+          if (b && b.toLowerCase() !== "extras") set.add(b);
+        }
       }
     }
+
+    // Format B: CricAPI match_scorecard — batting[].batsman = [{batsman, r, b, ...}]
+    const batsmen = (inn as any).batsman ?? (inn as any).batsmen;
+    if (Array.isArray(batsmen)) {
+      for (const b of batsmen) {
+        const name = safeString((b as any).batsman || (b as any).name || (b as any).fullName);
+        if (name && name.toLowerCase() !== "extras") set.add(name);
+      }
+    }
+
+    // Format C: bowler array in same innings object (gets the bowling team players too)
+    const bowlers = (inn as any).bowler ?? (inn as any).bowlers;
+    if (Array.isArray(bowlers)) {
+      for (const b of bowlers) {
+        const name = safeString((b as any).bowler || (b as any).name || (b as any).fullName);
+        if (name && name.toLowerCase() !== "extras") set.add(name);
+      }
+    }
+
     if (set.size) out.push({ teamName: title, players: [...set] });
   }
   return out;
@@ -951,10 +1002,22 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
     return { squads: squadSquads, rosterNames: uniqueRosterNames(squadSquads) };
   }
 
-  // 3. Best of what we have
-  const best = squadPlayerCount(scorecardSquads) >= squadPlayerCount(squadSquads)
-    ? scorecardSquads
-    : squadSquads;
+  // 3. match_info — always available regardless of match state; has teamInfo.players
+  if (isCricapiBase(envBaseUrl())) {
+    try {
+      const payload = await fetchJson(`/v1/match_info?id=${encodeURIComponent(externalMatchId)}`);
+      const infoSquads = extractSquadsFromPayload(payload);
+      if (squadPlayerCount(infoSquads) >= 8) {
+        return { squads: infoSquads, rosterNames: uniqueRosterNames(infoSquads) };
+      }
+    } catch { /* ignore */ }
+  }
+
+  // 4. Best of what we have
+  const candidates = [scorecardSquads, squadSquads].sort(
+    (a, b) => squadPlayerCount(b) - squadPlayerCount(a)
+  );
+  const best = candidates[0];
   return { squads: best, rosterNames: uniqueRosterNames(best) };
 }
 
