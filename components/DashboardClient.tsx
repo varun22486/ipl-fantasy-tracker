@@ -2,8 +2,8 @@
 
 import React, { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
 
-const QUOTA_LIMIT = 100;
-const QUOTA_WARN_AT = 80;
+const QUOTA_LIMIT = 200; // 100/day × 2 API keys
+const QUOTA_WARN_AT = 160;
 const QUOTA_KEY = "cricapi_quota";
 
 function getIstDateStr() {

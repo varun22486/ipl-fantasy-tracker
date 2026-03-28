@@ -57,13 +57,23 @@ function isLegacySeedEndpoint(baseUrl: string) {
   return /\/api\/seed$/i.test(baseUrl);
 }
 
+function pickApiKey(): string {
+  const keys = [
+    cleanEnvText(process.env.CRICKET_API_KEY),
+    cleanEnvText(process.env.CRICKET_API_KEY_2),
+  ].filter(Boolean) as string[];
+
+  if (keys.length === 0) return "";
+  return keys[Math.floor(Math.random() * keys.length)];
+}
+
 function authHeaders() {
   const headers: Record<string, string> = {
     Accept: "application/json",
   };
 
   const rapidHost = cleanEnvText(process.env.CRICKET_API_HOST);
-  const apiKey = cleanEnvText(process.env.CRICKET_API_KEY);
+  const apiKey = pickApiKey();
   if (rapidHost && apiKey) {
     headers["X-RapidAPI-Key"] = apiKey;
     headers["X-RapidAPI-Host"] = rapidHost;
@@ -73,7 +83,7 @@ function authHeaders() {
 }
 
 function withApiKey(path: string) {
-  const apiKey = cleanEnvText(process.env.CRICKET_API_KEY);
+  const apiKey = pickApiKey();
   if (!apiKey) return path;
   if (/([?&])apikey=/i.test(path)) return path;
   const joiner = path.includes("?") ? "&" : "?";
