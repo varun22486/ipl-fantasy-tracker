@@ -273,7 +273,7 @@ export default function DashboardClient({
       }
       setLinkChoices(choices);
       setPickedLinkId(choices[0].externalMatchId || "");
-      setMessage(`${choices.length} matches found — pick one below.`);
+      setMessage(`${choices.length} IPL fixture${choices.length > 1 ? "s" : ""} found — pick one below.`);
     } catch {
       setMessage("Network error loading today's matches.");
     }
@@ -427,7 +427,7 @@ export default function DashboardClient({
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <button onClick={() => void startLinkTodaysMatch()} disabled={syncing || isAtLimit} style={buttonStyle}>
-          {syncing ? "Working..." : "Link Today's Match"}
+          {syncing ? "Working..." : "Link IPL Match"}
         </button>
         <button onClick={() => void refreshNow()} disabled={syncing || isAtLimit} style={buttonStyleSecondary}>
           {syncing ? "Working..." : "Sync Scores Now"}
@@ -436,9 +436,9 @@ export default function DashboardClient({
 
       {linkChoices && linkChoices.length > 1 ? (
         <div style={pickerPanelStyle}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Which match do you want to link?</div>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Choose an IPL match to import</div>
           {linkDateHint ? (
-            <div style={{ color: "#64748b", fontSize: 13, marginBottom: 12 }}>Using India calendar: {linkDateHint}</div>
+            <div style={{ color: "#64748b", fontSize: 13, marginBottom: 12 }}>Showing yesterday, today &amp; tomorrow (India time) · {linkDateHint}</div>
           ) : null}
           <div style={{ display: "grid", gap: 10 }}>
             {linkChoices.map((c: MatchChoice) => (
@@ -499,7 +499,7 @@ export default function DashboardClient({
         <h3 style={{ marginTop: 0 }}>Players in this match</h3>
 
         {!hasLinkedMatch ? (
-          <div style={{ color: "#64748b", fontSize: 14 }}>Link today&apos;s IPL match first.</div>
+          <div style={{ color: "#64748b", fontSize: 14 }}>Use &quot;Link IPL Match&quot; to import a recent fixture first.</div>
         ) : !hasRoster ? (
           <div style={{ color: "#64748b", fontSize: 14 }}>
             No roster loaded yet. Use <strong>Sync Scores Now</strong> (or link the match again) after the feed publishes squads / scorecard.

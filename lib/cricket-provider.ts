@@ -221,7 +221,12 @@ function matchToSeed(match: MaybeRecord): MatchSeed {
   const sourceUrl = safeString(match.url || match.source_url);
   const extId = safeString(match.id || match.matchId || match.match_id);
   const match_date = extractProviderMatchDate(match) || todayIsoInIplTZ();
-  const labelBase = extId ? `${sanitizeLabelPart(match_date)}_${sanitizeLabelPart(extId)}` : `${sanitizeLabelPart(match_date)}_${Date.now()}`;
+  // Use a human-readable fixture name in the label; fall back to external ID for uniqueness
+  const fixtureSlug = fixture !== "IPL Match"
+    ? sanitizeLabelPart(fixture.replace(/,\s*\d+\w*\s*(Match|T20|ODI|Test).*$/i, "").trim()).slice(0, 80)
+    : "";
+  const uniquePart = fixtureSlug || sanitizeLabelPart(extId) || String(Date.now());
+  const labelBase = `${sanitizeLabelPart(match_date)}_${uniquePart}`;
 
   return {
     externalMatchId: extId,
@@ -374,8 +379,8 @@ const KNOWN_IPL_SERIES_IDS = [
 ];
 
 /**
- * Fetches today's match(es) directly from the IPL series_info endpoint.
- * Falls back to the most recently completed match if nothing is scheduled today.
+ * Fetches IPL matches for a 3-day window: yesterday, today, tomorrow (IST).
+ * This lets users link yesterday's completed match or pre-link tomorrow's upcoming one.
  * Costs 1 API credit.
  */
 async function fetchIplSeriesMatchesForToday(seriesId: string): Promise<MaybeRecord[]> {
@@ -383,25 +388,27 @@ async function fetchIplSeriesMatchesForToday(seriesId: string): Promise<MaybeRec
   const matchList: MaybeRecord[] = Array.isArray(payload?.data?.matchList) ? payload.data.matchList : [];
   if (matchList.length === 0) return [];
 
-  const today = todayIsoInIplTZ();
+  const nowMs = Date.now();
+  const today = formatDateInTimeZone(new Date(nowMs), IPL_TZ);
+  const yesterday = formatDateInTimeZone(new Date(nowMs - 86_400_000), IPL_TZ);
+  const tomorrow = formatDateInTimeZone(new Date(nowMs + 86_400_000), IPL_TZ);
 
-  // Prefer today's matches
-  const todayMatches = matchList.filter((m) => extractProviderMatchDate(m) === today);
-  if (todayMatches.length > 0) return todayMatches;
+  const window = matchList.filter((m) => {
+    const d = extractProviderMatchDate(m);
+    return d === yesterday || d === today || d === tomorrow;
+  });
 
-  // Fallback: most recently completed/live match
+  if (window.length > 0) return window;
+
+  // Fallback: up to 2 most recent past matches
   const past = matchList
     .filter((m) => {
       const d = extractProviderMatchDate(m);
       return d && d <= today;
     })
-    .sort((a, b) => {
-      const da = extractProviderMatchDate(a) ?? "";
-      const db = extractProviderMatchDate(b) ?? "";
-      return db.localeCompare(da);
-    });
+    .sort((a, b) => (extractProviderMatchDate(b) ?? "").localeCompare(extractProviderMatchDate(a) ?? ""));
 
-  return past.slice(0, 1);
+  return past.slice(0, 2);
 }
 
 async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
@@ -819,10 +826,28 @@ async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<Squa
   return [];
 }
 
-/** Pull squads / roster names from the same paths used for live score sync. */
+/**
+ * Pull squads/roster for any match phase:
+ * - Pre-match: squad API (match_squad) works even before toss/play
+ * - Live/completed: falls back to scorecard which has the playing XI
+ */
 export async function fetchMatchRoster(externalMatchId: string): Promise<{ squads: SquadTeam[]; rosterNames: string[] }> {
-  const full = await refreshMatchFromProvider(externalMatchId);
-  return { squads: full.squads, rosterNames: full.rosterNames };
+  // Try squad API first — works pre-match and doesn't consume a scorecard credit
+  const squadSquads = await tryFetchSquadsFromSquadApi(externalMatchId);
+  if (squadPlayerCount(squadSquads) >= 8) {
+    return { squads: squadSquads, rosterNames: uniqueRosterNames(squadSquads) };
+  }
+
+  // Fall back to scorecard (in-progress / completed matches)
+  try {
+    const full = await refreshMatchFromProvider(externalMatchId);
+    // Prefer scorecard squads if richer; otherwise blend with squad API result
+    const best = squadPlayerCount(full.squads) >= squadPlayerCount(squadSquads) ? full.squads : squadSquads;
+    return { squads: best, rosterNames: uniqueRosterNames(best) };
+  } catch {
+    // Scorecard not yet available (pre-match) — return whatever squad API gave us
+    return { squads: squadSquads, rosterNames: uniqueRosterNames(squadSquads) };
+  }
 }
 
 export async function refreshMatchFromProvider(externalMatchId: string): Promise<ProviderRefresh> {

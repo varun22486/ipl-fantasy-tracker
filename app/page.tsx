@@ -82,7 +82,7 @@ export default async function Home() {
       />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 16, marginBottom: 24 }}>
-        <ScoreCard label="Current Match" value={currentMatch?.label ?? "None"} />
+        <ScoreCard label="Current Match" value={currentMatch?.fixture ?? currentMatch?.label ?? "None"} />
         <ScoreCard label="Status" value={currentMatch?.status ?? "-"} />
         <ScoreCard label="Your Points" value={yourTotal} />
         <ScoreCard label={`${opponentName} Points`} value={rahulTotal} />
