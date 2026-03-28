@@ -1,4 +1,28 @@
+import { createClient } from "@supabase/supabase-js";
+
 const DEFAULT_BASE_URL = "https://api.cricapi.com";
+
+// ---------------------------------------------------------------------------
+// Per-key hit tracking (fire-and-forget, never blocks the main request)
+// ---------------------------------------------------------------------------
+function getAdminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+async function recordKeyHit(alias: string) {
+  const db = getAdminClient();
+  if (!db) return;
+  const today = new Date().toISOString().slice(0, 10);
+  await db.rpc("increment_key_hit", { p_alias: alias, p_date: today });
+}
+
+/** Non-blocking — caller must not await this. */
+function trackKeyHit(key: string) {
+  recordKeyHit(keyAlias(key)).catch(() => {/* ignore tracking failures */});
+}
 
 type MaybeRecord = Record<string, any>;
 
@@ -61,7 +85,13 @@ function allApiKeys(): string[] {
   return [
     cleanEnvText(process.env.CRICKET_API_KEY),
     cleanEnvText(process.env.CRICKET_API_KEY_2),
+    cleanEnvText(process.env.CRICKET_API_KEY_3),
   ].filter(Boolean) as string[];
+}
+
+/** Short alias shown in stats (first 8 chars of key). */
+function keyAlias(key: string): string {
+  return key.slice(0, 8);
 }
 
 function isQuotaError(payload: any): boolean {
@@ -105,19 +135,40 @@ function injectKey(path: string, apiKey: string): string {
 }
 
 /**
- * Tries each API key in random order, falling back to the next one if the
- * current key is over quota. Throws only when all keys are exhausted.
+ * Tries each API key ordered by today's hit count (least-used first),
+ * falling back to the next one if the current key is over quota.
+ * Throws only when all keys are exhausted.
  */
 async function fetchJson(path: string) {
   const baseUrl = envBaseUrl();
   const keys = allApiKeys();
 
-  // Shuffle so we don't always hammer key #1 first
-  const shuffled = [...keys].sort(() => Math.random() - 0.5);
-  if (shuffled.length === 0) shuffled.push("");
+  // Order by ascending hit count so the least-used key goes first;
+  // ties broken randomly so load is spread across equally-fresh keys.
+  const today = new Date().toISOString().slice(0, 10);
+  const hitsToday = await (async () => {
+    try {
+      const db = getAdminClient();
+      if (!db) return {} as Record<string, number>;
+      const { data } = await db
+        .from("api_key_stats")
+        .select("key_alias, hits")
+        .eq("stat_date", today);
+      const map: Record<string, number> = {};
+      for (const row of data ?? []) map[row.key_alias as string] = row.hits as number;
+      return map;
+    } catch { return {} as Record<string, number>; }
+  })();
+
+  const ordered = [...keys].sort((a, b) => {
+    const da = hitsToday[keyAlias(a)] ?? 0;
+    const db2 = hitsToday[keyAlias(b)] ?? 0;
+    return da !== db2 ? da - db2 : Math.random() - 0.5;
+  });
+  if (ordered.length === 0) ordered.push("");
 
   let lastError = "";
-  for (const key of shuffled) {
+  for (const key of ordered) {
     const requestPath = isCricapiBase(baseUrl) ? injectKey(path, key) : path;
     const headers = buildHeaders(key);
     const response = await fetch(`${baseUrl}${requestPath}`, { headers, cache: "no-store" });
@@ -130,6 +181,7 @@ async function fetchJson(path: string) {
       lastError = String(payload.reason || "quota exceeded");
       continue; // try next key
     }
+    trackKeyHit(key); // fire-and-forget
     return payload;
   }
 

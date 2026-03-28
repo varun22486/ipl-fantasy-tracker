@@ -31,6 +31,26 @@ alter table matches add column if not exists auto_sync boolean not null default 
 alter table matches add column if not exists last_synced_at timestamp with time zone;
 alter table matches add column if not exists provider_squad_json jsonb;
 
+-- API key hit tracking (one row per key per day)
+create table if not exists api_key_stats (
+  key_alias text not null,
+  stat_date date not null default current_date,
+  hits integer not null default 0,
+  last_used_at timestamp with time zone default now(),
+  primary key (key_alias, stat_date)
+);
+
+-- Upsert function used by the backend to increment per-key counters
+create or replace function increment_key_hit(p_alias text, p_date date)
+returns void language plpgsql as $$
+begin
+  insert into api_key_stats (key_alias, stat_date, hits, last_used_at)
+  values (p_alias, p_date, 1, now())
+  on conflict (key_alias, stat_date)
+  do update set hits = api_key_stats.hits + 1, last_used_at = now();
+end;
+$$;
+
 -- Rename trump → captain (safe to run multiple times; errors if already renamed are fine)
 do $$ begin
   alter table fantasy_players rename column trump to captain;

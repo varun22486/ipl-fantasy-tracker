@@ -2,8 +2,9 @@
 
 import React, { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
 
-const QUOTA_LIMIT = 200; // 100/day × 2 API keys
-const QUOTA_WARN_AT = 160;
+const KEY_LIMIT = 100;          // CricAPI free plan per key per day
+const QUOTA_LIMIT = 300;        // 100/day × 3 API keys
+const QUOTA_WARN_AT = 240;
 const QUOTA_KEY = "cricapi_quota";
 
 function getIstDateStr() {
@@ -168,9 +169,15 @@ export default function DashboardClient({
   const [linkDateHint, setLinkDateHint] = useState("");
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number; label: string } | null>(null);
+  const [keyStats, setKeyStats] = useState<{ alias: string; hits: number; remaining: number }[]>([]);
 
   useEffect(() => {
     setApiUsed(loadQuota());
+    // Load per-key stats from backend (read-only, no API credit used)
+    fetch("/api/key-stats")
+      .then((r) => r.json())
+      .then((j) => { if (j.ok && Array.isArray(j.stats)) setKeyStats(j.stats); })
+      .catch(() => {});
   }, []);
 
   const addUsage = useCallback((n: number) => {
@@ -417,6 +424,24 @@ export default function DashboardClient({
         {isAtLimit && (
           <div style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>
             Quota reached. Resets at midnight India time.
+          </div>
+        )}
+        {/* Per-key breakdown (only shown when data is available) */}
+        {keyStats.length > 0 && (
+          <div style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {keyStats.map((k, i) => {
+              const pct = k.hits / KEY_LIMIT;
+              const color = pct >= 1 ? "#ef4444" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
+              return (
+                <div key={k.alias} style={{ fontSize: 11, color: "#64748b", display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontWeight: 600, color: "#475569" }}>Key {i + 1}</span>
+                  <span style={{ display: "inline-block", width: 40, height: 4, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
+                    <span style={{ display: "block", height: "100%", width: `${Math.min(100, pct * 100)}%`, background: color, borderRadius: 999 }} />
+                  </span>
+                  <span style={{ color }}>{k.hits}/{KEY_LIMIT}</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
