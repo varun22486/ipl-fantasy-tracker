@@ -71,6 +71,18 @@ function isQuotaError(payload: any): boolean {
   return r.includes("exceeded") || r.includes("limit") || r.includes("blocking") || r.includes("credits");
 }
 
+/** Returns true when an error message indicates all API keys are quota-exhausted. */
+function isQuotaErrorMsg(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("exceeded") ||
+    m.includes("blocking") ||
+    m.includes("quota") ||
+    m.includes("credits") ||
+    m.includes("all keys failed")
+  );
+}
+
 function isCricapiBase(baseUrl: string) {
   return /api\.cricapi\.com$/i.test(baseUrl);
 }
@@ -435,14 +447,19 @@ async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
         const seriesMatches = await fetchIplSeriesMatchesForToday(seriesId);
         absorb(seriesMatches);
         if (seriesMatches.length > 0) break;
-      } catch {
-        // try next series ID
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // Quota exhaustion means all keys are spent — bubble up immediately
+        if (isQuotaErrorMsg(msg)) throw err;
+        // Other errors (bad series ID, network blip): try next series
       }
     }
 
     try {
       absorb(await fetchMatchArray("/v1/currentMatches?offset=0"));
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (isQuotaErrorMsg(msg)) throw err; // propagate quota errors
       // best-effort; series already has IPL data
     }
   } else {
@@ -737,6 +754,21 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
   if (!root || typeof root !== "object") return [];
   const data = (root as MaybeRecord).data ?? root;
   if (!data || typeof data !== "object") return [];
+
+  // CricAPI match_squad returns data as a direct array of team objects
+  if (Array.isArray(data)) {
+    const out: SquadTeam[] = [];
+    for (const t of data) {
+      const teamName = safeString((t as any).name || (t as any).teamName);
+      const pl = (t as any).players;
+      if (!Array.isArray(pl)) continue;
+      const names = pl
+        .map((p: any) => safeString(typeof p === "string" ? p : p.name || p.playerName || p.fullName || p.batsman))
+        .filter(Boolean);
+      if (names.length) out.push({ teamName: teamName || "Team", players: names });
+    }
+    if (out.length) return out;
+  }
 
   const teamArr = (data as MaybeRecord).team;
   if (Array.isArray(teamArr)) {

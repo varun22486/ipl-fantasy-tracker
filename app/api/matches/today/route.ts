@@ -16,12 +16,17 @@ export async function GET() {
     return NextResponse.json({ ok: true, choices, totalRaw, nonIplSample, date });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Could not load matches";
-    const isRateLimit = msg.toLowerCase().includes("blocked for");
-    const isDailyQuota = msg.toLowerCase().includes("exceeded hits limit") || msg.toLowerCase().includes("hits today");
+    const lower = msg.toLowerCase();
+    const isRateLimit = lower.includes("blocked for") || lower.includes("blocking");
+    const isDailyQuota =
+      lower.includes("exceeded hits limit") ||
+      lower.includes("hits today") ||
+      lower.includes("all keys failed") ||
+      lower.includes("quota");
     const friendlyError = isRateLimit
-      ? `Too many requests in a short time — the API blocked us for 15 minutes. Please wait a moment and try again. (${msg})`
+      ? "Rate-limited for 15 minutes — too many requests in a short window. Wait a moment and try again."
       : isDailyQuota
-        ? `Daily API quota reached (100 requests/day on the free plan). Try again tomorrow or upgrade at cricketdata.org. (${msg})`
+        ? "Both API keys have hit today's quota (100 req/day each). Quota resets at midnight UTC. Try again later or check cricketdata.org."
         : msg;
     return NextResponse.json(
       {

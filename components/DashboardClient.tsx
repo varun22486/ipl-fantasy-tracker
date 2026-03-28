@@ -259,7 +259,7 @@ export default function DashboardClient({
         const sample: string[] = Array.isArray(json.nonIplSample) ? json.nonIplSample : [];
         let hint = "";
         if (typeof json.totalRaw !== "number" || json.totalRaw === 0) {
-          hint = "API returned 0 matches — rate-limited or quota exhausted. Try again in 15 min.";
+          hint = "API returned 0 matches. Both keys may be rate-limited (wait 15 min) or today's quota is used up (resets midnight UTC).";
         } else {
           hint = `${json.totalRaw} matches in feed but none are IPL yet. Current feed has: ${sample.length > 0 ? sample.join(", ") : "non-IPL tournaments"}. IPL 2026 may not have started yet.`;
         }
@@ -282,6 +282,25 @@ export default function DashboardClient({
 
   function startLinkTodaysMatch() {
     guardedRun(2, "Load today's matches (2 credits)", doStartLinkTodaysMatch);
+  }
+
+  async function doFetchRoster() {
+    setSyncing(true);
+    setMessage("Fetching player roster…");
+    try {
+      const res = await fetch("/api/fetch-roster", { method: "POST" });
+      const json = await res.json();
+      addUsage(1);
+      if (json.ok) {
+        setMessage(`Roster loaded (${json.playerCount} players). Refreshing…`);
+        window.setTimeout(() => window.location.reload(), 800);
+      } else {
+        setMessage(json.error || "Could not load roster.");
+      }
+    } catch {
+      setMessage("Network error loading roster.");
+    }
+    setSyncing(false);
   }
 
   async function doRefreshNow() {
@@ -501,8 +520,18 @@ export default function DashboardClient({
         {!hasLinkedMatch ? (
           <div style={{ color: "#64748b", fontSize: 14 }}>Use &quot;Link IPL Match&quot; to import a recent fixture first.</div>
         ) : !hasRoster ? (
-          <div style={{ color: "#64748b", fontSize: 14 }}>
-            No roster loaded yet. Use <strong>Sync Scores Now</strong> (or link the match again) after the feed publishes squads / scorecard.
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ color: "#64748b", fontSize: 14 }}>
+              No roster loaded yet. The squad is usually available a few hours before match time.
+            </div>
+            <button
+              type="button"
+              onClick={() => void doFetchRoster()}
+              disabled={syncing}
+              style={buttonStyle}
+            >
+              {syncing ? "Loading…" : "Load Player Roster"}
+            </button>
           </div>
         ) : (
           <>
