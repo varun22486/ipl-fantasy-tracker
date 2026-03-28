@@ -57,55 +57,71 @@ function isLegacySeedEndpoint(baseUrl: string) {
   return /\/api\/seed$/i.test(baseUrl);
 }
 
-function pickApiKey(): string {
-  const keys = [
+function allApiKeys(): string[] {
+  return [
     cleanEnvText(process.env.CRICKET_API_KEY),
     cleanEnvText(process.env.CRICKET_API_KEY_2),
   ].filter(Boolean) as string[];
-
-  if (keys.length === 0) return "";
-  return keys[Math.floor(Math.random() * keys.length)];
 }
 
-function authHeaders() {
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-  };
-
-  const rapidHost = cleanEnvText(process.env.CRICKET_API_HOST);
-  const apiKey = pickApiKey();
-  if (rapidHost && apiKey) {
-    headers["X-RapidAPI-Key"] = apiKey;
-    headers["X-RapidAPI-Host"] = rapidHost;
-  }
-
-  return headers;
-}
-
-function withApiKey(path: string) {
-  const apiKey = pickApiKey();
-  if (!apiKey) return path;
-  if (/([?&])apikey=/i.test(path)) return path;
-  const joiner = path.includes("?") ? "&" : "?";
-  return `${path}${joiner}apikey=${encodeURIComponent(apiKey)}`;
+function isQuotaError(payload: any): boolean {
+  if (!payload || typeof payload !== "object") return false;
+  if (payload.status !== "failure") return false;
+  const r = String(payload.reason || payload.message || "").toLowerCase();
+  return r.includes("exceeded") || r.includes("limit") || r.includes("blocking") || r.includes("credits");
 }
 
 function isCricapiBase(baseUrl: string) {
   return /api\.cricapi\.com$/i.test(baseUrl);
 }
 
-async function fetchJson(path: string) {
-  const requestPath = isCricapiBase(envBaseUrl()) ? withApiKey(path) : path;
-  const response = await fetch(`${envBaseUrl()}${requestPath}`, {
-    headers: authHeaders(),
-    next: { revalidate: 0 },
-  });
+function buildHeaders(apiKey: string): Record<string, string> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  const rapidHost = cleanEnvText(process.env.CRICKET_API_HOST);
+  if (rapidHost && apiKey) {
+    headers["X-RapidAPI-Key"] = apiKey;
+    headers["X-RapidAPI-Host"] = rapidHost;
+  }
+  return headers;
+}
 
-  if (!response.ok) {
-    throw new Error(`Provider request failed: ${response.status} ${path}`);
+function injectKey(path: string, apiKey: string): string {
+  if (!apiKey) return path;
+  if (/([?&])apikey=/i.test(path)) return path;
+  const joiner = path.includes("?") ? "&" : "?";
+  return `${path}${joiner}apikey=${encodeURIComponent(apiKey)}`;
+}
+
+/**
+ * Tries each API key in random order, falling back to the next one if the
+ * current key is over quota. Throws only when all keys are exhausted.
+ */
+async function fetchJson(path: string) {
+  const baseUrl = envBaseUrl();
+  const keys = allApiKeys();
+
+  // Shuffle so we don't always hammer key #1 first
+  const shuffled = [...keys].sort(() => Math.random() - 0.5);
+  if (shuffled.length === 0) shuffled.push("");
+
+  let lastError = "";
+  for (const key of shuffled) {
+    const requestPath = isCricapiBase(baseUrl) ? injectKey(path, key) : path;
+    const headers = buildHeaders(key);
+    const response = await fetch(`${baseUrl}${requestPath}`, { headers, next: { revalidate: 0 } });
+    if (!response.ok) {
+      lastError = `HTTP ${response.status}`;
+      continue;
+    }
+    const payload = await response.json();
+    if (isQuotaError(payload)) {
+      lastError = String(payload.reason || "quota exceeded");
+      continue; // try next key
+    }
+    return payload;
   }
 
-  return response.json();
+  throw new Error(`Cricket API error: ${lastError || "all keys failed"}`);
 }
 
 function todayIso() {
