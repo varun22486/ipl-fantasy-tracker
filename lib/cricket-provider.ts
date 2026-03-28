@@ -300,13 +300,16 @@ function pickBestIplMatch(matches: MaybeRecord[]) {
 }
 
 async function fetchMatchArray(path: string): Promise<MaybeRecord[]> {
-  try {
-    const payload = await fetchJson(path);
-    const matches = payload?.data?.matches || payload?.data || payload?.matches || [];
-    return Array.isArray(matches) ? matches : [];
-  } catch {
-    return [];
+  const payload = await fetchJson(path);
+
+  // Surface quota / auth failures instead of silently returning []
+  if (payload && typeof payload === "object" && payload.status === "failure") {
+    const reason = safeString(payload.reason || payload.message || "API error");
+    throw new Error(`Cricket API error: ${reason}`);
   }
+
+  const matches = payload?.data?.matches || payload?.data || payload?.matches || [];
+  return Array.isArray(matches) ? matches : [];
 }
 
 async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
@@ -324,17 +327,16 @@ async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
   };
 
   if (isCricapiBase(baseUrl)) {
-    for (let off = 0; off < 8; off += 1) {
-      const arr = await fetchMatchArray(`/v1/currentMatches?offset=${off}`);
-      if (arr.length === 0 && off > 0) break;
-      absorb(arr);
-    }
-    for (const path of ["/v1/recentMatches?offset=0", "/v1/recentMatches?offset=1"]) {
-      absorb(await fetchMatchArray(path));
+    // Use only 2 API credits: currentMatches + recentMatches
+    absorb(await fetchMatchArray("/v1/currentMatches?offset=0"));
+    try {
+      absorb(await fetchMatchArray("/v1/recentMatches?offset=0"));
+    } catch {
+      // recentMatches is best-effort; don't fail if quota just ran out after first call
     }
   } else {
     const paths = ["/v1/matches/live?type=league", "/v1/matches/recent?type=league", "/v1/matches/upcoming?type=league"];
-    const batches = await Promise.all(paths.map((p) => fetchMatchArray(p)));
+    const batches = await Promise.all(paths.map((p) => fetchMatchArray(p).catch(() => [] as MaybeRecord[])));
     for (const arr of batches) absorb(arr);
   }
 
@@ -353,32 +355,33 @@ function choiceDisplayOrder(a: MatchSeed, b: MatchSeed): number {
   return a.fixture.localeCompare(b.fixture);
 }
 
-/** All IPL fixtures from the feed that fall on today's calendar date in Asia/Kolkata. */
-export async function getIplMatchChoicesForToday(): Promise<MatchSeed[]> {
-  const day = todayIsoInIplTZ();
+/** All IPL fixtures currently in the feed (live, recent, upcoming). */
+export async function getIplMatchChoicesForToday(): Promise<{ choices: MatchSeed[]; totalRaw: number }> {
   const raw = await collectRawMatchesFromProvider();
-  const filtered = raw.filter(isProbablyIplMatch).filter((m) => isMatchOnIplCalendarDay(m, day));
+  const ipl = raw.filter(isProbablyIplMatch);
   const byId = new Map<string, MatchSeed>();
-  for (const m of filtered) {
+  for (const m of ipl) {
     const s = matchToSeed(m);
     if (s.externalMatchId && !byId.has(s.externalMatchId)) byId.set(s.externalMatchId, s);
   }
-  return [...byId.values()].sort(choiceDisplayOrder);
+  return {
+    choices: [...byId.values()].sort(choiceDisplayOrder),
+    totalRaw: raw.length,
+  };
 }
 
 export async function getMatchSeedByExternalIdForToday(externalMatchId: string): Promise<MatchSeed | null> {
   const id = cleanEnvText(externalMatchId);
   if (!id) return null;
-  const day = todayIsoInIplTZ();
   const raw = await collectRawMatchesFromProvider();
   const hit = raw.find((m) => safeString(m.id || m.matchId || m.match_id) === id);
-  if (hit && isProbablyIplMatch(hit) && isMatchOnIplCalendarDay(hit, day)) return matchToSeed(hit);
+  if (hit && isProbablyIplMatch(hit)) return matchToSeed(hit);
 
   if (isCricapiBase(envBaseUrl())) {
     try {
       const payload = await fetchJson(`/v1/match_info?id=${encodeURIComponent(id)}`);
       const m = payload?.data ?? payload;
-      if (m && typeof m === "object" && !Array.isArray(m) && isProbablyIplMatch(m) && isMatchOnIplCalendarDay(m, day)) {
+      if (m && typeof m === "object" && !Array.isArray(m) && isProbablyIplMatch(m)) {
         return matchToSeed(m);
       }
     } catch {
@@ -428,15 +431,17 @@ export async function getBestLeagueMatch(): Promise<MatchSeed> {
     }
   }
 
-  const day = todayIsoInIplTZ();
   const raw = await collectRawMatchesFromProvider();
-  const iplToday = raw.filter(isProbablyIplMatch).filter((m) => isMatchOnIplCalendarDay(m, day));
-  const picked = pickBestIplMatch(iplToday);
+  const iplMatches = raw.filter(isProbablyIplMatch);
+  const picked = pickBestIplMatch(iplMatches);
   if (picked) return matchToSeed(picked);
-  if (iplToday.length > 0) return matchToSeed(iplToday[0]);
+  if (iplMatches.length > 0) return matchToSeed(iplMatches[0]);
 
+  const day = todayIsoInIplTZ();
   throw new Error(
-    `No IPL match found for today (${day} India time) from the cricket source (${baseUrl}). Try again when fixtures are listed, or check your API quota.`
+    raw.length === 0
+      ? `Cricket API returned no matches — quota may be exhausted (100 req/day on the free plan). Try again tomorrow or upgrade at cricketdata.org.`
+      : `No IPL match found in the feed (${raw.length} non-IPL matches seen, ${day} India time). IPL season may not have started yet.`
   );
 }
 

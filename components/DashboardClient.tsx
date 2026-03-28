@@ -206,7 +206,12 @@ export default function DashboardClient({
       setLinkDateHint(typeof json.date === "string" ? json.date : "");
       const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
       if (choices.length === 0) {
-        setMessage("No IPL matches listed for today. Try again later or check your cricket API quota.");
+        const hint = typeof json.totalRaw === "number"
+          ? json.totalRaw === 0
+            ? "The API returned 0 matches total — quota may be exhausted (100 req/day free tier). Try again tomorrow."
+            : `${json.totalRaw} matches in feed but none matched IPL. IPL season may not have started yet.`
+          : "No IPL matches found. Quota may be exhausted or IPL season hasn't started.";
+        setMessage(hint);
         setSyncing(false);
         return;
       }
