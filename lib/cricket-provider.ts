@@ -367,6 +367,43 @@ async function fetchMatchArray(path: string): Promise<MaybeRecord[]> {
   return Array.isArray(matches) ? matches : [];
 }
 
+// Known IPL series IDs — update CRICKET_IPL_SERIES_ID env var each new season
+// or just add the new ID here.
+const KNOWN_IPL_SERIES_IDS = [
+  "87c62aac-bc3c-4738-ab93-19da0690488f", // IPL 2026
+];
+
+/**
+ * Fetches today's match(es) directly from the IPL series_info endpoint.
+ * Falls back to the most recently completed match if nothing is scheduled today.
+ * Costs 1 API credit.
+ */
+async function fetchIplSeriesMatchesForToday(seriesId: string): Promise<MaybeRecord[]> {
+  const payload = await fetchJson(`/v1/series_info?id=${encodeURIComponent(seriesId)}`);
+  const matchList: MaybeRecord[] = Array.isArray(payload?.data?.matchList) ? payload.data.matchList : [];
+  if (matchList.length === 0) return [];
+
+  const today = todayIsoInIplTZ();
+
+  // Prefer today's matches
+  const todayMatches = matchList.filter((m) => extractProviderMatchDate(m) === today);
+  if (todayMatches.length > 0) return todayMatches;
+
+  // Fallback: most recently completed/live match
+  const past = matchList
+    .filter((m) => {
+      const d = extractProviderMatchDate(m);
+      return d && d <= today;
+    })
+    .sort((a, b) => {
+      const da = extractProviderMatchDate(a) ?? "";
+      const db = extractProviderMatchDate(b) ?? "";
+      return db.localeCompare(da);
+    });
+
+  return past.slice(0, 1);
+}
+
 async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
   const baseUrl = envBaseUrl();
   const seen = new Set<string>();
@@ -382,12 +419,28 @@ async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
   };
 
   if (isCricapiBase(baseUrl)) {
-    // Use only 2 API credits: currentMatches + recentMatches
     absorb(await fetchMatchArray("/v1/currentMatches?offset=0"));
     try {
       absorb(await fetchMatchArray("/v1/recentMatches?offset=0"));
     } catch {
       // recentMatches is best-effort; don't fail if quota just ran out after first call
+    }
+
+    // If the standard feed didn't include any IPL match, try the IPL series directly.
+    // This handles cases where CricAPI's currentMatches is slow to add new IPL seasons.
+    const hasIpl = out.some(isProbablyIplMatch);
+    if (!hasIpl) {
+      const envSeriesId = cleanEnvText(process.env.CRICKET_IPL_SERIES_ID);
+      const seriesIds = envSeriesId ? [envSeriesId, ...KNOWN_IPL_SERIES_IDS] : KNOWN_IPL_SERIES_IDS;
+      for (const seriesId of seriesIds) {
+        try {
+          const seriesMatches = await fetchIplSeriesMatchesForToday(seriesId);
+          absorb(seriesMatches);
+          if (seriesMatches.length > 0) break; // found matches, stop trying
+        } catch {
+          // try next series ID
+        }
+      }
     }
   } else {
     const paths = ["/v1/matches/live?type=league", "/v1/matches/recent?type=league", "/v1/matches/upcoming?type=league"];
