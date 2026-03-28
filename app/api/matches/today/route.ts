@@ -16,13 +16,17 @@ export async function GET() {
     return NextResponse.json({ ok: true, choices, totalRaw, date });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Could not load matches";
-    const isQuota = msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("limit") || msg.toLowerCase().includes("block");
+    const isRateLimit = msg.toLowerCase().includes("blocked for");
+    const isDailyQuota = msg.toLowerCase().includes("exceeded hits limit") || msg.toLowerCase().includes("hits today");
+    const friendlyError = isRateLimit
+      ? `Too many requests in a short time — the API blocked us for 15 minutes. Please wait a moment and try again. (${msg})`
+      : isDailyQuota
+        ? `Daily API quota reached (100 requests/day on the free plan). Try again tomorrow or upgrade at cricketdata.org. (${msg})`
+        : msg;
     return NextResponse.json(
       {
         ok: false,
-        error: isQuota
-          ? `CricketData API quota reached — the free plan allows 100 requests/day. Try again tomorrow or upgrade your plan at cricketdata.org. (${msg})`
-          : msg,
+        error: friendlyError,
       },
       { status: 500 }
     );

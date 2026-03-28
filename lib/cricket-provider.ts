@@ -440,8 +440,8 @@ export async function getBestLeagueMatch(): Promise<MatchSeed> {
   const day = todayIsoInIplTZ();
   throw new Error(
     raw.length === 0
-      ? `Cricket API returned no matches — quota may be exhausted (100 req/day on the free plan). Try again tomorrow or upgrade at cricketdata.org.`
-      : `No IPL match found in the feed (${raw.length} non-IPL matches seen, ${day} India time). IPL season may not have started yet.`
+      ? `Cricket API returned no matches — quota may be exhausted or rate-limited. Wait 15 minutes and try again, or check your plan at cricketdata.org.`
+      : `No IPL match found in the feed (${raw.length} non-IPL matches returned). IPL season may not have started yet, or try Sync Scores Now.`
   );
 }
 
