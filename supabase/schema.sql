@@ -31,12 +31,17 @@ alter table matches add column if not exists auto_sync boolean not null default 
 alter table matches add column if not exists last_synced_at timestamp with time zone;
 alter table matches add column if not exists provider_squad_json jsonb;
 
+-- Rename trump → captain (safe to run multiple times; errors if already renamed are fine)
+do $$ begin
+  alter table fantasy_players rename column trump to captain;
+exception when undefined_column then null; end $$;
+
 create table if not exists fantasy_players (
   id bigint generated always as identity primary key,
   match_id bigint not null references matches(id) on delete cascade,
   side text not null check (side in ('You', 'Rahul')),
   name text not null,
-  trump boolean not null default false,
+  captain boolean not null default false,
   runs integer not null default 0,
   wickets integer not null default 0,
   catches integer not null default 0,

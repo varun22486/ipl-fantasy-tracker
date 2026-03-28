@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
+import React, { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
 
 const QUOTA_LIMIT = 100;
 const QUOTA_WARN_AT = 80;
@@ -29,7 +29,7 @@ function saveQuota(count: number) {
 
 type Player = {
   name: string;
-  trump: boolean;
+  captain: boolean;
 };
 
 type SquadTeam = {
@@ -77,7 +77,7 @@ type DebugData = {
 };
 
 function emptyPlayers() {
-  return Array.from({ length: 4 }, () => ({ name: "", trump: false }));
+  return Array.from({ length: 4 }, () => ({ name: "", captain: false }));
 }
 
 function withFallback(players: Player[]) {
@@ -85,17 +85,15 @@ function withFallback(players: Player[]) {
   for (let i = 0; i < Math.min(players.length, 4); i += 1) {
     next[i] = players[i];
   }
-  if (!next.some((p) => p.trump) && next[0]) {
-    next[0].trump = true;
+  if (!next.some((p) => p.captain) && next[0]) {
+    next[0].captain = true;
   }
   return next;
 }
 
 function DebugPanel({ info }: { info: DebugData | null }) {
   if (!info) return null;
-
   const details = info.debug;
-
   return (
     <div style={debugPanelStyle}>
       <div style={{ fontWeight: 700, marginBottom: 8 }}>Latest sync debug</div>
@@ -163,7 +161,8 @@ export default function DashboardClient({
   const [rival, setRival] = useState(opponentName || "Rahul");
   const [mine, setMine] = useState<Player[]>(withFallback(yourPlayers));
   const [theirs, setTheirs] = useState<Player[]>(withFallback(opponentPlayers));
-  const [activeSlot, setActiveSlot] = useState<{ side: "mine" | "theirs"; index: number } | null>(null);
+  // Which side the roster chips will fill into
+  const [activeSide, setActiveSide] = useState<"mine" | "theirs">("mine");
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
   const [pickedLinkId, setPickedLinkId] = useState("");
   const [linkDateHint, setLinkDateHint] = useState("");
@@ -186,12 +185,20 @@ export default function DashboardClient({
   const isNearLimit = apiUsed >= QUOTA_WARN_AT;
   const isAtLimit = remaining <= 0;
 
+  // All names already committed to either side
+  const takenNames = useMemo(() => {
+    const s = new Set<string>();
+    for (const p of mine) if (p.name.trim()) s.add(p.name.trim().toLowerCase());
+    for (const p of theirs) if (p.name.trim()) s.add(p.name.trim().toLowerCase());
+    return s;
+  }, [mine, theirs]);
+
   const canSave = useMemo(() => {
     const hasFourMine = mine.every((p: Player) => p.name.trim());
     const hasFourTheirs = theirs.every((p: Player) => p.name.trim());
-    const oneTrumpMine = mine.filter((p: Player) => p.trump).length === 1;
-    const oneTrumpTheirs = theirs.filter((p: Player) => p.trump).length === 1;
-    return hasFourMine && hasFourTheirs && oneTrumpMine && oneTrumpTheirs;
+    const oneCaptainMine = mine.filter((p: Player) => p.captain).length === 1;
+    const oneCaptainTheirs = theirs.filter((p: Player) => p.captain).length === 1;
+    return hasFourMine && hasFourTheirs && oneCaptainMine && oneCaptainTheirs;
   }, [mine, theirs]);
 
   function guardedRun(cost: number, label: string, fn: () => Promise<void>) {
@@ -314,27 +321,50 @@ export default function DashboardClient({
     if (json.ok) window.location.reload();
   }
 
-  function updateName(side: "mine" | "theirs", index: number, value: string) {
+  function updateCaptain(side: "mine" | "theirs", index: number) {
     const setter = side === "mine" ? setMine : setTheirs;
-    setter((prev: Player[]) => prev.map((player: Player, i: number) => (i === index ? { ...player, name: value } : player)));
+    setter((prev: Player[]) => prev.map((player: Player, i: number) => ({ ...player, captain: i === index })));
   }
 
-  function updateTrump(side: "mine" | "theirs", index: number) {
+  function clearSlot(side: "mine" | "theirs", index: number) {
     const setter = side === "mine" ? setMine : setTheirs;
-    setter((prev: Player[]) => prev.map((player: Player, i: number) => ({ ...player, trump: i === index })));
+    setter((prev: Player[]) =>
+      prev.map((player: Player, i: number) => {
+        if (i !== index) return player;
+        const cleared = { name: "", captain: false };
+        // If the cleared slot was captain, promote first remaining non-empty slot
+        if (player.captain) {
+          return cleared;
+        }
+        return cleared;
+      })
+    );
   }
 
-  type ActiveSlot = { side: "mine" | "theirs"; index: number } | null;
-  function togglePickSlot(side: "mine" | "theirs", index: number) {
-    setActiveSlot((cur: ActiveSlot) => (cur?.side === side && cur?.index === index ? null : { side, index }));
+  // Ensure exactly one captain per side after clearing
+  function ensureOneCaptain(side: "mine" | "theirs") {
+    const setter = side === "mine" ? setMine : setTheirs;
+    setter((prev: Player[]) => {
+      const hasCaptain = prev.some((p) => p.captain && p.name.trim());
+      if (hasCaptain) return prev;
+      const firstFilled = prev.findIndex((p) => p.name.trim());
+      if (firstFilled === -1) return prev;
+      return prev.map((p, i) => ({ ...p, captain: i === firstFilled }));
+    });
   }
 
   function applyRosterName(name: string) {
-    if (!activeSlot) {
-      setMessage("Choose Pick on a row, then tap a player name below.");
+    const list = activeSide === "mine" ? mine : theirs;
+    const setter = activeSide === "mine" ? setMine : setTheirs;
+    const nextEmpty = list.findIndex((p: Player) => !p.name.trim());
+    if (nextEmpty === -1) {
+      setMessage(`All 4 slots for ${activeSide === "mine" ? "your team" : `${rival || "opponent"}'s team`} are filled. Remove a player first.`);
       return;
     }
-    updateName(activeSlot.side, activeSlot.index, name);
+    setter((prev: Player[]) =>
+      prev.map((p: Player, i: number) => (i === nextEmpty ? { ...p, name: name } : p))
+    );
+    setMessage("");
   }
 
   const hasRoster = rosterNames.length > 0 || squads.some((t) => t.players.length > 0);
@@ -386,11 +416,7 @@ export default function DashboardClient({
             >
               Yes, use {pendingAction.cost} credit{pendingAction.cost > 1 ? "s" : ""}
             </button>
-            <button
-              type="button"
-              style={buttonStyleSecondary}
-              onClick={() => setPendingAction(null)}
-            >
+            <button type="button" style={buttonStyleSecondary} onClick={() => setPendingAction(null)}>
               Cancel
             </button>
           </div>
@@ -456,10 +482,7 @@ export default function DashboardClient({
             </button>
             <button
               type="button"
-              onClick={() => {
-                setLinkChoices(null);
-                setMessage("");
-              }}
+              onClick={() => { setLinkChoices(null); setMessage(""); }}
               disabled={syncing}
               style={buttonStyleSecondary}
             >
@@ -469,103 +492,170 @@ export default function DashboardClient({
         </div>
       ) : null}
 
+      {/* Roster panel */}
       <div style={rosterPanelStyle}>
         <h3 style={{ marginTop: 0 }}>Players in this match</h3>
-        <div style={{ color: "#475569", marginBottom: 12, fontSize: 14 }}>
-          Names come from the cricket feed so they match live stats. Click <strong>Pick</strong> on a lineup row, then tap a name to fill that slot.
-        </div>
+
         {!hasLinkedMatch ? (
           <div style={{ color: "#64748b", fontSize: 14 }}>Link today&apos;s IPL match first.</div>
         ) : !hasRoster ? (
           <div style={{ color: "#64748b", fontSize: 14 }}>
             No roster loaded yet. Use <strong>Sync Scores Now</strong> (or link the match again) after the feed publishes squads / scorecard.
           </div>
-        ) : squads.length > 0 ? (
-          <div style={{ display: "grid", gap: 16 }}>
-            {squads.map((team) => (
-              <div key={team.teamName}>
-                <div style={{ fontWeight: 700, marginBottom: 8, color: "#334155" }}>{team.teamName}</div>
-                <div style={chipGridStyle}>
-                  {team.players.map((name) => (
-                    <button key={`${team.teamName}-${name}`} type="button" style={chipStyle} onClick={() => applyRosterName(name)}>
+        ) : (
+          <>
+            {/* Side toggle */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 13, color: "#475569", marginBottom: 8 }}>
+                Tap a player to add them to the selected side&apos;s next empty slot. Players already in a lineup are greyed out.
+              </div>
+              <div style={{ display: "flex", gap: 0, borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", width: "fit-content" }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveSide("mine")}
+                  style={sideTabStyle(activeSide === "mine")}
+                >
+                  + Your Team
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveSide("theirs")}
+                  style={sideTabStyle(activeSide === "theirs")}
+                >
+                  + {rival || "Opponent"}&apos;s Team
+                </button>
+              </div>
+            </div>
+
+            {squads.length > 0 ? (
+              <div style={{ display: "grid", gap: 16 }}>
+                {squads.map((team) => (
+                  <div key={team.teamName}>
+                    <div style={{ fontWeight: 700, marginBottom: 8, color: "#334155" }}>{team.teamName}</div>
+                    <div style={chipGridStyle}>
+                      {team.players.map((name) => {
+                        const taken = takenNames.has(name.trim().toLowerCase());
+                        return (
+                          <button
+                            key={`${team.teamName}-${name}`}
+                            type="button"
+                            style={taken ? chipStyleTaken : chipStyle}
+                            disabled={taken}
+                            onClick={() => applyRosterName(name)}
+                            title={taken ? "Already in a lineup" : `Add to ${activeSide === "mine" ? "your" : `${rival || "opponent"}'s`} team`}
+                          >
+                            {name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={chipGridStyle}>
+                {rosterNames.map((name) => {
+                  const taken = takenNames.has(name.trim().toLowerCase());
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      style={taken ? chipStyleTaken : chipStyle}
+                      disabled={taken}
+                      onClick={() => applyRosterName(name)}
+                      title={taken ? "Already in a lineup" : `Add to ${activeSide === "mine" ? "your" : `${rival || "opponent"}'s`} team`}
+                    >
                       {name}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
-        ) : (
-          <div style={chipGridStyle}>
-            {rosterNames.map((name) => (
-              <button key={name} type="button" style={chipStyle} onClick={() => applyRosterName(name)}>
-                {name}
-              </button>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </div>
 
+      {/* Lineup panel */}
       <div style={panelStyle}>
-        <h3 style={{ marginTop: 0 }}>Set the 4-player lineups</h3>
-        <div style={{ color: "#475569", marginBottom: 16 }}>
-          Enter 4 players for each side and mark exactly 1 trump. The dashboard will keep syncing those names against the live cricket feed.
+        <h3 style={{ marginTop: 0 }}>Lineups</h3>
+        <div style={{ color: "#475569", marginBottom: 16, fontSize: 14 }}>
+          Pick 4 players from the list above. Mark exactly 1 <strong>Team Captain</strong> per side — their points are doubled.
         </div>
 
         <div style={{ marginBottom: 16 }}>
           <label style={labelStyle}>Opponent name</label>
-          <input value={rival} onChange={(e) => setRival(e.target.value)} style={inputStyle} />
+          <input value={rival} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRival(e.target.value)} style={inputStyle} placeholder="Opponent name" />
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+          {/* Your side */}
           <div>
             <div style={sectionTitleStyle}>Your 4 players</div>
             {mine.map((player: Player, index: number) => (
-              <div
-                key={`mine-${index}`}
-                style={{
-                  ...rowStyle,
-                  ...(activeSlot?.side === "mine" && activeSlot?.index === index ? activeRowStyle : {}),
-                }}
-              >
-                <button type="button" onClick={() => togglePickSlot("mine", index)} style={pickSlotStyle(activeSlot?.side === "mine" && activeSlot?.index === index)}>
-                  Pick
-                </button>
-                <input
-                  value={player.name}
-                  onChange={(e) => updateName("mine", index, e.target.value)}
-                  placeholder={`Player ${index + 1}`}
-                  style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
-                />
-                <label style={checkboxLabelStyle}>
-                  <input type="radio" checked={player.trump} onChange={() => updateTrump("mine", index)} /> Trump
-                </label>
+              <div key={`mine-${index}`} style={rowStyle}>
+                <div style={slotNumberStyle}>{index + 1}</div>
+                {player.name.trim() ? (
+                  <>
+                    <span style={slotNameStyle}>{player.name}</span>
+                    <label style={captainLabelStyle} title="Set as Team Captain (points ×2)">
+                      <input
+                        type="radio"
+                        name="mine-captain"
+                        checked={player.captain}
+                        onChange={() => updateCaptain("mine", index)}
+                      />
+                      <span style={{ color: player.captain ? "#d97706" : "#94a3b8" }}>★ Captain</span>
+                    </label>
+                    <button
+                      type="button"
+                      style={clearBtnStyle}
+                      onClick={() => { clearSlot("mine", index); ensureOneCaptain("mine"); }}
+                      title="Remove player"
+                    >
+                      ✕
+                    </button>
+                  </>
+                ) : (
+                  <span style={emptySlotStyle}>
+                    {activeSide === "mine" ? "← tap a player above" : "empty"}
+                  </span>
+                )}
               </div>
             ))}
           </div>
 
+          {/* Their side */}
           <div>
-            <div style={sectionTitleStyle}>{rival || "Opponent"}'s 4 players</div>
+            <div style={sectionTitleStyle}>{rival || "Opponent"}&apos;s 4 players</div>
             {theirs.map((player: Player, index: number) => (
-              <div
-                key={`their-${index}`}
-                style={{
-                  ...rowStyle,
-                  ...(activeSlot?.side === "theirs" && activeSlot?.index === index ? activeRowStyle : {}),
-                }}
-              >
-                <button type="button" onClick={() => togglePickSlot("theirs", index)} style={pickSlotStyle(activeSlot?.side === "theirs" && activeSlot?.index === index)}>
-                  Pick
-                </button>
-                <input
-                  value={player.name}
-                  onChange={(e) => updateName("theirs", index, e.target.value)}
-                  placeholder={`Player ${index + 1}`}
-                  style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
-                />
-                <label style={checkboxLabelStyle}>
-                  <input type="radio" checked={player.trump} onChange={() => updateTrump("theirs", index)} /> Trump
-                </label>
+              <div key={`their-${index}`} style={rowStyle}>
+                <div style={slotNumberStyle}>{index + 1}</div>
+                {player.name.trim() ? (
+                  <>
+                    <span style={slotNameStyle}>{player.name}</span>
+                    <label style={captainLabelStyle} title="Set as Team Captain (points ×2)">
+                      <input
+                        type="radio"
+                        name="theirs-captain"
+                        checked={player.captain}
+                        onChange={() => updateCaptain("theirs", index)}
+                      />
+                      <span style={{ color: player.captain ? "#d97706" : "#94a3b8" }}>★ Captain</span>
+                    </label>
+                    <button
+                      type="button"
+                      style={clearBtnStyle}
+                      onClick={() => { clearSlot("theirs", index); ensureOneCaptain("theirs"); }}
+                      title="Remove player"
+                    >
+                      ✕
+                    </button>
+                  </>
+                ) : (
+                  <span style={emptySlotStyle}>
+                    {activeSide === "theirs" ? "← tap a player above" : "empty"}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -575,7 +665,7 @@ export default function DashboardClient({
           <button onClick={saveLineup} disabled={!canSave || saving} style={buttonStyle}>
             {saving ? "Saving..." : "Save Lineups"}
           </button>
-          <span style={{ color: "#475569" }}>{message}</span>
+          {message ? <span style={{ color: "#475569" }}>{message}</span> : null}
         </div>
       </div>
 
@@ -583,6 +673,8 @@ export default function DashboardClient({
     </div>
   );
 }
+
+// ── Styles ──────────────────────────────────────────────────────────────────
 
 const panelStyle: CSSProperties = {
   border: "1px solid #e2e8f0",
@@ -634,21 +726,15 @@ const inputStyle: CSSProperties = {
   border: "1px solid #cbd5e1",
   borderRadius: 12,
   marginBottom: 12,
+  boxSizing: "border-box",
 };
 
 const rowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 12,
+  gap: 10,
   marginBottom: 10,
-};
-
-const checkboxLabelStyle: CSSProperties = {
-  whiteSpace: "nowrap",
-  display: "flex",
-  alignItems: "center",
-  gap: 6,
-  color: "#334155",
+  minHeight: 42,
 };
 
 const sectionTitleStyle: CSSProperties = {
@@ -703,25 +789,72 @@ const chipStyle: CSSProperties = {
   fontWeight: 500,
 };
 
-const activeRowStyle: CSSProperties = {
-  background: "#eff6ff",
-  marginLeft: -8,
-  marginRight: -8,
-  paddingLeft: 8,
-  paddingRight: 8,
-  borderRadius: 12,
+const chipStyleTaken: CSSProperties = {
+  ...chipStyle,
+  background: "#f1f5f9",
+  color: "#94a3b8",
+  border: "1px solid #e2e8f0",
+  cursor: "not-allowed",
+  textDecoration: "line-through",
 };
 
-function pickSlotStyle(active: boolean): CSSProperties {
+const slotNumberStyle: CSSProperties = {
+  width: 24,
+  height: 24,
+  borderRadius: 999,
+  background: "#e2e8f0",
+  color: "#64748b",
+  fontSize: 12,
+  fontWeight: 700,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexShrink: 0,
+};
+
+const slotNameStyle: CSSProperties = {
+  flex: 1,
+  fontWeight: 500,
+  color: "#0f172a",
+  fontSize: 14,
+};
+
+const emptySlotStyle: CSSProperties = {
+  flex: 1,
+  color: "#94a3b8",
+  fontSize: 13,
+  fontStyle: "italic",
+};
+
+const captainLabelStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 4,
+  cursor: "pointer",
+  fontSize: 13,
+  whiteSpace: "nowrap",
+};
+
+const clearBtnStyle: CSSProperties = {
+  padding: "4px 8px",
+  borderRadius: 8,
+  border: "1px solid #fecaca",
+  background: "#fff1f2",
+  color: "#ef4444",
+  cursor: "pointer",
+  fontSize: 12,
+  fontWeight: 700,
+  flexShrink: 0,
+};
+
+function sideTabStyle(active: boolean): CSSProperties {
   return {
-    flexShrink: 0,
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: active ? "2px solid #2563eb" : "1px solid #cbd5e1",
-    background: active ? "#dbeafe" : "white",
-    color: "#0f172a",
+    padding: "8px 16px",
+    border: "none",
+    background: active ? "#0f172a" : "white",
+    color: active ? "white" : "#475569",
     cursor: "pointer",
-    fontSize: 12,
     fontWeight: 600,
+    fontSize: 13,
   };
 }

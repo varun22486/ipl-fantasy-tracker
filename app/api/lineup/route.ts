@@ -5,7 +5,7 @@ type SideName = "You" | "Rahul";
 
 type PlayerInput = {
   name: string;
-  trump: boolean;
+  captain: boolean;
 };
 
 function normalizePlayers(players: unknown): PlayerInput[] {
@@ -13,7 +13,7 @@ function normalizePlayers(players: unknown): PlayerInput[] {
   return players
     .map((player) => ({
       name: String((player as any)?.name || "").trim(),
-      trump: Boolean((player as any)?.trump),
+      captain: Boolean((player as any)?.captain),
     }))
     .filter((player) => player.name);
 }
@@ -28,8 +28,8 @@ function validateSide(name: SideName, players: PlayerInput[]) {
     throw new Error(`${name} has duplicate player names.`);
   }
 
-  if (players.filter((p) => p.trump).length !== 1) {
-    throw new Error(`${name} must have exactly 1 trump.`);
+  if (players.filter((p) => p.captain).length !== 1) {
+    throw new Error(`${name} must have exactly 1 Team Captain.`);
   }
 }
 
@@ -64,8 +64,8 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from("fantasy_players").delete().eq("match_id", matchId);
 
     const rows = [
-      ...yourPlayers.map((p) => ({ match_id: matchId, side: "You", name: p.name, trump: p.trump })),
-      ...opponentPlayers.map((p) => ({ match_id: matchId, side: "Rahul", name: p.name, trump: p.trump })),
+      ...yourPlayers.map((p) => ({ match_id: matchId, side: "You", name: p.name, captain: p.captain })),
+      ...opponentPlayers.map((p) => ({ match_id: matchId, side: "Rahul", name: p.name, captain: p.captain })),
     ];
 
     await supabaseAdmin.from("fantasy_players").insert(rows);

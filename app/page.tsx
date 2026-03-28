@@ -69,13 +69,13 @@ export default async function Home() {
       <div style={{ marginBottom: 24 }}>
         <div style={{ color: "#64748b", fontSize: 14 }}>IPL Fantasy Tracker</div>
         <h1 style={{ margin: "8px 0 4px", fontSize: 36 }}>You vs {opponentName}</h1>
-        <div style={{ color: "#475569" }}>Pick 4 players each, mark 1 trump each, and let the dashboard sync the live score automatically.</div>
+        <div style={{ color: "#475569" }}>Pick 4 players each, mark 1 as Team Captain each, and let the dashboard sync the live score automatically.</div>
       </div>
 
       <DashboardClient
         opponentName={opponentName}
-        yourPlayers={yourPlayers.map((p) => ({ name: p.name, trump: p.trump }))}
-        opponentPlayers={rahulPlayers.map((p) => ({ name: p.name, trump: p.trump }))}
+        yourPlayers={yourPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
+        opponentPlayers={rahulPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
         rosterNames={rosterNames}
         squads={squads}
         hasLinkedMatch={Boolean(currentMatch)}

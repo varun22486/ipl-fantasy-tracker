@@ -19,7 +19,7 @@ export default function PlayerTable({ title, players }: Props) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              {["Player", "Trump", "Runs", "Wkts", "Ct", "50", "100", "3W", "5W", "MoM", "Points"].map((h) => (
+              {["Player", "Captain", "Runs", "Wkts", "Ct", "50", "100", "3W", "5W", "MoM", "Points"].map((h) => (
                 <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #e2e8f0", fontSize: 13, color: "#475569" }}>{h}</th>
               ))}
             </tr>
@@ -28,7 +28,7 @@ export default function PlayerTable({ title, players }: Props) {
             {players.map((p) => (
               <tr key={p.name}>
                 <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.name}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.trump ? "Yes" : "-"}</td>
+                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.captain ? "★" : "-"}</td>
                 <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.runs}</td>
                 <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.wickets}</td>
                 <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.catches}</td>

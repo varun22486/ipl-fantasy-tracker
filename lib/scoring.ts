@@ -2,7 +2,7 @@ export type FantasyPlayer = {
   id?: number;
   side: "You" | "Rahul";
   name: string;
-  trump: boolean;
+  captain: boolean;
   runs: number;
   wickets: number;
   catches: number;
@@ -37,7 +37,7 @@ export function playerPoints(p: FantasyPlayer) {
 
   return {
     base,
-    final: p.trump ? base * 2 : base,
+    final: p.captain ? base * 2 : base,
   };
 }
 
