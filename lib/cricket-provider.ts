@@ -255,30 +255,59 @@ function teamsText(match: MaybeRecord): string {
     .join(" ");
 }
 
+const IPL_VENUES = [
+  "eden gardens", "wankhede", "chepauk", "chidambaram", "chinnaswamy",
+  "narendra modi", "rajiv gandhi", "arun jaitley", "feroz shah kotla",
+  "ekana", "barsapara", "himachal pradesh cricket", "jsca", "sawai mansingh",
+];
+
+const IPL_CODES = ["csk", "mi", "kkr", "rcb", "rr", "dc", "srh", "pbks", "gt", "lsg"];
+
 function isProbablyIplMatch(match: MaybeRecord) {
+  const teamInfoText = Array.isArray(match.teamInfo)
+    ? match.teamInfo
+        .map((t: any) => safeString(t.name || t.shortname || t.shortName || t.teamName))
+        .join(" ")
+    : "";
+
   const blob = [
     safeString(match.name),
+    safeString(match.title),
     safeString(match.matchDesc),
     safeString(match.series),
     safeString(match.seriesName),
+    safeString(match.series_name),
+    safeString(match.leagueName),
+    safeString(match.competitionName),
     safeString(match.matchType),
+    safeString(match.type),
     safeString(match.status),
     safeString(match.venue),
+    safeString(match.ground),
     teamsText(match),
-    Array.isArray(match.teamInfo) ? match.teamInfo.map((t: any) => safeString(t.name || t.shortName)).join(" ") : "",
+    teamInfoText,
   ]
     .join(" ")
     .toLowerCase();
 
+  // Any marker phrase
   if (IPL_MARKERS.some((m) => blob.includes(m))) return true;
-  if (blob.startsWith("ipl ") || /^ipl\b/.test(blob)) return true;
-  const hits = IPL_TEAMS.filter((team) => blob.includes(team.toLowerCase())).length;
-  if (hits >= 2) return true;
-  const codeHits = ["csk", "mi", "kkr", "rcb", "rr", "dc", "srh", "pbks", "gt", "lsg"].filter((c) => {
-    const re = new RegExp(`\\b${c}\\b`, "i");
-    return re.test(blob);
-  }).length;
-  return codeHits >= 2;
+  // "ipl" as a standalone word anywhere (catches "IPL 2025", "Tata IPL", etc.)
+  if (/\bipl\b/.test(blob)) return true;
+
+  // 2+ full team names
+  const teamHits = IPL_TEAMS.filter((t) => blob.includes(t.toLowerCase())).length;
+  if (teamHits >= 2) return true;
+
+  // 2+ short codes
+  const codeHits = IPL_CODES.filter((c) => new RegExp(`\\b${c}\\b`, "i").test(blob)).length;
+  if (codeHits >= 2) return true;
+
+  // 1 team name/code + known IPL venue (strong signal)
+  const hasIplVenue = IPL_VENUES.some((v) => blob.includes(v));
+  if (hasIplVenue && (teamHits >= 1 || codeHits >= 1)) return true;
+
+  return false;
 }
 
 function isProbablyIplFromSeed(seed: MatchSeed) {
