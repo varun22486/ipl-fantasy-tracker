@@ -109,7 +109,7 @@ export default async function Home() {
           </div>
         </>
       ) : (
-        <div style={{ color: "#64748b" }}>No match linked yet. Use "Link Today\'s Match" above first.</div>
+        <div style={{ color: "#64748b" }}>No match linked yet. Use &quot;Link IPL Match&quot; above first.</div>
       )}
 
       <div style={{ marginTop: 32 }}>
@@ -118,7 +118,7 @@ export default async function Home() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {["Label", "Fixture", "Status", "Venue", "Last Sync"].map((h) => (
+                {["Date", "Match", "Status", "Venue", "Last Sync"].map((h) => (
                   <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #e2e8f0", color: "#475569", fontSize: 13 }}>{h}</th>
                 ))}
               </tr>
@@ -126,7 +126,7 @@ export default async function Home() {
             <tbody>
               {matches.map((m: any) => (
                 <tr key={m.id}>
-                  <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.label}</td>
+                  <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" }}>{m.match_date ?? "-"}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.fixture}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.status}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.venue ?? "-"}</td>
