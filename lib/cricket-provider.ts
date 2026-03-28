@@ -108,7 +108,7 @@ async function fetchJson(path: string) {
   for (const key of shuffled) {
     const requestPath = isCricapiBase(baseUrl) ? injectKey(path, key) : path;
     const headers = buildHeaders(key);
-    const response = await fetch(`${baseUrl}${requestPath}`, { headers, next: { revalidate: 0 } });
+    const response = await fetch(`${baseUrl}${requestPath}`, { headers, cache: "no-store" });
     if (!response.ok) {
       lastError = `HTTP ${response.status}`;
       continue;
@@ -419,28 +419,24 @@ async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
   };
 
   if (isCricapiBase(baseUrl)) {
-    absorb(await fetchMatchArray("/v1/currentMatches?offset=0"));
-    try {
-      absorb(await fetchMatchArray("/v1/recentMatches?offset=0"));
-    } catch {
-      // recentMatches is best-effort; don't fail if quota just ran out after first call
+    // Always fetch the IPL series first so today's match is always available,
+    // even if CricAPI's currentMatches feed is slow to add new IPL seasons.
+    const envSeriesId = cleanEnvText(process.env.CRICKET_IPL_SERIES_ID);
+    const seriesIds = envSeriesId ? [envSeriesId, ...KNOWN_IPL_SERIES_IDS] : KNOWN_IPL_SERIES_IDS;
+    for (const seriesId of seriesIds) {
+      try {
+        const seriesMatches = await fetchIplSeriesMatchesForToday(seriesId);
+        absorb(seriesMatches);
+        if (seriesMatches.length > 0) break;
+      } catch {
+        // try next series ID
+      }
     }
 
-    // If the standard feed didn't include any IPL match, try the IPL series directly.
-    // This handles cases where CricAPI's currentMatches is slow to add new IPL seasons.
-    const hasIpl = out.some(isProbablyIplMatch);
-    if (!hasIpl) {
-      const envSeriesId = cleanEnvText(process.env.CRICKET_IPL_SERIES_ID);
-      const seriesIds = envSeriesId ? [envSeriesId, ...KNOWN_IPL_SERIES_IDS] : KNOWN_IPL_SERIES_IDS;
-      for (const seriesId of seriesIds) {
-        try {
-          const seriesMatches = await fetchIplSeriesMatchesForToday(seriesId);
-          absorb(seriesMatches);
-          if (seriesMatches.length > 0) break; // found matches, stop trying
-        } catch {
-          // try next series ID
-        }
-      }
+    try {
+      absorb(await fetchMatchArray("/v1/currentMatches?offset=0"));
+    } catch {
+      // best-effort; series already has IPL data
     }
   } else {
     const paths = ["/v1/matches/live?type=league", "/v1/matches/recent?type=league", "/v1/matches/upcoming?type=league"];
