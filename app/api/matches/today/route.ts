@@ -3,7 +3,7 @@ import { getIplMatchChoicesForToday } from "@/lib/cricket-provider";
 
 export async function GET() {
   try {
-    const { choices, totalRaw } = await getIplMatchChoicesForToday();
+    const { choices, totalRaw, nonIplSample } = await getIplMatchChoicesForToday();
 
     const date = new Intl.DateTimeFormat("en-IN", {
       timeZone: "Asia/Kolkata",
@@ -13,7 +13,7 @@ export async function GET() {
       day: "numeric",
     }).format(new Date());
 
-    return NextResponse.json({ ok: true, choices, totalRaw, date });
+    return NextResponse.json({ ok: true, choices, totalRaw, nonIplSample, date });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Could not load matches";
     const isRateLimit = msg.toLowerCase().includes("blocked for");

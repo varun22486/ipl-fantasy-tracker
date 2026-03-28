@@ -411,7 +411,11 @@ function choiceDisplayOrder(a: MatchSeed, b: MatchSeed): number {
 }
 
 /** All IPL fixtures currently in the feed (live, recent, upcoming). */
-export async function getIplMatchChoicesForToday(): Promise<{ choices: MatchSeed[]; totalRaw: number }> {
+export async function getIplMatchChoicesForToday(): Promise<{
+  choices: MatchSeed[];
+  totalRaw: number;
+  nonIplSample: string[];
+}> {
   const raw = await collectRawMatchesFromProvider();
   const ipl = raw.filter(isProbablyIplMatch);
   const byId = new Map<string, MatchSeed>();
@@ -419,9 +423,16 @@ export async function getIplMatchChoicesForToday(): Promise<{ choices: MatchSeed
     const s = matchToSeed(m);
     if (s.externalMatchId && !byId.has(s.externalMatchId)) byId.set(s.externalMatchId, s);
   }
+  // Sample of what IS in the feed so users can see why IPL wasn't found
+  const nonIplSample = raw
+    .filter((m) => !isProbablyIplMatch(m))
+    .slice(0, 5)
+    .map((m) => safeString(m.name || m.title || m.matchDesc) || "Unknown match");
+
   return {
     choices: [...byId.values()].sort(choiceDisplayOrder),
     totalRaw: raw.length,
+    nonIplSample,
   };
 }
 

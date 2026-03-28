@@ -256,11 +256,13 @@ export default function DashboardClient({
       setLinkDateHint(typeof json.date === "string" ? json.date : "");
       const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
       if (choices.length === 0) {
-        const hint = typeof json.totalRaw === "number"
-          ? json.totalRaw === 0
-            ? "API returned 0 matches — rate-limited or quota exhausted. Try again in 15 min."
-            : `${json.totalRaw} matches in feed but none were IPL. Season may not have started yet.`
-          : "No IPL matches found. Check quota or try again later.";
+        const sample: string[] = Array.isArray(json.nonIplSample) ? json.nonIplSample : [];
+        let hint = "";
+        if (typeof json.totalRaw !== "number" || json.totalRaw === 0) {
+          hint = "API returned 0 matches — rate-limited or quota exhausted. Try again in 15 min.";
+        } else {
+          hint = `${json.totalRaw} matches in feed but none are IPL yet. Current feed has: ${sample.length > 0 ? sample.join(", ") : "non-IPL tournaments"}. IPL 2026 may not have started yet.`;
+        }
         setMessage(hint);
         setSyncing(false);
         return;
