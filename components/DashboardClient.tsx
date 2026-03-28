@@ -1,6 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
+
+const QUOTA_LIMIT = 100;
+const QUOTA_WARN_AT = 80;
+const QUOTA_KEY = "cricapi_quota";
+
+function getIstDateStr() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function loadQuota(): number {
+  try {
+    const raw = localStorage.getItem(QUOTA_KEY);
+    if (!raw) return 0;
+    const { count, date } = JSON.parse(raw) as { count: number; date: string };
+    return date === getIstDateStr() ? (count ?? 0) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveQuota(count: number) {
+  try {
+    localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: getIstDateStr() }));
+  } catch {}
+}
 
 type Player = {
   name: string;
@@ -142,21 +167,24 @@ export default function DashboardClient({
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
   const [pickedLinkId, setPickedLinkId] = useState("");
   const [linkDateHint, setLinkDateHint] = useState("");
+  const [apiUsed, setApiUsed] = useState(0);
+  const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number; label: string } | null>(null);
 
   useEffect(() => {
-    const interval = window.setInterval(async () => {
-      try {
-        const res = await fetch("/api/refresh", { method: "POST" });
-        const json = await res.json();
-        setDebugInfo(json);
-        if (json.ok && !json.skipped) {
-          window.location.reload();
-        }
-      } catch {}
-    }, 60000);
-
-    return () => window.clearInterval(interval);
+    setApiUsed(loadQuota());
   }, []);
+
+  const addUsage = useCallback((n: number) => {
+    setApiUsed((prev) => {
+      const next = prev + n;
+      saveQuota(next);
+      return next;
+    });
+  }, []);
+
+  const remaining = QUOTA_LIMIT - apiUsed;
+  const isNearLimit = apiUsed >= QUOTA_WARN_AT;
+  const isAtLimit = remaining <= 0;
 
   const canSave = useMemo(() => {
     const hasFourMine = mine.every((p) => p.name.trim());
@@ -166,11 +194,20 @@ export default function DashboardClient({
     return hasFourMine && hasFourTheirs && oneTrumpMine && oneTrumpTheirs;
   }, [mine, theirs]);
 
-  async function submitSeedLink(externalMatchId: string) {
-    if (!externalMatchId) {
-      setMessage("Pick a match first.");
+  function guardedRun(cost: number, label: string, fn: () => Promise<void>) {
+    if (isAtLimit) {
+      setMessage(`API quota reached (${QUOTA_LIMIT}/day). Resets at midnight India time.`);
       return;
     }
+    if (isNearLimit) {
+      setPendingAction({ fn, cost, label });
+      return;
+    }
+    void fn();
+  }
+
+  async function doSubmitSeedLink(externalMatchId: string) {
+    if (!externalMatchId) { setMessage("Pick a match first."); return; }
     setSyncing(true);
     setMessage("Linking match…");
     try {
@@ -182,6 +219,7 @@ export default function DashboardClient({
       const json = await res.json();
       setDebugInfo(json);
       setLinkChoices(null);
+      addUsage(1);
       setMessage(json.ok ? "Match linked. Refreshing…" : json.error || "Could not link match.");
       if (json.ok) window.location.reload();
     } catch {
@@ -190,14 +228,19 @@ export default function DashboardClient({
     setSyncing(false);
   }
 
-  async function startLinkTodaysMatch() {
+  async function submitSeedLink(externalMatchId: string) {
+    guardedRun(1, "Link match", () => doSubmitSeedLink(externalMatchId));
+  }
+
+  async function doStartLinkTodaysMatch() {
     setSyncing(true);
-    setMessage("Loading today's IPL fixtures (India date)…");
+    setMessage("Loading today's IPL fixtures…");
     setLinkChoices(null);
     try {
       const res = await fetch("/api/matches/today");
       const json = await res.json();
       setDebugInfo(json);
+      addUsage(2);
       if (!json.ok) {
         setMessage(json.error || "Could not load today's matches.");
         setSyncing(false);
@@ -208,43 +251,48 @@ export default function DashboardClient({
       if (choices.length === 0) {
         const hint = typeof json.totalRaw === "number"
           ? json.totalRaw === 0
-            ? "The API returned 0 matches total — quota may be exhausted (100 req/day free tier). Try again tomorrow."
-            : `${json.totalRaw} matches in feed but none matched IPL. IPL season may not have started yet.`
-          : "No IPL matches found. Quota may be exhausted or IPL season hasn't started.";
+            ? "API returned 0 matches — rate-limited or quota exhausted. Try again in 15 min."
+            : `${json.totalRaw} matches in feed but none were IPL. Season may not have started yet.`
+          : "No IPL matches found. Check quota or try again later.";
         setMessage(hint);
         setSyncing(false);
         return;
       }
       if (choices.length === 1) {
-        const id = choices[0].externalMatchId || "";
-        await submitSeedLink(id);
+        await doSubmitSeedLink(choices[0].externalMatchId || "");
         return;
       }
       setLinkChoices(choices);
       setPickedLinkId(choices[0].externalMatchId || "");
-      setMessage(`${choices.length} matches today — choose one below.`);
+      setMessage(`${choices.length} matches found — pick one below.`);
     } catch {
       setMessage("Network error loading today's matches.");
     }
     setSyncing(false);
   }
 
-  async function refreshNow() {
+  function startLinkTodaysMatch() {
+    guardedRun(2, "Load today's matches (2 credits)", doStartLinkTodaysMatch);
+  }
+
+  async function doRefreshNow() {
     setSyncing(true);
     setMessage("Refreshing from cricket source...");
     const res = await fetch("/api/refresh", { method: "POST" });
     const json = await res.json();
     setSyncing(false);
     setDebugInfo(json);
-
+    if (!json.skipped) addUsage(1);
     if (json.ok) {
       setMessage(json.reason || json.message || (json.skipped ? "Using cached data." : "Dashboard updated."));
-      if (!json.skipped) {
-        window.setTimeout(() => window.location.reload(), 1200);
-      }
+      if (!json.skipped) window.setTimeout(() => window.location.reload(), 1200);
     } else {
       setMessage(json.error || "Refresh failed.");
     }
+  }
+
+  function refreshNow() {
+    guardedRun(1, "Sync scores (1 credit)", doRefreshNow);
   }
 
   async function saveLineup() {
@@ -292,11 +340,67 @@ export default function DashboardClient({
 
   return (
     <div style={{ display: "grid", gap: 16, marginBottom: 24 }}>
+      {/* Quota bar */}
+      <div style={quotaBarContainerStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#475569" }}>
+            API credits today: {apiUsed} / {QUOTA_LIMIT}
+          </span>
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>resets midnight IST</span>
+        </div>
+        <div style={{ height: 6, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
+          <div style={{
+            height: "100%",
+            width: `${Math.min(100, (apiUsed / QUOTA_LIMIT) * 100)}%`,
+            borderRadius: 999,
+            background: isAtLimit ? "#ef4444" : isNearLimit ? "#f59e0b" : "#22c55e",
+            transition: "width 0.3s ease",
+          }} />
+        </div>
+        {isNearLimit && !isAtLimit && (
+          <div style={{ marginTop: 6, fontSize: 12, color: "#92400e" }}>
+            ⚠️ Only {remaining} credit{remaining === 1 ? "" : "s"} left — auto-refresh is off. Use Sync manually.
+          </div>
+        )}
+        {isAtLimit && (
+          <div style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>
+            Quota reached. Resets at midnight India time.
+          </div>
+        )}
+      </div>
+
+      {/* Quota warning confirmation */}
+      {pendingAction ? (
+        <div style={quotaWarnPanelStyle}>
+          <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 6 }}>⚠️ Low on API credits</div>
+          <div style={{ color: "#78350f", fontSize: 14, marginBottom: 14 }}>
+            You have <strong>{remaining} credit{remaining === 1 ? "" : "s"}</strong> remaining today.
+            This action uses <strong>{pendingAction.cost}</strong>. Proceed?
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              type="button"
+              style={buttonStyle}
+              onClick={() => { const a = pendingAction; setPendingAction(null); void a.fn(); }}
+            >
+              Yes, use {pendingAction.cost} credit{pendingAction.cost > 1 ? "s" : ""}
+            </button>
+            <button
+              type="button"
+              style={buttonStyleSecondary}
+              onClick={() => setPendingAction(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <button onClick={() => void startLinkTodaysMatch()} disabled={syncing} style={buttonStyle}>
+        <button onClick={() => void startLinkTodaysMatch()} disabled={syncing || isAtLimit} style={buttonStyle}>
           {syncing ? "Working..." : "Link Today's Match"}
         </button>
-        <button onClick={refreshNow} disabled={syncing} style={buttonStyleSecondary}>
+        <button onClick={() => void refreshNow()} disabled={syncing || isAtLimit} style={buttonStyleSecondary}>
           {syncing ? "Working..." : "Sync Scores Now"}
         </button>
       </div>
@@ -565,6 +669,20 @@ const pickerPanelStyle: CSSProperties = {
   background: "#f0f9ff",
   padding: 20,
   boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+};
+
+const quotaBarContainerStyle: CSSProperties = {
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  background: "white",
+  padding: "12px 16px",
+};
+
+const quotaWarnPanelStyle: CSSProperties = {
+  border: "2px solid #fcd34d",
+  borderRadius: 16,
+  background: "#fffbeb",
+  padding: 16,
 };
 
 const chipGridStyle: CSSProperties = {
