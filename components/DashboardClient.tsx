@@ -175,7 +175,7 @@ export default function DashboardClient({
   }, []);
 
   const addUsage = useCallback((n: number) => {
-    setApiUsed((prev) => {
+    setApiUsed((prev: number) => {
       const next = prev + n;
       saveQuota(next);
       return next;
@@ -187,10 +187,10 @@ export default function DashboardClient({
   const isAtLimit = remaining <= 0;
 
   const canSave = useMemo(() => {
-    const hasFourMine = mine.every((p) => p.name.trim());
-    const hasFourTheirs = theirs.every((p) => p.name.trim());
-    const oneTrumpMine = mine.filter((p) => p.trump).length === 1;
-    const oneTrumpTheirs = theirs.filter((p) => p.trump).length === 1;
+    const hasFourMine = mine.every((p: Player) => p.name.trim());
+    const hasFourTheirs = theirs.every((p: Player) => p.name.trim());
+    const oneTrumpMine = mine.filter((p: Player) => p.trump).length === 1;
+    const oneTrumpTheirs = theirs.filter((p: Player) => p.trump).length === 1;
     return hasFourMine && hasFourTheirs && oneTrumpMine && oneTrumpTheirs;
   }, [mine, theirs]);
 
@@ -316,16 +316,17 @@ export default function DashboardClient({
 
   function updateName(side: "mine" | "theirs", index: number, value: string) {
     const setter = side === "mine" ? setMine : setTheirs;
-    setter((prev) => prev.map((player, i) => (i === index ? { ...player, name: value } : player)));
+    setter((prev: Player[]) => prev.map((player: Player, i: number) => (i === index ? { ...player, name: value } : player)));
   }
 
   function updateTrump(side: "mine" | "theirs", index: number) {
     const setter = side === "mine" ? setMine : setTheirs;
-    setter((prev) => prev.map((player, i) => ({ ...player, trump: i === index })));
+    setter((prev: Player[]) => prev.map((player: Player, i: number) => ({ ...player, trump: i === index })));
   }
 
+  type ActiveSlot = { side: "mine" | "theirs"; index: number } | null;
   function togglePickSlot(side: "mine" | "theirs", index: number) {
-    setActiveSlot((cur) => (cur?.side === side && cur?.index === index ? null : { side, index }));
+    setActiveSlot((cur: ActiveSlot) => (cur?.side === side && cur?.index === index ? null : { side, index }));
   }
 
   function applyRosterName(name: string) {
@@ -412,7 +413,7 @@ export default function DashboardClient({
             <div style={{ color: "#64748b", fontSize: 13, marginBottom: 12 }}>Using India calendar: {linkDateHint}</div>
           ) : null}
           <div style={{ display: "grid", gap: 10 }}>
-            {linkChoices.map((c) => (
+            {linkChoices.map((c: MatchChoice) => (
               <label
                 key={c.externalMatchId || c.fixture}
                 style={{
@@ -519,7 +520,7 @@ export default function DashboardClient({
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
           <div>
             <div style={sectionTitleStyle}>Your 4 players</div>
-            {mine.map((player, index) => (
+            {mine.map((player: Player, index: number) => (
               <div
                 key={`mine-${index}`}
                 style={{
@@ -545,7 +546,7 @@ export default function DashboardClient({
 
           <div>
             <div style={sectionTitleStyle}>{rival || "Opponent"}'s 4 players</div>
-            {theirs.map((player, index) => (
+            {theirs.map((player: Player, index: number) => (
               <div
                 key={`their-${index}`}
                 style={{
