@@ -523,13 +523,23 @@ export default function DashboardClient({
               <div style={{ fontSize: 14, color: "#475569", marginTop: 4 }}>{currentMatch.live_summary}</div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => { setView("setup"); setMessage(""); }}
-            style={buttonStyleSecondary}
-          >
-            ✎ Edit Lineup
-          </button>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => void startLinkTodaysMatch()}
+              disabled={syncing || isAtLimit}
+              style={buttonStyleSecondary}
+            >
+              {syncing ? "⏳ Loading..." : "Link IPL Match"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setView("setup"); setMessage(""); }}
+              style={buttonStyleSecondary}
+            >
+              ✎ Edit Lineup
+            </button>
+          </div>
         </div>
 
         {/* Score cards */}
@@ -553,10 +563,69 @@ export default function DashboardClient({
           <span style={{ fontSize: 13, color: "#64748b" }}>
             Last synced: {lastSynced}
           </span>
-          {message && (
-            <span style={{ fontSize: 13, color: syncing ? "#475569" : "#0f172a" }}>{message}</span>
+          {message && !linkChoices && (
+            <span style={{ fontSize: 13, color: "#475569" }}>{message}</span>
           )}
         </div>
+
+        {/* Match picker — shown inline when Link IPL Match is clicked from scores view */}
+        {linkChoices && linkChoices.length > 1 ? (
+          <div style={pickerPanelStyle}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Choose an IPL match to import</div>
+            {linkDateHint ? (
+              <div style={{ color: "#64748b", fontSize: 13, marginBottom: 12 }}>Showing yesterday, today &amp; tomorrow · {linkDateHint}</div>
+            ) : null}
+            <div style={{ display: "grid", gap: 10 }}>
+              {linkChoices.map((c: MatchChoice) => (
+                <label
+                  key={c.externalMatchId || c.fixture}
+                  style={{
+                    display: "flex",
+                    gap: 12,
+                    alignItems: "flex-start",
+                    padding: 12,
+                    borderRadius: 12,
+                    border: pickedLinkId === c.externalMatchId ? "2px solid #2563eb" : "1px solid #e2e8f0",
+                    background: pickedLinkId === c.externalMatchId ? "#eff6ff" : "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="linkpick-scores"
+                    checked={pickedLinkId === c.externalMatchId}
+                    onChange={() => setPickedLinkId(c.externalMatchId || "")}
+                    style={{ marginTop: 4 }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600, color: "#0f172a" }}>{formatFixture(c.fixture) || c.fixture}</div>
+                    <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
+                      {c.status}{c.venue ? ` · ${c.venue}` : ""}{c.match_date ? ` · ${c.match_date}` : ""}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 16, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => void submitSeedLink(pickedLinkId)}
+                disabled={syncing || !pickedLinkId}
+                style={buttonStyle}
+              >
+                {syncing ? "Working…" : "Link selected match"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setLinkChoices(null); setMessage(""); }}
+                disabled={syncing}
+                style={buttonStyleSecondary}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {/* Quota warning confirmation */}
         {pendingAction ? (
@@ -661,11 +730,14 @@ export default function DashboardClient({
         </div>
       ) : null}
 
-      {/* Match linking button */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+      {/* Match linking button + inline status */}
+      <div style={syncBarStyle}>
         <button onClick={() => void startLinkTodaysMatch()} disabled={syncing || isAtLimit} style={buttonStyle}>
-          {syncing ? "Working..." : "Link IPL Match"}
+          {syncing ? "⏳ Loading matches..." : "Link IPL Match"}
         </button>
+        {message && !linkChoices && (
+          <span style={{ fontSize: 13, color: "#475569" }}>{message}</span>
+        )}
       </div>
 
       {/* Match picker popup */}
