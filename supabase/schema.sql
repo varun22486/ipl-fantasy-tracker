@@ -30,6 +30,7 @@ alter table matches add column if not exists source_url text;
 alter table matches add column if not exists auto_sync boolean not null default true;
 alter table matches add column if not exists last_synced_at timestamp with time zone;
 alter table matches add column if not exists provider_squad_json jsonb;
+alter table matches add column if not exists is_current boolean not null default false;
 
 -- API key hit tracking (one row per key per day)
 create table if not exists api_key_stats (

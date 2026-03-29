@@ -98,6 +98,10 @@ async function persistSeededMatch(discovered: MatchSeed) {
     }
   }
 
+  // Mark this match as current, clear flag on all others
+  await supabaseAdmin.from("matches").update({ is_current: false }).neq("id", match.id);
+  await supabaseAdmin.from("matches").update({ is_current: true }).eq("id", match.id);
+
   await attachMatchRoster(Number(match.id), discovered.externalMatchId);
   return match;
 }

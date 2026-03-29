@@ -3,6 +3,7 @@ import ScoreCard from "@/components/ScoreCard";
 import PlayerTable from "@/components/PlayerTable";
 import { supabase } from "@/lib/supabase";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
+import SetCurrentButton from "@/components/SetCurrentButton";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -33,11 +34,12 @@ function parseRosterFromMatch(match: unknown): { rosterNames: string[]; squads: 
 
 async function getData() {
   const [{ data: matches }, { data: settings }] = await Promise.all([
-    supabase.from("matches").select("*").order("match_date", { ascending: false }).order("id", { ascending: false }),
+    supabase.from("matches").select("*").order("id", { ascending: false }),
     supabase.from("series_settings").select("*").limit(1).single(),
   ]);
 
-  const currentMatch = matches?.[0] ?? null;
+  // Prefer the explicitly-marked current match; fall back to most recently linked
+  const currentMatch = (matches ?? []).find((m: any) => m.is_current) ?? matches?.[0] ?? null;
   let players: FantasyPlayer[] = [];
 
   if (currentMatch) {
@@ -118,19 +120,24 @@ export default async function Home() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                {["Date", "Match", "Status", "Venue", "Last Sync"].map((h) => (
+                {["Date", "Match", "Status", "Venue", "Last Sync", ""].map((h) => (
                   <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #e2e8f0", color: "#475569", fontSize: 13 }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {matches.map((m: any) => (
-                <tr key={m.id}>
+                <tr key={m.id} style={{ background: m.is_current ? "#f0fdf4" : "transparent" }}>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" }}>{m.match_date ?? "-"}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.fixture}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.status}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.venue ?? "-"}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.last_synced_at ? new Date(m.last_synced_at).toLocaleString() : "-"}</td>
+                  <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>
+                    {m.is_current
+                      ? <span style={{ fontSize: 12, color: "#16a34a", fontWeight: 600 }}>✓ Current</span>
+                      : <SetCurrentButton matchId={m.id} />}
+                  </td>
                 </tr>
               ))}
             </tbody>
