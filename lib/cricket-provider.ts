@@ -677,6 +677,33 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
 
   if (typeof node !== "object") return;
 
+  // CricAPI scorecard batting entry: { batsman: "Heinrich Klaasen", r: 45, b: 30, ... }
+  // "r" here = runs SCORED — correct to use directly.
+  if (typeof node.batsman === "string" && node.batsman.trim() && "r" in node) {
+    bucket.push(bonusify({
+      name: node.batsman.trim(),
+      runs: numberValue(node.r ?? node.runs),
+      wickets: 0,
+      catches: numberValue(node.ct ?? node.catches ?? node.c ?? 0),
+      fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
+    }));
+    return; // leaf node — don't recurse further
+  }
+
+  // CricAPI scorecard bowling entry: { bowler: "Mohammed Siraj", w: 2, o: "4.0", r: 28, ... }
+  // "r" here = runs CONCEDED — must NOT be used as runs scored.
+  if (typeof node.bowler === "string" && node.bowler.trim() && ("w" in node || "o" in node)) {
+    bucket.push(bonusify({
+      name: node.bowler.trim(),
+      runs: 0,
+      wickets: numberValue(node.w ?? node.wickets ?? node.bowlWkts),
+      catches: 0,
+      fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
+    }));
+    return; // leaf node — don't recurse further
+  }
+
+  // Generic fallback for other provider formats
   const name = safeString(
     node.name ||
       node.fullName ||
@@ -688,15 +715,7 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
   );
 
   const hasStatsLikeFields = [
-    "runs",
-    "r",
-    "batRuns",
-    "batsmanRuns",
-    "wickets",
-    "w",
-    "bowlWkts",
-    "catches",
-    "c",
+    "runs", "r", "batRuns", "batsmanRuns", "wickets", "w", "bowlWkts", "catches", "c",
   ].some((key) => key in node);
 
   if (name && hasStatsLikeFields) {
