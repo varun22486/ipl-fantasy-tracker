@@ -2,6 +2,9 @@
 
 import React, { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
 import { formatFixture } from "@/lib/format";
+import ScoreCard from "@/components/ScoreCard";
+import PlayerTable from "@/components/PlayerTable";
+import { FantasyPlayer, teamPoints } from "@/lib/scoring";
 
 const KEY_LIMIT = 100;          // CricAPI free plan per key per day
 const QUOTA_LIMIT = 300;        // 100/day × 3 API keys
@@ -48,13 +51,26 @@ type MatchChoice = {
   live_summary?: string | null;
 };
 
+type CurrentMatch = {
+  fixture?: string;
+  label?: string;
+  status?: string;
+  venue?: string | null;
+  toss_winner?: string | null;
+  live_summary?: string | null;
+  last_synced_at?: string | null;
+};
+
 type Props = {
   opponentName: string;
   yourPlayers: Player[];
   opponentPlayers: Player[];
+  yourFantasyPlayers: FantasyPlayer[];
+  opponentFantasyPlayers: FantasyPlayer[];
   rosterNames: string[];
   squads: SquadTeam[];
   hasLinkedMatch: boolean;
+  currentMatch: CurrentMatch | null;
 };
 
 type DebugData = {
@@ -94,56 +110,123 @@ function withFallback(players: Player[]) {
 }
 
 function DebugPanel({ info }: { info: DebugData | null }) {
+  const [open, setOpen] = useState(false);
   if (!info) return null;
   const details = info.debug;
   return (
     <div style={debugPanelStyle}>
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>Latest sync debug</div>
-      <div style={{ color: info.error ? "#b91c1c" : "#334155", marginBottom: 10 }}>
-        {info.error || info.reason || info.message || "No details yet."}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{ background: "none", border: "none", cursor: "pointer", fontWeight: 700, color: "#64748b", padding: 0, marginBottom: open ? 8 : 0 }}
+      >
+        {open ? "▾" : "▸"} Sync debug
+      </button>
+      {open && (
+        <>
+          <div style={{ color: info.error ? "#b91c1c" : "#334155", marginBottom: 10 }}>
+            {info.error || info.reason || info.message || "No details yet."}
+          </div>
+          {info.live_summary ? <div style={debugLineStyle}><strong>Live summary:</strong> {info.live_summary}</div> : null}
+          {typeof details?.updatedRows === "number" ? (
+            <div style={debugLineStyle}>
+              <strong>Matched selected players:</strong> {details.updatedRows} / {details.selectedCount ?? 0}
+            </div>
+          ) : null}
+          {typeof details?.providerRowCount === "number" ? (
+            <div style={debugLineStyle}>
+              <strong>Provider rows found:</strong> {details.providerRowCount}
+            </div>
+          ) : null}
+          {details?.status ? <div style={debugLineStyle}><strong>Provider status:</strong> {details.status}</div> : null}
+          {details?.syncedAt || details?.lastSyncedAt ? (
+            <div style={debugLineStyle}>
+              <strong>Sync time:</strong> {details.syncedAt || details.lastSyncedAt}
+            </div>
+          ) : null}
+          {details?.unmatched?.length ? (
+            <div style={debugLineStyle}>
+              <strong>Unmatched:</strong> {details.unmatched.join(", ")}
+            </div>
+          ) : null}
+          {details?.matched?.length ? (
+            <div style={debugLineStyle}>
+              <strong>Name matches:</strong> {details.matched.map((m) => `${m.selected} → ${m.provider}`).join(", ")}
+            </div>
+          ) : null}
+          {details?.providerPlayersSample?.length ? (
+            <div style={debugLineStyle}>
+              <strong>Provider sample:</strong> {details.providerPlayersSample.join(", ")}
+            </div>
+          ) : null}
+          {details?.sourceUrl ? (
+            <div style={debugLineStyle}>
+              <strong>Source URL:</strong> <a href={details.sourceUrl} target="_blank" rel="noreferrer">{details.sourceUrl}</a>
+            </div>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function QuotaBar({
+  apiUsed,
+  isNearLimit,
+  isAtLimit,
+  remaining,
+  keyStats,
+}: {
+  apiUsed: number;
+  isNearLimit: boolean;
+  isAtLimit: boolean;
+  remaining: number;
+  keyStats: { alias: string; hits: number; remaining: number }[];
+}) {
+  return (
+    <div style={quotaBarContainerStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#475569" }}>
+          API credits today: {apiUsed} / {QUOTA_LIMIT}
+        </span>
+        <span style={{ fontSize: 12, color: "#94a3b8" }}>resets midnight IST</span>
       </div>
-      {info.live_summary ? <div style={debugLineStyle}><strong>Live summary:</strong> {info.live_summary}</div> : null}
-      {typeof details?.updatedRows === "number" ? (
-        <div style={debugLineStyle}>
-          <strong>Matched selected players:</strong> {details.updatedRows} / {details.selectedCount ?? 0}
+      <div style={{ height: 6, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
+        <div style={{
+          height: "100%",
+          width: `${Math.min(100, (apiUsed / QUOTA_LIMIT) * 100)}%`,
+          borderRadius: 999,
+          background: isAtLimit ? "#ef4444" : isNearLimit ? "#f59e0b" : "#22c55e",
+          transition: "width 0.3s ease",
+        }} />
+      </div>
+      {isNearLimit && !isAtLimit && (
+        <div style={{ marginTop: 6, fontSize: 12, color: "#92400e" }}>
+          ⚠️ Only {remaining} credit{remaining === 1 ? "" : "s"} left — use Sync sparingly.
         </div>
-      ) : null}
-      {typeof details?.providerRowCount === "number" ? (
-        <div style={debugLineStyle}>
-          <strong>Provider rows found:</strong> {details.providerRowCount}
+      )}
+      {isAtLimit && (
+        <div style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>
+          Quota reached. Resets at midnight India time.
         </div>
-      ) : null}
-      {details?.status ? <div style={debugLineStyle}><strong>Provider status:</strong> {details.status}</div> : null}
-      {details?.syncedAt || details?.lastSyncedAt ? (
-        <div style={debugLineStyle}>
-          <strong>Sync time:</strong> {details.syncedAt || details.lastSyncedAt}
+      )}
+      {keyStats.length > 0 && (
+        <div style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {keyStats.map((k, i) => {
+            const pct = k.hits / KEY_LIMIT;
+            const color = pct >= 1 ? "#ef4444" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
+            return (
+              <div key={k.alias} style={{ fontSize: 11, color: "#64748b", display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ fontWeight: 600, color: "#475569" }}>Key {i + 1}</span>
+                <span style={{ display: "inline-block", width: 40, height: 4, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
+                  <span style={{ display: "block", height: "100%", width: `${Math.min(100, pct * 100)}%`, background: color, borderRadius: 999 }} />
+                </span>
+                <span style={{ color }}>{k.hits}/{KEY_LIMIT}</span>
+              </div>
+            );
+          })}
         </div>
-      ) : null}
-      {details?.unmatched?.length ? (
-        <div style={debugLineStyle}>
-          <strong>Unmatched selected players:</strong> {details.unmatched.join(", ")}
-        </div>
-      ) : null}
-      {details?.matched?.length ? (
-        <div style={debugLineStyle}>
-          <strong>Name matches:</strong> {details.matched.map((m) => `${m.selected} -> ${m.provider}`).join(", ")}
-        </div>
-      ) : null}
-      {details?.providerPlayersSample?.length ? (
-        <div style={debugLineStyle}>
-          <strong>Provider player sample:</strong> {details.providerPlayersSample.join(", ")}
-        </div>
-      ) : null}
-      {typeof details?.rosterCount === "number" ? (
-        <div style={debugLineStyle}>
-          <strong>Roster names cached:</strong> {details.rosterCount}
-        </div>
-      ) : null}
-      {details?.sourceUrl ? (
-        <div style={debugLineStyle}>
-          <strong>Source URL:</strong> <a href={details.sourceUrl} target="_blank" rel="noreferrer">{details.sourceUrl}</a>
-        </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -152,10 +235,16 @@ export default function DashboardClient({
   opponentName,
   yourPlayers,
   opponentPlayers,
+  yourFantasyPlayers,
+  opponentFantasyPlayers,
   rosterNames,
   squads,
   hasLinkedMatch,
+  currentMatch,
 }: Props) {
+  const hasExistingLineup = yourPlayers.some((p) => p.name.trim()) && opponentPlayers.some((p) => p.name.trim());
+
+  const [view, setView] = useState<"setup" | "scores">(hasExistingLineup ? "scores" : "setup");
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
@@ -163,7 +252,6 @@ export default function DashboardClient({
   const [rival, setRival] = useState(opponentName || "Rahul");
   const [mine, setMine] = useState<Player[]>(withFallback(yourPlayers));
   const [theirs, setTheirs] = useState<Player[]>(withFallback(opponentPlayers));
-  // Which side the roster chips will fill into
   const [activeSide, setActiveSide] = useState<"mine" | "theirs">("mine");
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
   const [pickedLinkId, setPickedLinkId] = useState("");
@@ -174,7 +262,6 @@ export default function DashboardClient({
 
   useEffect(() => {
     setApiUsed(loadQuota());
-    // Load per-key stats from backend (read-only, no API credit used)
     fetch("/api/key-stats")
       .then((r) => r.json())
       .then((j) => { if (j.ok && Array.isArray(j.stats)) setKeyStats(j.stats); })
@@ -193,7 +280,6 @@ export default function DashboardClient({
   const isNearLimit = apiUsed >= QUOTA_WARN_AT;
   const isAtLimit = remaining <= 0;
 
-  // All names already committed to either side
   const takenNames = useMemo(() => {
     const s = new Set<string>();
     for (const p of mine) if (p.name.trim()) s.add(p.name.trim().toLowerCase());
@@ -208,6 +294,15 @@ export default function DashboardClient({
     const oneCaptainTheirs = theirs.filter((p: Player) => p.captain).length === 1;
     return hasFourMine && hasFourTheirs && oneCaptainMine && oneCaptainTheirs;
   }, [mine, theirs]);
+
+  const yourTotal = teamPoints(yourFantasyPlayers);
+  const opponentTotal = teamPoints(opponentFantasyPlayers);
+  const leader =
+    yourTotal === opponentTotal
+      ? "Tie"
+      : yourTotal > opponentTotal
+        ? `You +${yourTotal - opponentTotal}`
+        : `${rival} +${opponentTotal - yourTotal}`;
 
   function guardedRun(cost: number, label: string, fn: () => Promise<void>) {
     if (isAtLimit) {
@@ -313,17 +408,22 @@ export default function DashboardClient({
 
   async function doRefreshNow() {
     setSyncing(true);
-    setMessage("Refreshing from cricket source...");
-    const res = await fetch("/api/refresh", { method: "POST" });
-    const json = await res.json();
-    setSyncing(false);
-    setDebugInfo(json);
-    if (!json.skipped) addUsage(1);
-    if (json.ok) {
-      setMessage(json.reason || json.message || (json.skipped ? "Using cached data." : "Dashboard updated."));
-      if (!json.skipped) window.setTimeout(() => window.location.reload(), 1200);
-    } else {
-      setMessage(json.error || "Refresh failed.");
+    setMessage("Syncing from cricket source...");
+    try {
+      const res = await fetch("/api/refresh", { method: "POST" });
+      const json = await res.json();
+      setSyncing(false);
+      setDebugInfo(json);
+      if (!json.skipped) addUsage(1);
+      if (json.ok) {
+        setMessage(json.reason || json.message || (json.skipped ? "Using cached data." : "Scores updated!"));
+        if (!json.skipped) window.setTimeout(() => window.location.reload(), 1200);
+      } else {
+        setMessage(json.error || "Refresh failed.");
+      }
+    } catch {
+      setSyncing(false);
+      setMessage("Network error during sync.");
     }
   }
 
@@ -334,20 +434,29 @@ export default function DashboardClient({
   async function saveLineup() {
     setSaving(true);
     setMessage("Saving lineup...");
-    const res = await fetch("/api/lineup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        opponentName: rival,
-        yourPlayers: mine,
-        opponentPlayers: theirs,
-      }),
-    });
-    const json = await res.json();
-    setSaving(false);
-    setDebugInfo(json);
-    setMessage(json.ok ? "Lineup saved. Refreshing..." : json.error || "Could not save lineup.");
-    if (json.ok) window.location.reload();
+    try {
+      const res = await fetch("/api/lineup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          opponentName: rival,
+          yourPlayers: mine,
+          opponentPlayers: theirs,
+        }),
+      });
+      const json = await res.json();
+      setSaving(false);
+      if (json.ok) {
+        setMessage("Lineup saved! Syncing scores...");
+        setView("scores");
+        window.setTimeout(() => void doRefreshNow(), 600);
+      } else {
+        setMessage(json.error || "Could not save lineup.");
+      }
+    } catch {
+      setSaving(false);
+      setMessage("Network error saving lineup.");
+    }
   }
 
   function updateCaptain(side: "mine" | "theirs", index: number) {
@@ -360,17 +469,11 @@ export default function DashboardClient({
     setter((prev: Player[]) =>
       prev.map((player: Player, i: number) => {
         if (i !== index) return player;
-        const cleared = { name: "", captain: false };
-        // If the cleared slot was captain, promote first remaining non-empty slot
-        if (player.captain) {
-          return cleared;
-        }
-        return cleared;
+        return { name: "", captain: false };
       })
     );
   }
 
-  // Ensure exactly one captain per side after clearing
   function ensureOneCaptain(side: "mine" | "theirs") {
     const setter = side === "mine" ? setMine : setTheirs;
     setter((prev: Player[]) => {
@@ -398,54 +501,142 @@ export default function DashboardClient({
 
   const hasRoster = rosterNames.length > 0 || squads.some((t) => t.players.length > 0);
 
+  // ── Scores View ────────────────────────────────────────────────────────────
+  if (view === "scores") {
+    const fixtureName = formatFixture(currentMatch?.fixture) || currentMatch?.fixture || "No match linked";
+    const lastSynced = currentMatch?.last_synced_at
+      ? new Date(currentMatch.last_synced_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+      : "Not yet";
+
+    return (
+      <div style={{ display: "grid", gap: 20, marginBottom: 24 }}>
+
+        {/* Header row */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 4 }}>Current Match</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#0f172a" }}>{fixtureName}</div>
+            {currentMatch?.venue && (
+              <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>{currentMatch.venue}</div>
+            )}
+            {currentMatch?.live_summary && (
+              <div style={{ fontSize: 14, color: "#475569", marginTop: 4 }}>{currentMatch.live_summary}</div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => { setView("setup"); setMessage(""); }}
+            style={buttonStyleSecondary}
+          >
+            ✎ Edit Lineup
+          </button>
+        </div>
+
+        {/* Score cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16 }}>
+          <ScoreCard label="Your Points" value={yourTotal} />
+          <ScoreCard label={`${rival} Points`} value={opponentTotal} />
+          <ScoreCard label="Leader" value={leader} />
+          <ScoreCard label="Status" value={currentMatch?.status ?? "—"} />
+        </div>
+
+        {/* Sync controls */}
+        <div style={syncBarStyle}>
+          <button
+            type="button"
+            onClick={() => void refreshNow()}
+            disabled={syncing || isAtLimit}
+            style={buttonStyle}
+          >
+            {syncing ? "Syncing..." : "⟳ Sync Scores Now"}
+          </button>
+          <span style={{ fontSize: 13, color: "#64748b" }}>
+            Last synced: {lastSynced}
+          </span>
+          {message && (
+            <span style={{ fontSize: 13, color: syncing ? "#475569" : "#0f172a" }}>{message}</span>
+          )}
+        </div>
+
+        {/* Quota warning confirmation */}
+        {pendingAction ? (
+          <div style={quotaWarnPanelStyle}>
+            <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 6 }}>⚠️ Low on API credits</div>
+            <div style={{ color: "#78350f", fontSize: 14, marginBottom: 14 }}>
+              You have <strong>{remaining} credit{remaining === 1 ? "" : "s"}</strong> remaining today.
+              This action uses <strong>{pendingAction.cost}</strong>. Proceed?
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                style={buttonStyle}
+                onClick={() => { const a = pendingAction; setPendingAction(null); void a.fn(); }}
+              >
+                Yes, use {pendingAction.cost} credit{pendingAction.cost > 1 ? "s" : ""}
+              </button>
+              <button type="button" style={buttonStyleSecondary} onClick={() => setPendingAction(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Player tables */}
+        {yourFantasyPlayers.length > 0 || opponentFantasyPlayers.length > 0 ? (
+          <div style={{ display: "grid", gap: 16 }}>
+            <PlayerTable title="Your Team" players={yourFantasyPlayers} />
+            <PlayerTable title={`${rival} Team`} players={opponentFantasyPlayers} />
+          </div>
+        ) : (
+          <div style={{ ...panelStyle, color: "#64748b", textAlign: "center", padding: 32 }}>
+            No scores yet — click <strong>Sync Scores Now</strong> above to load the latest data.
+          </div>
+        )}
+
+        {/* Debug panel (collapsed by default) */}
+        <DebugPanel info={debugInfo} />
+
+        {/* Compact quota bar */}
+        <QuotaBar
+          apiUsed={apiUsed}
+          isNearLimit={isNearLimit}
+          isAtLimit={isAtLimit}
+          remaining={remaining}
+          keyStats={keyStats}
+        />
+      </div>
+    );
+  }
+
+  // ── Setup View ─────────────────────────────────────────────────────────────
   return (
     <div style={{ display: "grid", gap: 16, marginBottom: 24 }}>
-      {/* Quota bar */}
-      <div style={quotaBarContainerStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#475569" }}>
-            API credits today: {apiUsed} / {QUOTA_LIMIT}
-          </span>
-          <span style={{ fontSize: 12, color: "#94a3b8" }}>resets midnight IST</span>
+
+      {/* Setup header with back button if lineup exists */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 18, color: "#0f172a" }}>Player Selection</div>
+          <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Pick 4 players each and mark 1 as Team Captain (points ×2).</div>
         </div>
-        <div style={{ height: 6, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
-          <div style={{
-            height: "100%",
-            width: `${Math.min(100, (apiUsed / QUOTA_LIMIT) * 100)}%`,
-            borderRadius: 999,
-            background: isAtLimit ? "#ef4444" : isNearLimit ? "#f59e0b" : "#22c55e",
-            transition: "width 0.3s ease",
-          }} />
-        </div>
-        {isNearLimit && !isAtLimit && (
-          <div style={{ marginTop: 6, fontSize: 12, color: "#92400e" }}>
-            ⚠️ Only {remaining} credit{remaining === 1 ? "" : "s"} left — auto-refresh is off. Use Sync manually.
-          </div>
-        )}
-        {isAtLimit && (
-          <div style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>
-            Quota reached. Resets at midnight India time.
-          </div>
-        )}
-        {/* Per-key breakdown (only shown when data is available) */}
-        {keyStats.length > 0 && (
-          <div style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
-            {keyStats.map((k, i) => {
-              const pct = k.hits / KEY_LIMIT;
-              const color = pct >= 1 ? "#ef4444" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
-              return (
-                <div key={k.alias} style={{ fontSize: 11, color: "#64748b", display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ fontWeight: 600, color: "#475569" }}>Key {i + 1}</span>
-                  <span style={{ display: "inline-block", width: 40, height: 4, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
-                    <span style={{ display: "block", height: "100%", width: `${Math.min(100, pct * 100)}%`, background: color, borderRadius: 999 }} />
-                  </span>
-                  <span style={{ color }}>{k.hits}/{KEY_LIMIT}</span>
-                </div>
-              );
-            })}
-          </div>
+        {hasExistingLineup && (
+          <button
+            type="button"
+            onClick={() => { setView("scores"); setMessage(""); }}
+            style={buttonStyleSecondary}
+          >
+            ← Back to Scores
+          </button>
         )}
       </div>
+
+      {/* Quota bar */}
+      <QuotaBar
+        apiUsed={apiUsed}
+        isNearLimit={isNearLimit}
+        isAtLimit={isAtLimit}
+        remaining={remaining}
+        keyStats={keyStats}
+      />
 
       {/* Quota warning confirmation */}
       {pendingAction ? (
@@ -470,15 +661,14 @@ export default function DashboardClient({
         </div>
       ) : null}
 
+      {/* Match linking button */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <button onClick={() => void startLinkTodaysMatch()} disabled={syncing || isAtLimit} style={buttonStyle}>
           {syncing ? "Working..." : "Link IPL Match"}
         </button>
-        <button onClick={() => void refreshNow()} disabled={syncing || isAtLimit} style={buttonStyleSecondary}>
-          {syncing ? "Working..." : "Sync Scores Now"}
-        </button>
       </div>
 
+      {/* Match picker popup */}
       {linkChoices && linkChoices.length > 1 ? (
         <div style={pickerPanelStyle}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Choose an IPL match to import</div>
@@ -743,15 +933,26 @@ const panelStyle: CSSProperties = {
 
 const debugPanelStyle: CSSProperties = {
   border: "1px solid #dbeafe",
-  borderRadius: 20,
+  borderRadius: 16,
   background: "#f8fbff",
-  padding: 16,
+  padding: "12px 16px",
 };
 
 const debugLineStyle: CSSProperties = {
   color: "#334155",
   marginBottom: 8,
   wordBreak: "break-word",
+};
+
+const syncBarStyle: CSSProperties = {
+  display: "flex",
+  gap: 14,
+  alignItems: "center",
+  flexWrap: "wrap",
+  padding: "14px 16px",
+  background: "white",
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
 };
 
 const buttonStyle: CSSProperties = {

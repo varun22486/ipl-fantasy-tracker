@@ -1,8 +1,6 @@
 import DashboardClient from "@/components/DashboardClient";
-import ScoreCard from "@/components/ScoreCard";
-import PlayerTable from "@/components/PlayerTable";
 import { supabase } from "@/lib/supabase";
-import { FantasyPlayer, teamPoints } from "@/lib/scoring";
+import { FantasyPlayer } from "@/lib/scoring";
 import SetCurrentButton from "@/components/SetCurrentButton";
 import { formatFixture } from "@/lib/format";
 
@@ -39,7 +37,6 @@ async function getData() {
     supabase.from("series_settings").select("*").limit(1).single(),
   ]);
 
-  // Prefer the explicitly-marked current match; fall back to most recently linked
   const currentMatch = (matches ?? []).find((m: any) => m.is_current) ?? matches?.[0] ?? null;
   let players: FantasyPlayer[] = [];
 
@@ -60,61 +57,43 @@ export default async function Home() {
   const { rosterNames, squads } = parseRosterFromMatch(currentMatch);
   const yourPlayers = players.filter((p) => p.side === "You");
   const rahulPlayers = players.filter((p) => p.side === "Rahul");
-
-  const yourTotal = teamPoints(yourPlayers);
-  const rahulTotal = teamPoints(rahulPlayers);
   const opponentName = settings?.opponent_name ?? "Rahul";
-  const leader =
-    yourTotal === rahulTotal ? "Tie" : yourTotal > rahulTotal ? `You +${yourTotal - rahulTotal}` : `${opponentName} +${rahulTotal - yourTotal}`;
+
+  const currentMatchData = currentMatch
+    ? {
+        fixture: currentMatch.fixture ?? undefined,
+        label: currentMatch.label ?? undefined,
+        status: currentMatch.status ?? undefined,
+        venue: currentMatch.venue ?? null,
+        toss_winner: currentMatch.toss_winner ?? null,
+        live_summary: currentMatch.live_summary ?? null,
+        last_synced_at: currentMatch.last_synced_at ?? null,
+      }
+    : null;
 
   return (
     <main style={{ maxWidth: 1200, margin: "0 auto", padding: 24 }}>
       <div style={{ marginBottom: 24 }}>
         <div style={{ color: "#64748b", fontSize: 14 }}>IPL Fantasy Tracker</div>
         <h1 style={{ margin: "8px 0 4px", fontSize: 36 }}>You vs {opponentName}</h1>
-        <div style={{ color: "#475569" }}>Pick 4 players each, mark 1 as Team Captain each, and let the dashboard sync the live score automatically.</div>
+        <div style={{ color: "#475569" }}>
+          Pick 4 players, mark 1 Team Captain each — points are doubled for them.
+        </div>
       </div>
 
       <DashboardClient
         opponentName={opponentName}
         yourPlayers={yourPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
         opponentPlayers={rahulPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
+        yourFantasyPlayers={yourPlayers}
+        opponentFantasyPlayers={rahulPlayers}
         rosterNames={rosterNames}
         squads={squads}
         hasLinkedMatch={Boolean(currentMatch)}
+        currentMatch={currentMatchData}
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 16, marginBottom: 24 }}>
-        <ScoreCard label="Current Match" value={formatFixture(currentMatch?.fixture) || currentMatch?.label || "None"} />
-        <ScoreCard label="Status" value={currentMatch?.status ?? "-"} />
-        <ScoreCard label="Your Points" value={yourTotal} />
-        <ScoreCard label={`${opponentName} Points`} value={rahulTotal} />
-      </div>
-
-      <div style={{ marginBottom: 24 }}>
-        <ScoreCard label="Leader" value={leader} />
-      </div>
-
-      {currentMatch ? (
-        <>
-          <div style={{ marginBottom: 16, color: "#475569" }}>
-            <strong>{formatFixture(currentMatch.fixture) || currentMatch.fixture}</strong>
-            {currentMatch.venue ? ` · ${currentMatch.venue}` : ""}
-            {currentMatch.toss_winner ? ` · Toss: ${currentMatch.toss_winner}` : ""}
-            {currentMatch.live_summary ? ` · ${currentMatch.live_summary}` : ""}
-          </div>
-          <div style={{ marginBottom: 16, color: "#64748b", fontSize: 14 }}>
-            Last synced: {currentMatch.last_synced_at ? new Date(currentMatch.last_synced_at).toLocaleString() : "Not yet"}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
-            <PlayerTable title="Your Team" players={yourPlayers} />
-            <PlayerTable title={`${opponentName} Team`} players={rahulPlayers} />
-          </div>
-        </>
-      ) : (
-        <div style={{ color: "#64748b" }}>No match linked yet. Use &quot;Link IPL Match&quot; above first.</div>
-      )}
-
+      {/* Match Archive */}
       <div style={{ marginTop: 32 }}>
         <h2>Match Archive</h2>
         <div style={{ overflowX: "auto", background: "white", border: "1px solid #e2e8f0", borderRadius: 20, padding: 16 }}>
