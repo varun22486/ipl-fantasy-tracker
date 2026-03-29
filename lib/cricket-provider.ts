@@ -1043,34 +1043,57 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
 }
 
 export async function refreshMatchFromProvider(externalMatchId: string): Promise<ProviderRefresh> {
+  const id = externalMatchId;
   const candidatePaths = isCricapiBase(envBaseUrl())
     ? [
-        `/v1/match_scorecard?offset=0&id=${externalMatchId}`,
-        `/v1/match_points?offset=0&id=${externalMatchId}`,
+        `/v1/match_scorecard?offset=0&id=${id}`,
+        `/v1/match_scorecard?id=${id}`,          // without offset
+        `/v1/match_points?offset=0&id=${id}`,
+        `/v1/match_points?id=${id}`,
+        `/v1/match_info?id=${id}`,               // last resort — has metadata but fewer stats
       ]
     : [
-        `/v1/score/${externalMatchId}`,
-        `/v1/scorecard/${externalMatchId}`,
-        `/matches/get-scorecard?matchId=${externalMatchId}`,
-        `/matches/get-scorecard-v2?matchId=${externalMatchId}`,
-        `/v1/matches/${externalMatchId}/scorecard`,
+        `/v1/score/${id}`,
+        `/v1/scorecard/${id}`,
+        `/matches/get-scorecard?matchId=${id}`,
+        `/matches/get-scorecard-v2?matchId=${id}`,
+        `/v1/matches/${id}/scorecard`,
       ];
 
   let payload: MaybeRecord | null = null;
+  let scorecardFailed = false;
+
   for (const path of candidatePaths) {
     try {
       const p = await fetchJson(path);
-      // Skip explicit API failures ("match not found", etc.) — quota errors
-      // are already handled inside fetchJson and never reach here.
-      if (p?.status === "failure") continue;
+      // Skip explicit API failures — quota errors are handled inside fetchJson.
+      if (p?.status === "failure") {
+        scorecardFailed = true;
+        continue;
+      }
       if (p) { payload = p; break; }
     } catch {
       // try next path
     }
   }
 
+  // When no scorecard is available, return empty stats rather than throwing so
+  // the match metadata (status, venue, etc.) still gets updated on sync.
   if (!payload) {
-    throw new Error("Scorecard not available for this match.");
+    return {
+      status: scorecardFailed ? "COMPLETED" : "LIVE",
+      live_summary: scorecardFailed
+        ? "Scorecard not accessible via API (may require a paid plan). Stats cannot be auto-synced."
+        : null,
+      fixture: undefined,
+      venue: null,
+      toss_winner: null,
+      source_url: null,
+      players: [],
+      squads: [],
+      rosterNames: [],
+      raw: null,
+    };
   }
 
   const data = payload.data || payload;

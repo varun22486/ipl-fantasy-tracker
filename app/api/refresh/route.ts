@@ -158,7 +158,10 @@ export async function GET() {
         live_summary: payload.live_summary ?? currentMatch.live_summary,
         source_url: payload.source_url ?? currentMatch.source_url,
         last_synced_at: syncedAt,
-        provider_squad_json: { squads: payload.squads, rosterNames: payload.rosterNames },
+        // Only overwrite squad data if we actually got something from the scorecard
+        ...(payload.rosterNames.length > 0
+          ? { provider_squad_json: { squads: payload.squads, rosterNames: payload.rosterNames } }
+          : {}),
       })
       .eq("id", currentMatch.id);
 
@@ -168,9 +171,11 @@ export async function GET() {
       ok: true,
       skipped: false,
       message:
-        updatedRows > 0
+        payload.players.length === 0
+          ? (payload.live_summary || "Scorecard not available from API — stats unchanged.")
+          : updatedRows > 0
           ? `Updated ${updatedRows} of ${selected.length} selected players.`
-          : "No selected player names matched the provider payload.",
+          : "Names in lineup didn't match the scorecard — check debug panel.",
       live_summary: payload.live_summary,
       debug: {
         matchId: currentMatch.id,
