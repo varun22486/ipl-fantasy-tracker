@@ -983,41 +983,43 @@ async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<Squa
  * because it reflects who actually took the field, not just the squad selection.
  */
 export async function fetchMatchRoster(externalMatchId: string): Promise<{ squads: SquadTeam[]; rosterNames: string[] }> {
-  let scorecardSquads: SquadTeam[] = [];
+  const id = encodeURIComponent(externalMatchId);
+  const candidates: SquadTeam[][] = [];
 
-  // 1. Try scorecard — has the actual Playing XI for live/completed matches
+  const absorb = (squads: SquadTeam[]) => {
+    if (squadPlayerCount(squads) > 0) candidates.push(squads);
+  };
+
+  // 1. Scorecard — actual Playing XI for live/completed matches
   try {
     const full = await refreshMatchFromProvider(externalMatchId);
+    absorb(full.squads);
+    // If we got a full playing XI (≥ 11 players per team combined), prefer it
     if (squadPlayerCount(full.squads) >= 11) {
       return { squads: full.squads, rosterNames: full.rosterNames };
     }
-    scorecardSquads = full.squads; // save partial result
-  } catch {
-    // Scorecard not published yet (pre-match) — fall through to squad API
-  }
+  } catch { /* scorecard not yet published */ }
 
-  // 2. Squad API — works before the match starts
-  const squadSquads = await tryFetchSquadsFromSquadApi(externalMatchId);
-  if (squadPlayerCount(squadSquads) >= 8) {
-    return { squads: squadSquads, rosterNames: uniqueRosterNames(squadSquads) };
-  }
-
-  // 3. match_info — always available regardless of match state; has teamInfo.players
+  // 2. match_info — works for any match state; has data.players (dict) or data.teamInfo
   if (isCricapiBase(envBaseUrl())) {
     try {
-      const payload = await fetchJson(`/v1/match_info?id=${encodeURIComponent(externalMatchId)}`);
-      const infoSquads = extractSquadsFromPayload(payload);
-      if (squadPlayerCount(infoSquads) >= 8) {
-        return { squads: infoSquads, rosterNames: uniqueRosterNames(infoSquads) };
+      const payload = await fetchJson(`/v1/match_info?id=${id}`);
+      if (payload?.status !== "failure") {
+        absorb(extractSquadsFromPayload(payload));
       }
     } catch { /* ignore */ }
   }
 
-  // 4. Best of what we have
-  const candidates = [scorecardSquads, squadSquads].sort(
-    (a, b) => squadPlayerCount(b) - squadPlayerCount(a)
-  );
-  const best = candidates[0];
+  // 3. Squad API — announced squad (pre-match and shortly before)
+  try {
+    absorb(await tryFetchSquadsFromSquadApi(externalMatchId));
+  } catch { /* ignore */ }
+
+  // Return the richest result we found
+  if (candidates.length === 0) {
+    return { squads: [], rosterNames: [] };
+  }
+  const best = candidates.sort((a, b) => squadPlayerCount(b) - squadPlayerCount(a))[0];
   return { squads: best, rosterNames: uniqueRosterNames(best) };
 }
 
@@ -1038,15 +1040,18 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   let payload: MaybeRecord | null = null;
   for (const path of candidatePaths) {
     try {
-      payload = await fetchJson(path);
-      if (payload) break;
+      const p = await fetchJson(path);
+      // Skip explicit API failures ("match not found", etc.) — quota errors
+      // are already handled inside fetchJson and never reach here.
+      if (p?.status === "failure") continue;
+      if (p) { payload = p; break; }
     } catch {
       // try next path
     }
   }
 
   if (!payload) {
-    throw new Error("Could not fetch scorecard data for the current match.");
+    throw new Error("Scorecard not available for this match.");
   }
 
   const data = payload.data || payload;

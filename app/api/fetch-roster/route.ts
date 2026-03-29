@@ -26,7 +26,7 @@ export async function POST() {
     if (rosterNames.length === 0) {
       return NextResponse.json({
         ok: false,
-        error: "Roster not available yet. The squad is usually published closer to match time.",
+        error: `No player data returned by the API for match ${extId}. Try the debug endpoint: /api/debug-roster?id=${extId}`,
       }, { status: 404 });
     }
 

@@ -4,6 +4,7 @@ import PlayerTable from "@/components/PlayerTable";
 import { supabase } from "@/lib/supabase";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
 import SetCurrentButton from "@/components/SetCurrentButton";
+import { formatFixture } from "@/lib/format";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -84,7 +85,7 @@ export default async function Home() {
       />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 16, marginBottom: 24 }}>
-        <ScoreCard label="Current Match" value={currentMatch?.fixture ?? currentMatch?.label ?? "None"} />
+        <ScoreCard label="Current Match" value={formatFixture(currentMatch?.fixture) || currentMatch?.label || "None"} />
         <ScoreCard label="Status" value={currentMatch?.status ?? "-"} />
         <ScoreCard label="Your Points" value={yourTotal} />
         <ScoreCard label={`${opponentName} Points`} value={rahulTotal} />
@@ -97,7 +98,7 @@ export default async function Home() {
       {currentMatch ? (
         <>
           <div style={{ marginBottom: 16, color: "#475569" }}>
-            <strong>{currentMatch.fixture}</strong>
+            <strong>{formatFixture(currentMatch.fixture) || currentMatch.fixture}</strong>
             {currentMatch.venue ? ` · ${currentMatch.venue}` : ""}
             {currentMatch.toss_winner ? ` · Toss: ${currentMatch.toss_winner}` : ""}
             {currentMatch.live_summary ? ` · ${currentMatch.live_summary}` : ""}
@@ -129,7 +130,7 @@ export default async function Home() {
               {matches.map((m: any) => (
                 <tr key={m.id} style={{ background: m.is_current ? "#f0fdf4" : "transparent" }}>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" }}>{m.match_date ?? "-"}</td>
-                  <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.fixture}</td>
+                  <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{formatFixture(m.fixture) || m.fixture}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.status}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.venue ?? "-"}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{m.last_synced_at ? new Date(m.last_synced_at).toLocaleString() : "-"}</td>

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
+import { formatFixture } from "@/lib/format";
 
 const KEY_LIMIT = 100;          // CricAPI free plan per key per day
 const QUOTA_LIMIT = 300;        // 100/day × 3 API keys
@@ -507,7 +508,7 @@ export default function DashboardClient({
                   style={{ marginTop: 4 }}
                 />
                 <div>
-                  <div style={{ fontWeight: 600, color: "#0f172a" }}>{c.fixture}</div>
+                  <div style={{ fontWeight: 600, color: "#0f172a" }}>{formatFixture(c.fixture) || c.fixture}</div>
                   <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
                     {c.status}
                     {c.venue ? ` · ${c.venue}` : ""}
