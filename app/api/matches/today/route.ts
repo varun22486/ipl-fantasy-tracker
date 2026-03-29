@@ -17,9 +17,9 @@ export async function GET() {
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Could not load matches";
     const lower = msg.toLowerCase();
-    const isRateLimit = lower.includes("blocked for") || lower.includes("blocking");
+    const isRateLimit = lower.includes("block") || lower.includes("blocked");
     const isDailyQuota =
-      lower.includes("exceeded hits limit") ||
+      lower.includes("exceeded") ||
       lower.includes("hits today") ||
       lower.includes("all keys failed") ||
       lower.includes("quota");

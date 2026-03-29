@@ -1,69 +1,95 @@
 import { NextResponse } from "next/server";
 
-// Calls the cricket API directly and returns raw match data so you can
-// see exactly what the feed is sending — useful when IPL filtering fails.
+// Diagnostic endpoint — returns raw API data so you can see exactly what
+// the feed is sending and which keys are working.
 // Access at: /api/debug-matches
 export async function GET() {
   const baseUrl = (process.env.CRICKET_API_BASE_URL || "https://api.cricapi.com").replace(/\/$/, "");
-  const key1 = (process.env.CRICKET_API_KEY || "").trim();
-  const key2 = (process.env.CRICKET_API_KEY_2 || "").trim();
-  const apiKey = key1 || key2;
 
-  if (!apiKey) {
+  const keys = [
+    (process.env.CRICKET_API_KEY || "").trim(),
+    (process.env.CRICKET_API_KEY_2 || "").trim(),
+    (process.env.CRICKET_API_KEY_3 || "").trim(),
+  ].filter(Boolean);
+
+  if (keys.length === 0) {
     return NextResponse.json({ ok: false, error: "No CRICKET_API_KEY set" }, { status: 500 });
   }
 
-  async function fetchRaw(path: string) {
+  // Use the first working key
+  const apiKey = keys[0];
+
+  async function fetchRaw(path: string, key = apiKey) {
     const sep = path.includes("?") ? "&" : "?";
-    const url = `${baseUrl}${path}${sep}apikey=${encodeURIComponent(apiKey)}`;
-    const res = await fetch(url, { headers: { Accept: "application/json" }, next: { revalidate: 0 } });
-    if (!res.ok) return { error: `HTTP ${res.status}` };
-    return res.json();
-  }
-
-  try {
-    const [current, recent] = await Promise.allSettled([
-      fetchRaw("/v1/currentMatches?offset=0"),
-      fetchRaw("/v1/recentMatches?offset=0"),
-    ]);
-
-    const currentData = current.status === "fulfilled" ? current.value : { error: (current as any).reason?.message };
-    const recentData = recent.status === "fulfilled" ? recent.value : { error: (recent as any).reason?.message };
-
-    // Extract match arrays
-    const currentMatches: any[] = currentData?.data ?? currentData?.matches ?? [];
-    const recentMatches: any[] = recentData?.data ?? recentData?.matches ?? [];
-
-    // Return a compact summary of each match so it's easy to scan
-    function summarize(m: any) {
-      return {
-        id: m.id,
-        name: m.name,
-        title: m.title,
-        matchDesc: m.matchDesc,
-        series: m.series,
-        seriesName: m.seriesName,
-        matchType: m.matchType,
-        type: m.type,
-        status: m.status,
-        venue: m.venue,
-        teams: m.teams,
-        teamInfo: m.teamInfo,
-        date: m.date,
-        dateTimeGMT: m.dateTimeGMT,
-      };
+    const url = `${baseUrl}${path}${sep}apikey=${encodeURIComponent(key)}`;
+    try {
+      const res = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+      if (!res.ok) return { httpError: res.status, url };
+      const json = await res.json();
+      return { url, ...json };
+    } catch (e: any) {
+      return { fetchError: e?.message, url };
     }
-
-    return NextResponse.json({
-      ok: true,
-      currentMatchCount: currentMatches.length,
-      recentMatchCount: recentMatches.length,
-      currentStatus: currentData?.status,
-      recentStatus: recentData?.status,
-      currentMatches: currentMatches.map(summarize),
-      recentMatches: recentMatches.slice(0, 10).map(summarize),
-    });
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message }, { status: 500 });
   }
+
+  // Test each key with a lightweight call
+  const keyTests = await Promise.all(
+    keys.map(async (k) => {
+      const res = await fetchRaw("/v1/currentMatches?offset=0", k);
+      const count = Array.isArray(res?.data) ? res.data.length : "?";
+      return {
+        keyAlias: k.slice(0, 8) + "...",
+        status: res?.status,
+        matchCount: count,
+        reason: res?.reason,
+      };
+    })
+  );
+
+  // Current matches with first working key
+  const currentRaw = await fetchRaw("/v1/currentMatches?offset=0");
+  const currentMatches: any[] = currentRaw?.data ?? [];
+
+  // Recent matches
+  const recentRaw = await fetchRaw("/v1/recentMatches?offset=0");
+  const recentMatches: any[] = recentRaw?.data ?? [];
+
+  // Series search for IPL
+  const seriesRaw = await fetchRaw("/v1/series?offset=0");
+  const allSeries: any[] = seriesRaw?.data ?? [];
+  const iplSeries = allSeries.filter((s: any) => {
+    const n = String(s.name || s.title || "").toLowerCase();
+    return n.includes("ipl") || n.includes("indian premier");
+  });
+
+  // Test the hardcoded series ID
+  const knownSeriesId = "87c62aac-bc3c-4738-ab93-19da0690488f";
+  const envSeriesId = (process.env.CRICKET_IPL_SERIES_ID || "").trim();
+  const seriesIdToTest = envSeriesId || knownSeriesId;
+  const seriesInfoRaw = await fetchRaw(`/v1/series_info?id=${encodeURIComponent(seriesIdToTest)}`);
+  const matchList: any[] = seriesInfoRaw?.data?.matchList ?? [];
+
+  function summarize(m: any) {
+    return {
+      id: m.id,
+      name: m.name,
+      date: m.date,
+      dateTimeGMT: m.dateTimeGMT,
+      status: m.status,
+      venue: m.venue?.replace(/,.*$/, ""),
+    };
+  }
+
+  return NextResponse.json({
+    ok: true,
+    keyTests,
+    seriesIdTested: seriesIdToTest,
+    iplSeriesInFeed: iplSeries.map((s: any) => ({ id: s.id, name: s.name })),
+    seriesMatchListCount: matchList.length,
+    seriesMatchListSample: matchList.slice(0, 5).map(summarize),
+    currentMatchCount: currentMatches.length,
+    recentMatchCount: recentMatches.length,
+    currentSample: currentMatches.slice(0, 5).map(summarize),
+    recentSample: recentMatches.slice(0, 5).map(summarize),
+  });
 }

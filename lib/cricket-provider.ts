@@ -98,7 +98,15 @@ function isQuotaError(payload: any): boolean {
   if (!payload || typeof payload !== "object") return false;
   if (payload.status !== "failure") return false;
   const r = String(payload.reason || payload.message || "").toLowerCase();
-  return r.includes("exceeded") || r.includes("limit") || r.includes("blocking") || r.includes("credits");
+  // CricAPI returns "Blocked for 15 minutes" for rate-limit and
+  // "Exceeded hits limit" for daily quota — treat both as skip-to-next-key
+  return (
+    r.includes("exceeded") ||
+    r.includes("limit") ||
+    r.includes("block") ||   // "Blocked for 15 minutes"
+    r.includes("credits") ||
+    r.includes("quota")
+  );
 }
 
 /** Returns true when an error message indicates all API keys are quota-exhausted. */
@@ -106,7 +114,7 @@ function isQuotaErrorMsg(msg: string): boolean {
   const m = msg.toLowerCase();
   return (
     m.includes("exceeded") ||
-    m.includes("blocking") ||
+    m.includes("block") ||
     m.includes("quota") ||
     m.includes("credits") ||
     m.includes("all keys failed")
