@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
             three_w_bonus: p.three_w_bonus ?? 0,
             five_w_bonus: p.five_w_bonus ?? 0,
             mom_bonus: p.mom_bonus ?? 0,
-            trump: !!p.trump,
+            captain: !!p.captain,
           })
           .eq("id", p.id);
       }

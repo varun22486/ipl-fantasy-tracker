@@ -80,7 +80,7 @@ export async function GET() {
 
     const { data: selectedPlayers } = await supabaseAdmin
       .from("fantasy_players")
-      .select("id,name,side,trump,runs,wickets,catches")
+      .select("id,name,side")
       .eq("match_id", currentMatch.id)
       .order("id", { ascending: true });
 
