@@ -58,13 +58,21 @@ function summarizeNames(names: string[], limit = 12) {
 
 export async function GET() {
   try {
-    const { data: currentMatch } = await supabaseAdmin
+    // Mirror page.tsx: prefer is_current flag, fall back to most recently inserted
+    let { data: currentMatch } = await supabaseAdmin
       .from("matches")
       .select("*")
-      .order("match_date", { ascending: false })
-      .order("id", { ascending: false })
+      .eq("is_current", true)
       .limit(1)
       .maybeSingle();
+    if (!currentMatch) {
+      ({ data: currentMatch } = await supabaseAdmin
+        .from("matches")
+        .select("*")
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle());
+    }
 
     if (!currentMatch?.external_match_id) {
       return NextResponse.json({ ok: false, error: "No seeded match with an external match id yet." }, { status: 400 });

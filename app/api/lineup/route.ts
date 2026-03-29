@@ -34,19 +34,26 @@ function validateSide(name: SideName, players: PlayerInput[]) {
 }
 
 async function getCurrentMatchId() {
-  const { data: currentMatch } = await supabaseAdmin
+  // Prefer the explicitly-marked current match (same logic as page.tsx)
+  const { data: byFlag } = await supabaseAdmin
     .from("matches")
     .select("id")
-    .order("match_date", { ascending: false })
+    .eq("is_current", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (byFlag) return byFlag.id;
+
+  // Fallback: most recently inserted match
+  const { data: fallback } = await supabaseAdmin
+    .from("matches")
+    .select("id")
     .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (!currentMatch) {
-    throw new Error("Seed a match first.");
-  }
-
-  return currentMatch.id;
+  if (!fallback) throw new Error("Seed a match first.");
+  return fallback.id;
 }
 
 export async function POST(req: NextRequest) {

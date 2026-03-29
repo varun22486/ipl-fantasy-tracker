@@ -4,13 +4,21 @@ import { fetchMatchRoster } from "@/lib/cricket-provider";
 
 export async function POST() {
   try {
-    const { data: match, error } = await supabaseAdmin
+    // Mirror page.tsx: prefer is_current flag, fall back to most recently inserted
+    let { data: match, error } = await supabaseAdmin
       .from("matches")
       .select("id, external_match_id")
-      .order("match_date", { ascending: false })
-      .order("id", { ascending: false })
+      .eq("is_current", true)
       .limit(1)
-      .single();
+      .maybeSingle();
+    if (!match) {
+      ({ data: match, error } = await supabaseAdmin
+        .from("matches")
+        .select("id, external_match_id")
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle());
+    }
 
     if (error || !match) {
       return NextResponse.json({ ok: false, error: "No linked match found." }, { status: 400 });
