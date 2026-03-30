@@ -685,11 +685,22 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
 
   if (typeof node !== "object") return;
 
-  // CricAPI scorecard batting entry: { batsman: "Heinrich Klaasen", r: 45, b: 30, ... }
-  // "r" here = runs SCORED — correct to use directly.
-  if (typeof node.batsman === "string" && node.batsman.trim() && "r" in node) {
+  // Extract player name from either string or nested object { id, name }
+  function playerName(field: any): string | null {
+    if (typeof field === "string" && field.trim()) return field.trim();
+    if (field && typeof field === "object" && typeof field.name === "string" && field.name.trim())
+      return field.name.trim();
+    return null;
+  }
+
+  // CricAPI scorecard batting entry (both formats):
+  //   Old: { batsman: "Travis Head", r: 11, ... }
+  //   New: { batsman: { id: "...", name: "Travis Head" }, r: 11, ... }
+  // "r" here = runs SCORED
+  const batsmanName = playerName(node.batsman);
+  if (batsmanName && "r" in node) {
     bucket.push(bonusify({
-      name: node.batsman.trim(),
+      name: batsmanName,
       runs: numberValue(node.r ?? node.runs),
       wickets: 0,
       catches: numberValue(node.ct ?? node.catches ?? node.c ?? 0),
@@ -698,17 +709,36 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
     return; // leaf node — don't recurse further
   }
 
-  // CricAPI scorecard bowling entry: { bowler: "Mohammed Siraj", w: 2, o: "4.0", r: 28, ... }
+  // CricAPI scorecard bowling entry (both formats):
+  //   Old: { bowler: "Krunal Pandya", w: 2, o: "4.0", r: 28 }
+  //   New: { bowler: { id: "...", name: "Krunal Pandya" }, w: 2, o: 4, r: 26 }
   // "r" here = runs CONCEDED — must NOT be used as runs scored.
-  if (typeof node.bowler === "string" && node.bowler.trim() && ("w" in node || "o" in node)) {
+  const bowlerName = playerName(node.bowler);
+  if (bowlerName && ("w" in node || "o" in node)) {
     bucket.push(bonusify({
-      name: node.bowler.trim(),
+      name: bowlerName,
       runs: 0,
       wickets: numberValue(node.w ?? node.wickets ?? node.bowlWkts),
       catches: 0,
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
     }));
     return; // leaf node — don't recurse further
+  }
+
+  // CricAPI catching entry: { catcher: { id: "...", name: "Philip Salt" }, catch: 1, ... }
+  const catcherName = playerName(node.catcher);
+  if (catcherName && "catch" in node) {
+    const numCatches = numberValue(node["catch"] ?? 0);
+    if (numCatches > 0) {
+      bucket.push(bonusify({
+        name: catcherName,
+        runs: 0,
+        wickets: 0,
+        catches: numCatches,
+        fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
+      }));
+    }
+    return; // leaf node
   }
 
   // Generic fallback for other provider formats
@@ -898,6 +928,32 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
       if (!Array.isArray(players)) continue;
       const names = players.map((p: any) => safeString(typeof p === "string" ? p : p.name)).filter(Boolean);
       if (names.length) out.push({ teamName: teamName || "Squad", players: names });
+    }
+    if (out.length) return out;
+  }
+
+  // CricAPI match_scorecard new format: data.scorecard = [{ inning, batting:[{batsman:{name}},...], bowling:[{bowler:{name}},...] }]
+  const scorecard = (data as MaybeRecord).scorecard;
+  if (Array.isArray(scorecard) && scorecard.length > 0) {
+    const byTeam = new Map<string, Set<string>>();
+    for (const inn of scorecard) {
+      // "Sunrisers Hyderabad Inning 1" → "Sunrisers Hyderabad"
+      const inningLabel = safeString((inn as any).inning || (inn as any).inningsName || "");
+      const teamName = inningLabel.replace(/\s+(inning|innings)\s*\d+\s*$/i, "").trim() || inningLabel;
+      if (!byTeam.has(teamName)) byTeam.set(teamName, new Set<string>());
+      const teamSet = byTeam.get(teamName)!;
+      for (const b of ((inn as any).batting ?? [])) {
+        const n = typeof b.batsman === "object" ? safeString(b.batsman?.name) : safeString(b.batsman);
+        if (n) teamSet.add(n);
+      }
+      for (const b of ((inn as any).bowling ?? [])) {
+        const n = typeof b.bowler === "object" ? safeString(b.bowler?.name) : safeString(b.bowler);
+        if (n) teamSet.add(n);
+      }
+    }
+    const out: SquadTeam[] = [];
+    for (const [teamName, names] of byTeam) {
+      if (names.size) out.push({ teamName, players: [...names] });
     }
     if (out.length) return out;
   }
