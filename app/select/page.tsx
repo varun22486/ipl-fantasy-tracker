@@ -50,6 +50,7 @@ export default async function SelectPage() {
   const { currentMatch, matchPlayers, settings } = await getData();
   const { rosterNames, squads } = parseRosterFromMatch(currentMatch);
   const opponentName = settings?.opponent_name ?? "Rahul";
+  const yourName = (settings as any)?.your_name ?? "Varun";
   const yourPlayers = matchPlayers.filter((p) => p.side === "You").map((p) => ({ name: p.name, captain: p.captain }));
   const oppPlayers = matchPlayers.filter((p) => p.side !== "You").map((p) => ({ name: p.name, captain: p.captain }));
 
@@ -57,6 +58,7 @@ export default async function SelectPage() {
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
       <NavBar title="Select Teams" subtitle={currentMatch?.fixture ? `Linked: ${currentMatch.fixture}` : "No match linked yet"} />
       <SelectClient
+        yourName={yourName}
         opponentName={opponentName}
         yourPlayers={yourPlayers}
         opponentPlayers={oppPlayers}

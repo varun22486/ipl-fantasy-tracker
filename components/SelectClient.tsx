@@ -28,6 +28,7 @@ type SquadTeam = { teamName: string; players: string[] };
 type MatchChoice = { externalMatchId?: string; fixture: string; status: string; venue?: string | null; match_date: string };
 
 type Props = {
+  yourName: string;
   opponentName: string;
   yourPlayers: Player[];
   opponentPlayers: Player[];
@@ -44,8 +45,8 @@ function withFallback(players: Player[]) {
   return next;
 }
 
-export default function SelectClient({ opponentName, yourPlayers, opponentPlayers, rosterNames, squads, hasLinkedMatch }: Props) {
-  const [saving, setSaving] = useState(false);
+export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, hasLinkedMatch }: Props) {
+  const [saving, setSaving] = useState<"mine" | "theirs" | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
   const [rival, setRival] = useState(opponentName || "Rahul");
@@ -79,10 +80,8 @@ export default function SelectClient({ opponentName, yourPlayers, opponentPlayer
     return s;
   }, [mine, theirs]);
 
-  const canSave = useMemo(() => {
-    return mine.every((p) => p.name.trim()) && theirs.every((p) => p.name.trim()) &&
-      mine.filter((p) => p.captain).length === 1 && theirs.filter((p) => p.captain).length === 1;
-  }, [mine, theirs]);
+  const canSaveMine = mine.every((p) => p.name.trim()) && mine.filter((p) => p.captain).length === 1;
+  const canSaveTheirs = theirs.every((p) => p.name.trim()) && theirs.filter((p) => p.captain).length === 1;
 
   const hasRoster = rosterNames.length > 0 || squads.some((t) => t.players.length > 0);
 
@@ -114,13 +113,7 @@ export default function SelectClient({ opponentName, yourPlayers, opponentPlayer
       if (!json.ok) { setMessage(json.error || "Could not load matches."); setSyncing(false); return; }
       setLinkDateHint(typeof json.date === "string" ? json.date : "");
       const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
-      if (choices.length === 0) {
-        const totalRaw = json.totalRaw ?? 0;
-        setMessage(totalRaw === 0
-          ? "API returned 0 matches — rate-limited or quota used up. Wait 15 min and retry."
-          : `${totalRaw} matches in feed but none are IPL yet.`);
-        setSyncing(false); return;
-      }
+      if (choices.length === 0) { setMessage(`${json.totalRaw ?? 0} matches in feed but none are IPL yet.`); setSyncing(false); return; }
       if (choices.length === 1) { await doSubmitSeedLink(choices[0].externalMatchId || ""); return; }
       setLinkChoices(choices); setPickedLinkId(choices[0].externalMatchId || "");
       setMessage(`${choices.length} IPL fixtures found — pick one.`);
@@ -139,14 +132,23 @@ export default function SelectClient({ opponentName, yourPlayers, opponentPlayer
     setSyncing(false);
   }
 
-  async function saveLineup() {
-    setSaving(true); setMessage("Saving lineup…");
+  async function saveSide(side: "mine" | "theirs") {
+    setSaving(side); setMessage("");
+    const payload =
+      side === "mine"
+        ? { saveSide: "mine", yourPlayers: mine, opponentName: rival }
+        : { saveSide: "theirs", opponentPlayers: theirs, opponentName: rival };
     try {
-      const res = await fetch("/api/lineup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ opponentName: rival, yourPlayers: mine, opponentPlayers: theirs }) });
-      const json = await res.json(); setSaving(false);
-      if (json.ok) { setMessage("Saved! Heading to match…"); window.setTimeout(() => { window.location.href = "/match"; }, 600); }
-      else setMessage(json.error || "Could not save lineup.");
-    } catch { setSaving(false); setMessage("Network error saving lineup."); }
+      const res = await fetch("/api/lineup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const json = await res.json();
+      setSaving(null);
+      if (json.ok) {
+        setMessage(`${side === "mine" ? yourName : rival} team saved!`);
+        window.setTimeout(() => { window.location.href = "/match"; }, 800);
+      } else {
+        setMessage(json.error || "Could not save.");
+      }
+    } catch { setSaving(null); setMessage("Network error saving lineup."); }
   }
 
   function updateCaptain(side: "mine" | "theirs", index: number) {
@@ -167,7 +169,7 @@ export default function SelectClient({ opponentName, yourPlayers, opponentPlayer
     const list = activeSide === "mine" ? mine : theirs;
     const setter = activeSide === "mine" ? setMine : setTheirs;
     const next = list.findIndex((p) => !p.name.trim());
-    if (next === -1) { setMessage(`All 4 slots are full. Remove a player first.`); return; }
+    if (next === -1) { setMessage("All 4 slots are full. Remove a player first."); return; }
     setter((prev) => prev.map((p, i) => i === next ? { ...p, name } : p));
     setMessage("");
   }
@@ -179,9 +181,7 @@ export default function SelectClient({ opponentName, yourPlayers, opponentPlayer
       {pendingAction && (
         <div style={warnStyle}>
           <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 6 }}>⚠️ Low on API credits</div>
-          <div style={{ color: "#78350f", fontSize: 14, marginBottom: 12 }}>
-            {remaining} credit{remaining === 1 ? "" : "s"} left. This uses {pendingAction.cost}. Proceed?
-          </div>
+          <div style={{ color: "#78350f", fontSize: 14, marginBottom: 12 }}>{remaining} credit{remaining === 1 ? "" : "s"} left. This uses {pendingAction.cost}. Proceed?</div>
           <div style={{ display: "flex", gap: 10 }}>
             <button style={btnPrimary} onClick={() => { const a = pendingAction; setPendingAction(null); void a.fn(); }}>Yes, proceed</button>
             <button style={btnSecondary} onClick={() => setPendingAction(null)}>Cancel</button>
@@ -195,11 +195,8 @@ export default function SelectClient({ opponentName, yourPlayers, opponentPlayer
           {syncing ? "⏳ Loading…" : "Link IPL Match"}
         </button>
         {message && !linkChoices && <span style={{ fontSize: 13, color: "#475569", flex: 1 }}>{message}</span>}
-        {/* Quota mini display */}
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#94a3b8" }}>
-            {apiUsed}/{QUOTA_LIMIT} credits
-          </span>
+          <span style={{ fontSize: 12, color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
           {keyStats.map((k, i) => {
             const pct = k.hits / KEY_LIMIT;
             const c = pct >= 1 ? "#ef4444" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
@@ -237,14 +234,19 @@ export default function SelectClient({ opponentName, yourPlayers, opponentPlayer
         </div>
       )}
 
+      {/* Concurrent access notice */}
+      <div style={{ padding: "10px 16px", borderRadius: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 13, color: "#166534" }}>
+        💡 <strong>Each person saves their own team independently.</strong> {yourName} saves "{yourName}'s 4", {rival} saves "{rival}'s 4" — no conflict.
+      </div>
+
       {/* Roster panel */}
       <div style={panelStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <h3 style={{ margin: 0 }}>Players in this match</h3>
           {hasRoster && (
             <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0" }}>
-              <button type="button" onClick={() => setActiveSide("mine")} style={tabStyle(activeSide === "mine")}>+ Your Team</button>
-              <button type="button" onClick={() => setActiveSide("theirs")} style={tabStyle(activeSide === "theirs")}>+ {rival || "Opponent"}&apos;s Team</button>
+              <button type="button" onClick={() => setActiveSide("mine")} style={tabStyle(activeSide === "mine")}>+ {yourName}&apos;s picks</button>
+              <button type="button" onClick={() => setActiveSide("theirs")} style={tabStyle(activeSide === "theirs")}>+ {rival}&apos;s picks</button>
             </div>
           )}
         </div>
@@ -285,59 +287,71 @@ export default function SelectClient({ opponentName, yourPlayers, opponentPlayer
         )}
       </div>
 
-      {/* Lineup panel */}
-      <div style={panelStyle}>
-        <h3 style={{ marginTop: 0, marginBottom: 6 }}>Lineups</h3>
-        <div style={{ color: "#64748b", fontSize: 13, marginBottom: 16 }}>Pick 4 players each · mark 1 as ★ Team Captain (points ×2)</div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 13, color: "#475569", display: "block", marginBottom: 4 }}>Opponent name</label>
-          <input value={rival} onChange={(e) => setRival(e.target.value)} style={inputStyle} placeholder="Opponent name" />
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
-          {(["mine", "theirs"] as const).map((side) => {
-            const list = side === "mine" ? mine : theirs;
-            const label = side === "mine" ? "Your 4 players" : `${rival || "Opponent"}'s 4 players`;
-            return (
-              <div key={side}>
-                <div style={{ fontWeight: 700, marginBottom: 10, fontSize: 14 }}>{label}</div>
-                {list.map((player, index) => (
-                  <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, minHeight: 40 }}>
-                    <div style={slotNum}>{index + 1}</div>
-                    {player.name.trim() ? (
-                      <>
-                        <span style={{ flex: 1, fontWeight: 500, fontSize: 14 }}>{player.name}</span>
-                        <label style={{ display: "flex", alignItems: "center", gap: 3, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>
-                          <input type="radio" name={`${side}-cap`} checked={player.captain} onChange={() => updateCaptain(side, index)} />
-                          <span style={{ color: player.captain ? "#d97706" : "#94a3b8" }}>★ Captain</span>
-                        </label>
-                        <button style={clearBtn} onClick={() => { clearSlot(side, index); ensureOneCaptain(side); }}>✕</button>
-                      </>
-                    ) : (
-                      <span style={{ flex: 1, color: "#94a3b8", fontSize: 13, fontStyle: "italic" }}>
-                        {activeSide === side ? "← tap a player above" : "empty"}
-                      </span>
-                    )}
-                  </div>
-                ))}
+      {/* Lineup panel — two independent sections */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+        {(["mine", "theirs"] as const).map((side) => {
+          const list = side === "mine" ? mine : theirs;
+          const name = side === "mine" ? yourName : rival;
+          const canSave = side === "mine" ? canSaveMine : canSaveTheirs;
+          const isSaving = saving === side;
+          return (
+            <div key={side} style={{ ...panelStyle, border: activeSide === side ? "2px solid #2563eb" : "1px solid #e2e8f0" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 15 }}>{name}&apos;s Team</div>
+                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Pick 4 · mark 1 as ★ Captain (×2 pts)</div>
+                </div>
+                <button type="button" onClick={() => setActiveSide(side)} style={{ ...tabStyle(activeSide === side), borderRadius: 8 }}>
+                  {activeSide === side ? "Active ✓" : "Set Active"}
+                </button>
               </div>
-            );
-          })}
-        </div>
 
-        <div style={{ display: "flex", gap: 12, marginTop: 16, alignItems: "center", flexWrap: "wrap" }}>
-          <button onClick={saveLineup} disabled={!canSave || saving} style={btnPrimary}>
-            {saving ? "Saving…" : "Save Lineups & Go to Match →"}
-          </button>
-          {message && linkChoices === null && <span style={{ fontSize: 13, color: "#475569" }}>{message}</span>}
-        </div>
+              {side === "theirs" && (
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 12, color: "#475569", display: "block", marginBottom: 4 }}>Opponent display name</label>
+                  <input value={rival} onChange={(e) => setRival(e.target.value)} style={inputStyle} placeholder="Opponent name" />
+                </div>
+              )}
+
+              {list.map((player, index) => (
+                <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, minHeight: 40 }}>
+                  <div style={slotNum}>{index + 1}</div>
+                  {player.name.trim() ? (
+                    <>
+                      <span style={{ flex: 1, fontWeight: 500, fontSize: 14 }}>{player.name}</span>
+                      <label style={{ display: "flex", alignItems: "center", gap: 3, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>
+                        <input type="radio" name={`${side}-cap`} checked={player.captain} onChange={() => updateCaptain(side, index)} />
+                        <span style={{ color: player.captain ? "#d97706" : "#94a3b8" }}>★ Captain</span>
+                      </label>
+                      <button style={clearBtn} onClick={() => { clearSlot(side, index); ensureOneCaptain(side); }}>✕</button>
+                    </>
+                  ) : (
+                    <span style={{ flex: 1, color: "#94a3b8", fontSize: 13, fontStyle: "italic" }}>
+                      {activeSide === side ? "← tap a player above" : "empty"}
+                    </span>
+                  )}
+                </div>
+              ))}
+
+              <button
+                onClick={() => void saveSide(side)}
+                disabled={!canSave || saving !== null}
+                style={{ ...btnPrimary, width: "100%", marginTop: 12, opacity: !canSave ? 0.5 : 1 }}
+              >
+                {isSaving ? "Saving…" : `Save ${name}'s Team →`}
+              </button>
+            </div>
+          );
+        })}
       </div>
+
+      {message && linkChoices === null && (
+        <div style={{ fontSize: 13, color: "#475569", padding: "8px 12px", background: "#f8fafc", borderRadius: 8 }}>{message}</div>
+      )}
     </div>
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
 const panelStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 20, background: "white", padding: 20, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" };
 const barStyle: CSSProperties = { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: "12px 16px", background: "white", border: "1px solid #e2e8f0", borderRadius: 16 };
 const pickerStyle: CSSProperties = { border: "1px solid #bfdbfe", borderRadius: 20, background: "#f0f9ff", padding: 20 };

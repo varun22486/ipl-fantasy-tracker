@@ -22,6 +22,7 @@ async function getData() {
 export default async function MatchPage() {
   const { currentMatch, matchPlayers, settings } = await getData();
   const opponentName = settings?.opponent_name ?? "Rahul";
+  const yourName = (settings as any)?.your_name ?? "Varun";
   const yourPlayers = matchPlayers.filter((p) => p.side === "You");
   const oppPlayers = matchPlayers.filter((p) => p.side !== "You");
 
@@ -45,6 +46,7 @@ export default async function MatchPage() {
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
       <NavBar title="Live Match" subtitle={subtitle} />
       <MatchClient
+        yourName={yourName}
         opponentName={opponentName}
         yourFantasyPlayers={yourPlayers}
         opponentFantasyPlayers={oppPlayers}

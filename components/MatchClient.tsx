@@ -33,6 +33,7 @@ type DebugData = {
 };
 
 type Props = {
+  yourName: string;
   opponentName: string;
   yourFantasyPlayers: FantasyPlayer[];
   opponentFantasyPlayers: FantasyPlayer[];
@@ -63,7 +64,7 @@ function DebugPanel({ info }: { info: DebugData | null }) {
   );
 }
 
-export default function MatchClient({ opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch }: Props) {
+export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
   const [debugInfo, setDebugInfo] = useState<DebugData | null>(null);
@@ -172,9 +173,9 @@ export default function MatchClient({ opponentName, yourFantasyPlayers, opponent
       {/* Score cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
         {[
-          { label: "Your Points", value: yourTotal, color: "#1d4ed8" },
-          { label: `${opponentName} Points`, value: oppTotal, color: "#dc2626" },
-          { label: "Leader", value: leader, color: "#0f172a" },
+        { label: `${yourName}'s Points`, value: yourTotal, color: "#1d4ed8" },
+        { label: `${opponentName}'s Points`, value: oppTotal, color: "#dc2626" },
+        { label: "Leader", value: leader, color: "#0f172a" },
         ].map(({ label, value, color }) => (
           <div key={label} style={{ border: "1px solid #e2e8f0", borderRadius: 16, background: "white", padding: "14px 18px" }}>
             <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div>
@@ -233,8 +234,8 @@ export default function MatchClient({ opponentName, yourFantasyPlayers, opponent
       {/* Player tables */}
       {yourFantasyPlayers.length > 0 || opponentFantasyPlayers.length > 0 ? (
         <div style={{ display: "grid", gap: 16 }}>
-          <PlayerTable title="Your Team" players={yourFantasyPlayers} />
-          <PlayerTable title={`${opponentName} Team`} players={opponentFantasyPlayers} />
+          <PlayerTable title={`${yourName}'s Team`} players={yourFantasyPlayers} />
+          <PlayerTable title={`${opponentName}'s Team`} players={opponentFantasyPlayers} />
         </div>
       ) : (
         <div style={{ textAlign: "center", padding: 32, border: "1px solid #e2e8f0", borderRadius: 16, background: "white", color: "#64748b" }}>

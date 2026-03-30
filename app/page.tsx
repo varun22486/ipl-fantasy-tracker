@@ -15,6 +15,7 @@ async function getData() {
 
   if (matchErr) console.error("[home] matches query error:", matchErr.message);
   const opponentName = settings?.opponent_name ?? "Rahul";
+  const yourName = (settings as any)?.your_name ?? "Varun";
 
   const playersByMatch: Record<number, FantasyPlayer[]> = {};
   for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
@@ -85,6 +86,7 @@ async function getData() {
   const ties = matchStats.filter((m) => m.winner === "Tie").length;
 
   return {
+    yourName,
     opponentName,
     matchStats,
     leaderboard,
