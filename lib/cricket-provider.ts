@@ -1148,6 +1148,61 @@ function withIdMap(teamName: string, names: string[], idMap: Record<string, stri
   return { teamName, players: names, playerIdMap };
 }
 
+/** Batting side name from an innings block (scorecard or batting[] shape). */
+function parseInningBattingSideName(inn: unknown): string {
+  const o = inn as MaybeRecord;
+  const inningLabel = safeString(o?.inning || o?.inningsName || o?.title || o?.inningsTitle || "");
+  const stripped = inningLabel.replace(/\s+(inning|innings)\s*\d+\s*$/i, "").trim();
+  return stripped || inningLabel;
+}
+
+function teamsLooselySame(a: string, b: string): boolean {
+  const la = a.toLowerCase().trim();
+  const lb = b.toLowerCase().trim();
+  if (!la || !lb) return false;
+  if (la === lb) return true;
+  if (la.includes(lb) || lb.includes(la)) return true;
+  return false;
+}
+
+/** Team names from match payload (string or object entries). */
+function teamNamesFromMatchData(data: MaybeRecord): string[] {
+  const teams = data.teams;
+  if (!Array.isArray(teams)) return [];
+  const names: string[] = [];
+  for (const t of teams) {
+    const n =
+      typeof t === "string"
+        ? safeString(t)
+        : safeString((t as MaybeRecord)?.name || (t as MaybeRecord)?.teamName || (t as MaybeRecord)?.team || (t as MaybeRecord)?.teamSName);
+    if (n) names.push(n);
+  }
+  return [...new Set(names)];
+}
+
+/**
+ * Bowlers listed under an innings belong to the fielding side, not the batting side named in the label.
+ */
+function resolveFieldingTeamName(battingTeam: string, inningsBattingSides: string[], data: MaybeRecord): string | null {
+  if (!battingTeam) return null;
+  const ordered = [...new Set(inningsBattingSides.filter(Boolean))];
+  if (ordered.length >= 2) {
+    const other = ordered.find((t) => !teamsLooselySame(t, battingTeam));
+    if (other) return other;
+  }
+  const fromApi = teamNamesFromMatchData(data);
+  if (fromApi.length === 2) {
+    const other = fromApi.find((n) => !teamsLooselySame(n, battingTeam));
+    if (other) return other;
+  }
+  if (ordered.length === 1 && fromApi.length === 2) {
+    const sole = ordered[0]!;
+    const other = fromApi.find((n) => !teamsLooselySame(n, sole));
+    if (other) return other;
+  }
+  return null;
+}
+
 function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTeam[] {
   if (!root || typeof root !== "object") return [];
   const data = (root as MaybeRecord).data ?? root;
@@ -1209,32 +1264,60 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
     if (out.length) return out;
   }
 
-  // CricAPI match_scorecard: data.scorecard = [{ inning, batting:[{batsman:{id,name}},...], bowling:[{bowler:{id,name}},...] }]
+  // CricAPI match_scorecard: each innings lists batting side in `inning`; bowling[] is the *fielding* XI, not the batting team.
   const scorecard = (data as MaybeRecord).scorecard;
   if (Array.isArray(scorecard) && scorecard.length > 0) {
-    const byTeam    = new Map<string, Set<string>>();
+    const dataRec = data as MaybeRecord;
+    const inningsSides = scorecard.map((inn) => parseInningBattingSideName(inn)).filter(Boolean);
+    const byTeam = new Map<string, Set<string>>();
     const byTeamIds = new Map<string, Record<string, string>>();
+    const ensure = (name: string) => {
+      if (!byTeam.has(name)) {
+        byTeam.set(name, new Set<string>());
+        byTeamIds.set(name, {});
+      }
+    };
     for (const inn of scorecard) {
-      const inningLabel = safeString((inn as any).inning || (inn as any).inningsName || "");
-      const teamName = inningLabel.replace(/\s+(inning|innings)\s*\d+\s*$/i, "").trim() || inningLabel;
-      if (!byTeam.has(teamName)) { byTeam.set(teamName, new Set<string>()); byTeamIds.set(teamName, {}); }
-      const teamSet = byTeam.get(teamName)!;
-      const idMap   = byTeamIds.get(teamName)!;
+      const battingTeam = parseInningBattingSideName(inn);
+      if (!battingTeam) continue;
+      const bowlingTeam = resolveFieldingTeamName(battingTeam, inningsSides, dataRec);
+      ensure(battingTeam);
+      const batSet = byTeam.get(battingTeam)!;
+      const batIds = byTeamIds.get(battingTeam)!;
       for (const b of ((inn as any).batting ?? [])) {
         const n = typeof b.batsman === "object" ? safeString(b.batsman?.name) : safeString(b.batsman);
         const id = typeof b.batsman === "object" ? safeString(b.batsman?.id || "") : "";
-        if (n) { teamSet.add(n); if (id) idMap[n.toLowerCase()] = id; }
+        if (n && n.toLowerCase() !== "extras") {
+          batSet.add(n);
+          if (id) batIds[n.toLowerCase()] = id;
+        }
       }
-      for (const b of ((inn as any).bowling ?? [])) {
-        const n = typeof b.bowler === "object" ? safeString(b.bowler?.name) : safeString(b.bowler);
-        const id = typeof b.bowler === "object" ? safeString(b.bowler?.id || "") : "";
-        if (n) { teamSet.add(n); if (id) idMap[n.toLowerCase()] = id; }
+      if (bowlingTeam) {
+        ensure(bowlingTeam);
+        const bowlSet = byTeam.get(bowlingTeam)!;
+        const bowlIds = byTeamIds.get(bowlingTeam)!;
+        for (const b of ((inn as any).bowling ?? [])) {
+          const n = typeof b.bowler === "object" ? safeString(b.bowler?.name) : safeString(b.bowler);
+          const id = typeof b.bowler === "object" ? safeString(b.bowler?.id || "") : "";
+          if (n && n.toLowerCase() !== "extras") {
+            bowlSet.add(n);
+            if (id) bowlIds[n.toLowerCase()] = id;
+          }
+        }
       }
     }
+    const order = [...new Set(inningsSides)];
     const out: SquadTeam[] = [];
     for (const [teamName, names] of byTeam) {
       if (names.size) out.push(withIdMap(teamName, [...names], byTeamIds.get(teamName) ?? {}));
     }
+    out.sort((a, b) => {
+      const ia = order.indexOf(a.teamName);
+      const ib = order.indexOf(b.teamName);
+      const sa = ia === -1 ? 999 : ia;
+      const sb = ib === -1 ? 999 : ib;
+      return sa - sb;
+    });
     if (out.length) return out;
   }
 
@@ -1274,43 +1357,57 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
 function extractSquadsFromBatting(data: MaybeRecord): SquadTeam[] {
   const batting = data.batting;
   if (!Array.isArray(batting)) return [];
-  const out: SquadTeam[] = [];
+  const inningsSides = batting.map((inn) => parseInningBattingSideName(inn)).filter(Boolean);
+  const byTeam = new Map<string, Set<string>>();
+  const add = (team: string, name: string) => {
+    if (!team || !name || name.toLowerCase() === "extras") return;
+    if (!byTeam.has(team)) byTeam.set(team, new Set());
+    byTeam.get(team)!.add(name);
+  };
   for (const inn of batting) {
-    const title = safeString((inn as any).title || (inn as any).inningsTitle || "Batting");
-    const set = new Set<string>();
+    const battingTeam = parseInningBattingSideName(inn);
+    if (!battingTeam) continue;
+    const bowlingTeam = resolveFieldingTeamName(battingTeam, inningsSides, data);
 
-    // Format A: scores array of rows/cells
     const scores = (inn as any).scores;
     if (Array.isArray(scores)) {
       for (const row of scores) {
         const cells = Array.isArray(row) ? row : [row];
         for (const cell of cells) {
           const b = safeString((cell as any)?.batsman || (cell as any)?.name);
-          if (b && b.toLowerCase() !== "extras") set.add(b);
+          if (b) add(battingTeam, b);
         }
       }
     }
 
-    // Format B: CricAPI match_scorecard — batting[].batsman = [{batsman, r, b, ...}]
     const batsmen = (inn as any).batsman ?? (inn as any).batsmen;
     if (Array.isArray(batsmen)) {
       for (const b of batsmen) {
         const name = safeString((b as any).batsman || (b as any).name || (b as any).fullName);
-        if (name && name.toLowerCase() !== "extras") set.add(name);
+        if (name) add(battingTeam, name);
       }
     }
 
-    // Format C: bowler array in same innings object (gets the bowling team players too)
-    const bowlers = (inn as any).bowler ?? (inn as any).bowlers;
-    if (Array.isArray(bowlers)) {
-      for (const b of bowlers) {
-        const name = safeString((b as any).bowler || (b as any).name || (b as any).fullName);
-        if (name && name.toLowerCase() !== "extras") set.add(name);
+    if (bowlingTeam) {
+      const bowlers = (inn as any).bowler ?? (inn as any).bowlers;
+      if (Array.isArray(bowlers)) {
+        for (const b of bowlers) {
+          const name = safeString((b as any).bowler || (b as any).name || (b as any).fullName);
+          if (name) add(bowlingTeam, name);
+        }
       }
     }
-
-    if (set.size) out.push({ teamName: title, players: [...set] });
   }
+  const order = [...new Set(inningsSides)];
+  const out: SquadTeam[] = [];
+  for (const [teamName, set] of byTeam) {
+    if (set.size) out.push({ teamName, players: [...set] });
+  }
+  out.sort((a, b) => {
+    const ia = order.indexOf(a.teamName);
+    const ib = order.indexOf(b.teamName);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
   return out;
 }
 
