@@ -1,12 +1,10 @@
 "use client";
 
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, ReferenceLine,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area,
-  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ScatterChart, Scatter, ZAxis, Cell,
-  ComposedChart,
+  ComposedChart, Line, ReferenceLine,
 } from "recharts";
 import type { CSSProperties } from "react";
 import NavBar from "@/components/NavBar";
@@ -40,7 +38,6 @@ const YOU_COLOR  = "#2563eb";
 const OPP_COLOR  = "#dc2626";
 const YOU_LIGHT  = "#dbeafe";
 const OPP_LIGHT  = "#fee2e2";
-const PLAYER_COLORS = ["#3b82f6","#8b5cf6","#06b6d4","#10b981","#f59e0b","#ec4899","#6366f1","#14b8a6"];
 
 function shortFixture(f: string) {
   const m = f.match(/match\s*(\d+)/i);
@@ -120,11 +117,10 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
 
   // ── Chart datasets ──────────────────────────────────────────────────────────
 
-  // 1. Running total + momentum gap (combined)
+  // 1. Running total
   const cumulData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
     [yourName]: m.yourCumulative, [opponentName]: m.oppCumulative,
-    gap: m.yourCumulative - m.oppCumulative,
   }));
 
   // 2. Per-match bars
@@ -133,40 +129,54 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
     [yourName]: m.yourPoints, [opponentName]: m.oppPoints,
   }));
 
-  // 3. Radar data (normalized 0–100)
-  const maxAvg = Math.max(ins?.yourAvg ?? 1, ins?.oppAvg ?? 1, 1);
-  const maxBat = Math.max((ins?.brkd.you.runs ?? 0) / Math.max(played.length, 1), (ins?.brkd.opp.runs ?? 0) / Math.max(played.length, 1), 1);
-  const maxBwl = Math.max((ins?.brkd.you.wkts ?? 0) / Math.max(played.length, 1), (ins?.brkd.opp.wkts ?? 0) / Math.max(played.length, 1), 1);
-  const maxFld = Math.max((ins?.brkd.you.catches ?? 0) / Math.max(played.length, 1), (ins?.brkd.opp.catches ?? 0) / Math.max(played.length, 1), 1);
-  const radarData = ins && played.length > 0 ? [
-    { metric: "Win Rate",    [yourName]: Math.round((summary.yourWins / played.length) * 100), [opponentName]: Math.round((summary.oppWins / played.length) * 100) },
-    { metric: "Avg Score",   [yourName]: Math.round((ins.yourAvg / maxAvg) * 100), [opponentName]: Math.round((ins.oppAvg / maxAvg) * 100) },
-    { metric: "Batting",     [yourName]: Math.round(((ins.brkd.you.runs / played.length) / maxBat) * 100), [opponentName]: Math.round(((ins.brkd.opp.runs / played.length) / maxBat) * 100) },
-    { metric: "Bowling",     [yourName]: Math.round(((ins.brkd.you.wkts / played.length) / maxBwl) * 100), [opponentName]: Math.round(((ins.brkd.opp.wkts / played.length) / maxBwl) * 100) },
-    { metric: "Fielding",    [yourName]: Math.round(((ins.brkd.you.catches / played.length) / maxFld) * 100), [opponentName]: Math.round(((ins.brkd.opp.catches / played.length) / maxFld) * 100) },
-    { metric: "Cap Impact",  [yourName]: ins.capPctYou, [opponentName]: ins.capPctOpp },
-  ] : [];
-
-  // 4. Player scatter data (runs vs pts, size = matches)
-  const yourScatter = leaderboard.filter((p) => p.side === "You").map((p) => ({ x: p.runs, y: p.totalPoints, z: Math.max(p.matches * 60, 40), name: p.name }));
-  const oppScatter  = leaderboard.filter((p) => p.side !== "You").map((p) => ({ x: p.runs, y: p.totalPoints, z: Math.max(p.matches * 60, 40), name: p.name }));
-
-  // 5. Stacked player contributions per match
-  // Find all unique players per side (ordered by total pts desc)
-  const yourPlayerNames = leaderboard.filter((p) => p.side === "You").slice(0, 5).map((p) => p.name);
-  const oppPlayerNames  = leaderboard.filter((p) => p.side !== "You").slice(0, 5).map((p) => p.name);
-  const playerContribData = played.map((m) => {
-    const row: Record<string, string | number> = { name: shortFixture(m.fixture), fullName: m.fixture };
-    for (const pn of yourPlayerNames) {
-      const found = m.players.find((p) => p.name === pn && p.side === "You");
-      row[`Y_${pn}`] = found ? found.points : 0;
-    }
-    for (const pn of oppPlayerNames) {
-      const found = m.players.find((p) => p.name === pn && p.side !== "You");
-      row[`O_${pn}`] = found ? found.points : 0;
-    }
-    return row;
+  // 3. Captain data per match
+  const captainData = played.map((m) => {
+    const yourCap = m.players.find((p) => p.side === "You" && p.captain);
+    const oppCap  = m.players.find((p) => p.side !== "You" && p.captain);
+    // base = final / 2 (reverse the 2× multiplier), bonus = same amount
+    const yourBase  = yourCap ? Math.round(yourCap.points / 2) : 0;
+    const oppBase   = oppCap  ? Math.round(oppCap.points / 2)  : 0;
+    const yourBonus = yourBase;
+    const oppBonus  = oppBase;
+    // non-captain average (other 3 players)
+    const yourOthers = m.players.filter((p) => p.side === "You" && !p.captain);
+    const oppOthers  = m.players.filter((p) => p.side !== "You" && !p.captain);
+    const yourOtherAvg = yourOthers.length ? Math.round(yourOthers.reduce((s, p) => s + p.points, 0) / yourOthers.length) : 0;
+    const oppOtherAvg  = oppOthers.length  ? Math.round(oppOthers.reduce((s, p) => s + p.points, 0)  / oppOthers.length)  : 0;
+    return {
+      name: shortFixture(m.fixture), fullName: m.fixture,
+      yourCapName: yourCap?.name ?? "—", oppCapName: oppCap?.name ?? "—",
+      [`${yourName} Base`]: yourBase, [`${yourName} Bonus`]: yourBonus,
+      [`${opponentName} Base`]: oppBase, [`${opponentName} Bonus`]: oppBonus,
+      [`${yourName} Rest`]: yourOtherAvg, [`${opponentName} Rest`]: oppOtherAvg,
+    };
   });
+
+  // 4. Rolling win-rate (%) per match
+  const winRateData = played.map((m, i) => {
+    const slice = played.slice(0, i + 1);
+    const yW = slice.filter((x) => x.winner === "You" || x.winner === yourName).length;
+    const oW = slice.filter((x) => x.winner === opponentName).length;
+    return {
+      name: shortFixture(m.fixture), fullName: m.fixture,
+      [yourName]: Math.round((yW / (i + 1)) * 100),
+      [opponentName]: Math.round((oW / (i + 1)) * 100),
+    };
+  });
+
+  // 5. Score-range distribution (how often each team hits each bracket)
+  const RANGES = [
+    { label: "0–49",   min: 0,   max: 49   },
+    { label: "50–99",  min: 50,  max: 99   },
+    { label: "100–149",min: 100, max: 149  },
+    { label: "150–199",min: 150, max: 199  },
+    { label: "200+",   min: 200, max: 9999 },
+  ];
+  const rangeData = RANGES.map(({ label, min, max }) => ({
+    range: label,
+    [yourName]:    played.filter((m) => m.yourPoints >= min && m.yourPoints <= max).length,
+    [opponentName]:played.filter((m) => m.oppPoints  >= min && m.oppPoints  <= max).length,
+  }));
 
   const leader = summary.yourTotal === summary.oppTotal ? "Tied"
     : summary.yourTotal > summary.oppTotal ? `${yourName} leads by ${summary.yourTotal - summary.oppTotal}`
@@ -272,32 +282,6 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
       {/* ── Charts ────────────────────────────────────────────────────────── */}
       {played.length > 0 && (
         <>
-          {/* CHART 1: Series Momentum Gap (area) */}
-          <div style={sectionStyle}>
-            <h2 style={sectionTitle}>Series Momentum</h2>
-            <p style={sectionSub}>Cumulative point gap — above 0 means {yourName} leads, below means {opponentName} leads</p>
-            <ResponsiveContainer width="100%" height={260}>
-              <ComposedChart data={cumulData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="gapUp" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.25} />
-                    <stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0.02} />
-                  </linearGradient>
-                  <linearGradient id="gapDown" x1="0" y1="1" x2="0" y2="0">
-                    <stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.25} />
-                    <stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} />
-                <YAxis tick={{ fontSize: 12, fill: "#64748b" }} />
-                <Tooltip content={<ChartTooltip formatter={(v: number) => `${v > 0 ? "+" : ""}${v} pts`} />} />
-                <ReferenceLine y={0} stroke="#cbd5e1" strokeWidth={2} strokeDasharray="4 2" label={{ value: "Even", fill: "#94a3b8", fontSize: 11 }} />
-                <Area type="monotone" dataKey="gap" stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#gapUp)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} activeDot={{ r: 6 }} name="Lead" />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-
           {/* CHART 2: Running Totals */}
           <div style={sectionStyle}>
             <h2 style={sectionTitle}>Running Series Total</h2>
@@ -325,115 +309,117 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
             </ResponsiveContainer>
           </div>
 
-          {/* CHART 3 & 4: Side-by-side bar + radar */}
+          {/* Match-by-match bars */}
+          <div style={sectionStyle}>
+            <h2 style={sectionTitle}>Match-by-Match</h2>
+            <p style={sectionSub}>Points scored in each individual match</p>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={barData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }} barCategoryGap="30%">
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} pts`} />} />
+                <Legend wrapperStyle={{ fontSize: 13 }} />
+                <Bar dataKey={yourName} fill={YOU_COLOR} radius={[6, 6, 0, 0]} />
+                <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* CAPTAIN IMPACT — stacked bars (base + ×2 bonus) + rest-of-team avg line */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20 }}>
-            {/* Match-by-match bars */}
+            {[
+              { label: yourName,    baseKey: `${yourName} Base`,    bonusKey: `${yourName} Bonus`,    restKey: `${yourName} Rest`,    capNameKey: "yourCapName",    barColor: YOU_COLOR, bonusColor: "#93c5fd" },
+              { label: opponentName, baseKey: `${opponentName} Base`, bonusKey: `${opponentName} Bonus`, restKey: `${opponentName} Rest`, capNameKey: "oppCapName", barColor: OPP_COLOR, bonusColor: "#fca5a5" },
+            ].map(({ label, baseKey, bonusKey, restKey, capNameKey, barColor, bonusColor }) => (
+              <div key={label} style={sectionStyle}>
+                <h2 style={sectionTitle}>Captain Impact — {label}</h2>
+                <p style={sectionSub}>
+                  Bars = captain points split into base (dark) + ×2 bonus (light).
+                  Line = avg of the other 3 players. If bars beat the line, captain pick paid off.
+                </p>
+                <ResponsiveContainer width="100%" height={260}>
+                  <ComposedChart data={captainData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <Tooltip content={({ active, payload, label: lbl }: any) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0]?.payload;
+                      const capName = d?.[capNameKey] ?? "—";
+                      const base  = d?.[baseKey]  ?? 0;
+                      const bonus = d?.[bonusKey] ?? 0;
+                      const rest  = d?.[restKey]  ?? 0;
+                      return (
+                        <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 12, padding: "10px 14px", fontSize: 13 }}>
+                          <div style={{ fontWeight: 700, marginBottom: 6 }}>{d?.fullName ?? lbl}</div>
+                          <div style={{ color: "#475569" }}>★ Captain: <strong style={{ color: barColor }}>{capName}</strong></div>
+                          <div style={{ marginTop: 4, color: "#64748b" }}>Base: {base} pts · Bonus: +{bonus} pts</div>
+                          <div style={{ color: "#64748b" }}>Total: <strong>{base + bonus} pts</strong></div>
+                          <div style={{ marginTop: 4, color: "#94a3b8" }}>Others avg: {rest} pts</div>
+                        </div>
+                      );
+                    }} />
+                    <Bar dataKey={baseKey}  stackId="cap" fill={barColor}   radius={[0, 0, 4, 4]} name="Base" />
+                    <Bar dataKey={bonusKey} stackId="cap" fill={bonusColor} radius={[4, 4, 0, 0]} name="×2 Bonus" />
+                    <Line type="monotone" dataKey={restKey} stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 3" dot={{ r: 3, fill: "#94a3b8" }} name="Others avg" />
+                    <Legend wrapperStyle={{ fontSize: 12 }} formatter={(v: string) => v === baseKey ? "Base" : v === bonusKey ? "×2 Bonus" : "Others avg"} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            ))}
+          </div>
+
+          {/* WIN-RATE TRACKER + SCORE DISTRIBUTION side-by-side */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20 }}>
+
+            {/* Rolling win rate */}
+            {played.length >= 2 && (
+              <div style={sectionStyle}>
+                <h2 style={sectionTitle}>Win Rate Over Time</h2>
+                <p style={sectionSub}>Rolling win % after each match — above 50% means you're dominating</p>
+                <ResponsiveContainer width="100%" height={240}>
+                  <ComposedChart data={winRateData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="winGradYou" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor={YOU_COLOR} stopOpacity={0.15} />
+                        <stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} />
+                      </linearGradient>
+                      <linearGradient id="winGradOpp" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor={OPP_COLOR} stopOpacity={0.15} />
+                        <stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: "#94a3b8" }} tickFormatter={(v: number) => `${v}%`} axisLine={false} tickLine={false} />
+                    <ReferenceLine y={50} stroke="#cbd5e1" strokeDasharray="4 3" label={{ value: "50%", fill: "#94a3b8", fontSize: 11 }} />
+                    <Tooltip content={<ChartTooltip formatter={(v: number) => `${v}%`} />} />
+                    <Legend wrapperStyle={{ fontSize: 13 }} />
+                    <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#winGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                    <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#winGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Score range distribution */}
             <div style={sectionStyle}>
-              <h2 style={sectionTitle}>Match-by-Match</h2>
-              <p style={sectionSub}>Points scored in each individual match</p>
+              <h2 style={sectionTitle}>Score Distribution</h2>
+              <p style={sectionSub}>How many matches each team fell in each points bracket — shows consistency</p>
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={barData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }} barCategoryGap="30%">
+                <BarChart data={rangeData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }} barCategoryGap="35%">
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} pts`} />} />
+                  <XAxis dataKey="range" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} label={{ value: "matches", angle: -90, position: "insideLeft", fontSize: 11, fill: "#94a3b8" }} />
+                  <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} match${v !== 1 ? "es" : ""}`} />} />
                   <Legend wrapperStyle={{ fontSize: 13 }} />
                   <Bar dataKey={yourName} fill={YOU_COLOR} radius={[6, 6, 0, 0]} />
                   <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-
-            {/* Team DNA Radar */}
-            {radarData.length > 0 && (
-              <div style={sectionStyle}>
-                <h2 style={sectionTitle}>Team DNA</h2>
-                <p style={sectionSub}>Normalised comparison across batting, bowling, fielding & tactics</p>
-                <ResponsiveContainer width="100%" height={240}>
-                  <RadarChart data={radarData} margin={{ top: 5, right: 30, left: 30, bottom: 5 }}>
-                    <PolarGrid stroke="#e2e8f0" />
-                    <PolarAngleAxis dataKey="metric" tick={{ fontSize: 11, fill: "#475569" }} />
-                    <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-                    <Radar name={yourName} dataKey={yourName} stroke={YOU_COLOR} fill={YOU_COLOR} fillOpacity={0.18} strokeWidth={2} dot={{ r: 3, fill: YOU_COLOR }} />
-                    <Radar name={opponentName} dataKey={opponentName} stroke={OPP_COLOR} fill={OPP_COLOR} fillOpacity={0.18} strokeWidth={2} dot={{ r: 3, fill: OPP_COLOR }} />
-                    <Legend wrapperStyle={{ fontSize: 13 }} />
-                    <Tooltip contentStyle={{ borderRadius: 10, fontSize: 13 }} formatter={(v: number) => `${v}/100`} />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
           </div>
-
-          {/* CHART 5: Player scatter — Runs vs Total Points */}
-          {(yourScatter.length > 0 || oppScatter.length > 0) && (
-            <div style={sectionStyle}>
-              <h2 style={sectionTitle}>Player Map — Runs vs Total Points</h2>
-              <p style={sectionSub}>Each bubble is a player. X = total runs scored, Y = fantasy points earned. Size = matches played. Hover to see name.</p>
-              <ResponsiveContainer width="100%" height={280}>
-                <ScatterChart margin={{ top: 10, right: 30, left: 0, bottom: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis type="number" dataKey="x" name="Runs" tick={{ fontSize: 12, fill: "#64748b" }} label={{ value: "Runs scored", position: "insideBottom", offset: -4, fontSize: 12, fill: "#94a3b8" }} />
-                  <YAxis type="number" dataKey="y" name="Points" tick={{ fontSize: 12, fill: "#64748b" }} label={{ value: "Fantasy pts", angle: -90, position: "insideLeft", fontSize: 12, fill: "#94a3b8" }} />
-                  <ZAxis type="number" dataKey="z" range={[40, 400]} />
-                  <Tooltip cursor={{ strokeDasharray: "3 3" }} content={({ active, payload }: any) => {
-                    if (!active || !payload?.length) return null;
-                    const d = payload[0]?.payload;
-                    const isYou = yourScatter.some((s) => s.name === d?.name);
-                    return (
-                      <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
-                        <div style={{ fontWeight: 700, color: isYou ? YOU_COLOR : OPP_COLOR }}>{d?.name}</div>
-                        <div style={{ color: "#475569" }}>{d?.x} runs · {d?.y} pts</div>
-                      </div>
-                    );
-                  }} />
-                  <Legend wrapperStyle={{ fontSize: 13 }} />
-                  <Scatter name={yourName} data={yourScatter} fill={YOU_COLOR} opacity={0.85} />
-                  <Scatter name={opponentName} data={oppScatter} fill={OPP_COLOR} opacity={0.85} />
-                </ScatterChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          {/* CHART 6: Stacked player contribution per match */}
-          {yourPlayerNames.length > 0 && playerContribData.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20 }}>
-              {[
-                { title: `${yourName}'s Lineup`, keys: yourPlayerNames.map((n) => `Y_${n}`), names: yourPlayerNames },
-                { title: `${opponentName}'s Lineup`, keys: oppPlayerNames.map((n) => `O_${n}`), names: oppPlayerNames },
-              ].map(({ title, keys, names }, si) => (
-                <div key={title} style={sectionStyle}>
-                  <h2 style={sectionTitle}>{title}</h2>
-                  <p style={sectionSub}>Who carried the team in each match</p>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={playerContribData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }} barCategoryGap="30%">
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                      <Tooltip content={({ active, payload, label }: any) => {
-                        if (!active || !payload?.length) return null;
-                        return (
-                          <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 10, padding: "10px 14px", fontSize: 13 }}>
-                            <div style={{ fontWeight: 700, marginBottom: 6 }}>{payload[0]?.payload?.fullName ?? label}</div>
-                            {payload.filter((p: any) => p.value > 0).map((p: any, i: number) => (
-                              <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 3 }}>
-                                <span style={{ width: 8, height: 8, borderRadius: 2, background: p.fill, display: "inline-block" }} />
-                                <span style={{ color: "#475569" }}>{p.name.replace(/^[YO]_/, "")}:</span>
-                                <span style={{ fontWeight: 700 }}>{p.value} pts</span>
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      }} />
-                      <Legend formatter={(v: string) => v.replace(/^[YO]_/, "")} wrapperStyle={{ fontSize: 12 }} />
-                      {keys.map((k, i) => (
-                        <Bar key={k} dataKey={k} name={k} stackId="a" fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} radius={i === keys.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
-                      ))}
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ))}
-            </div>
-          )}
         </>
       )}
 
