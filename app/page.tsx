@@ -7,12 +7,13 @@ import { formatFixture } from "@/lib/format";
 import StatsClient from "@/components/StatsClient";
 
 async function getData() {
-  const [{ data: matches }, { data: allPlayers }, { data: settings }] = await Promise.all([
-    supabaseAdmin.from("matches").select("id,fixture,match_date,status,is_current").order("id", { ascending: true }),
+  const [{ data: matches, error: matchErr }, { data: allPlayers }, { data: settings }] = await Promise.all([
+    supabaseAdmin.from("matches").select("*").order("id", { ascending: true }),
     supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
     supabaseAdmin.from("series_settings").select("opponent_name").limit(1).single(),
   ]);
 
+  if (matchErr) console.error("[home] matches query error:", matchErr.message);
   const opponentName = settings?.opponent_name ?? "Rahul";
 
   const playersByMatch: Record<number, FantasyPlayer[]> = {};
