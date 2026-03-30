@@ -1202,6 +1202,7 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
 
   let payload: MaybeRecord | null = null;
   let scorecardFailed = false;
+  let lastFailReason = "";
 
   for (const path of candidatePaths) {
     try {
@@ -1209,22 +1210,35 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
       // Skip explicit API failures — quota errors are handled inside fetchJson.
       if (p?.status === "failure") {
         scorecardFailed = true;
+        const r = safeString(p.reason || p.message || p.error || "");
+        if (r) lastFailReason = r;
         continue;
       }
       if (p) { payload = p; break; }
-    } catch {
-      // try next path
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg) lastFailReason = msg;
     }
   }
 
   // When no scorecard is available, return empty stats rather than throwing so
   // the match metadata (status, venue, etc.) still gets updated on sync.
   if (!payload) {
+    // Classify the failure so the UI can give actionable advice
+    const isRateLimit = /block|rate.?limit|15.?min/i.test(lastFailReason);
+    const isPlanError = /plan|subscri|paid|unauthori|forbidden|access|403/i.test(lastFailReason) ||
+                        (scorecardFailed && !isRateLimit && !lastFailReason);
+    const liveMsg = isRateLimit
+      ? `API rate-limited (${lastFailReason}). Wait 15 minutes and try again.`
+      : isPlanError
+      ? `Scorecard endpoint requires a paid CricAPI plan. Use ✏️ Edit to enter stats manually.`
+      : lastFailReason
+      ? `Scorecard not available: ${lastFailReason}. Use ✏️ Edit to enter stats manually.`
+      : "Scorecard not available from the API for this match. Use ✏️ Edit to enter stats manually.";
+
     return {
       status: scorecardFailed ? "COMPLETED" : "LIVE",
-      live_summary: scorecardFailed
-        ? "Scorecard not accessible via API (may require a paid plan). Stats cannot be auto-synced."
-        : null,
+      live_summary: liveMsg,
       fixture: undefined,
       venue: null,
       toss_winner: null,
