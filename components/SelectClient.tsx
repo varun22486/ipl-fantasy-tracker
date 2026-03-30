@@ -241,15 +241,33 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
 
       {/* Roster panel */}
       <div style={panelStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
           <h3 style={{ margin: 0 }}>Players in this match</h3>
-          {hasRoster && (
-            <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0" }}>
-              <button type="button" onClick={() => setActiveSide("mine")} style={tabStyle(activeSide === "mine")}>+ {yourName}&apos;s picks</button>
-              <button type="button" onClick={() => setActiveSide("theirs")} style={tabStyle(activeSide === "theirs")}>+ {rival}&apos;s picks</button>
-            </div>
-          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {hasRoster && (
+              <button
+                type="button"
+                onClick={() => guardedRun(1, doFetchRoster)}
+                disabled={syncing}
+                style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}
+                title="Re-fetch from API — use this once Playing XI is announced"
+              >
+                {syncing ? "⏳" : "🔄 Refresh Players"}
+              </button>
+            )}
+            {hasRoster && (
+              <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0" }}>
+                <button type="button" onClick={() => setActiveSide("mine")} style={tabStyle(activeSide === "mine")}>+ {yourName}&apos;s picks</button>
+                <button type="button" onClick={() => setActiveSide("theirs")} style={tabStyle(activeSide === "theirs")}>+ {rival}&apos;s picks</button>
+              </div>
+            )}
+          </div>
         </div>
+        {hasRoster && (
+          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
+            Showing full squad · tap <strong>🔄 Refresh Players</strong> once the Playing XI is announced to update the list
+          </div>
+        )}
 
         {!hasLinkedMatch ? (
           <div style={{ color: "#64748b", fontSize: 14 }}>Use &quot;Link IPL Match&quot; above to import a fixture first.</div>
@@ -260,7 +278,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
           </div>
         ) : (
           <>
-            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>Tap a player to add to the active side. Greyed = already picked.</div>
+            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>Tap a player to add to the active side. Greyed-out = already picked by someone.</div>
             {squads.length > 0 ? (
               <div style={{ display: "grid", gap: 16 }}>
                 {squads.map((team) => (
