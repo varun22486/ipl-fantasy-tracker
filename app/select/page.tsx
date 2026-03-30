@@ -8,11 +8,11 @@ import SelectClient from "@/components/SelectClient";
 
 type SquadTeam = { teamName: string; players: string[] };
 
-function parseRosterFromMatch(match: unknown): { rosterNames: string[]; squads: SquadTeam[] } {
-  if (!match || typeof match !== "object") return { rosterNames: [], squads: [] };
+function parseRosterFromMatch(match: unknown): { rosterNames: string[]; squads: SquadTeam[]; nameToId: Record<string, string> } {
+  if (!match || typeof match !== "object") return { rosterNames: [], squads: [], nameToId: {} };
   const raw = (match as { provider_squad_json?: unknown }).provider_squad_json;
-  if (!raw || typeof raw !== "object") return { rosterNames: [], squads: [] };
-  const o = raw as { squads?: unknown; rosterNames?: unknown };
+  if (!raw || typeof raw !== "object") return { rosterNames: [], squads: [], nameToId: {} };
+  const o = raw as { squads?: unknown; rosterNames?: unknown; nameToId?: unknown };
   const squads = Array.isArray(o.squads)
     ? o.squads
         .filter((t): t is { teamName?: string; players?: unknown } => Boolean(t && typeof t === "object"))
@@ -30,7 +30,11 @@ function parseRosterFromMatch(match: unknown): { rosterNames: string[]; squads: 
     for (const t of squads) for (const p of t.players) s.add(p.trim());
     rosterNames = [...s].sort((a, b) => a.localeCompare(b));
   }
-  return { rosterNames, squads };
+  const nameToId: Record<string, string> =
+    o.nameToId && typeof o.nameToId === "object" && !Array.isArray(o.nameToId)
+      ? (o.nameToId as Record<string, string>)
+      : {};
+  return { rosterNames, squads, nameToId };
 }
 
 async function getData() {
@@ -48,7 +52,7 @@ async function getData() {
 
 export default async function SelectPage() {
   const { currentMatch, matchPlayers, settings } = await getData();
-  const { rosterNames, squads } = parseRosterFromMatch(currentMatch);
+  const { rosterNames, squads, nameToId } = parseRosterFromMatch(currentMatch);
   const opponentName = settings?.opponent_name ?? "Rahul";
   const yourName = (settings as any)?.your_name ?? "Varun";
   const yourPlayers = matchPlayers.filter((p) => p.side === "You").map((p) => ({ name: p.name, captain: p.captain }));
@@ -64,6 +68,7 @@ export default async function SelectPage() {
         opponentPlayers={oppPlayers}
         rosterNames={rosterNames}
         squads={squads}
+        nameToId={nameToId}
         hasLinkedMatch={Boolean(currentMatch)}
       />
     </main>

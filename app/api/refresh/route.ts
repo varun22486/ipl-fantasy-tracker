@@ -6,6 +6,7 @@ type SelectedPlayer = {
   id: number;
   name: string;
   side: "You" | "Rahul";
+  provider_player_id?: string | null;
 };
 
 function normalizeName(name: string) {
@@ -83,7 +84,7 @@ export async function GET() {
 
     const { data: selectedPlayers } = await supabaseAdmin
       .from("fantasy_players")
-      .select("id,name,side")
+      .select("id,name,side,provider_player_id")
       .eq("match_id", currentMatch.id)
       .order("id", { ascending: true });
 
@@ -111,39 +112,48 @@ export async function GET() {
 
     const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id));
 
+    // Build two lookups: by provider player ID (authoritative) and by name variants (fallback)
+    const incomingById      = new Map<string, (typeof payload.players)[number]>();
     const incomingByVariant = new Map<string, (typeof payload.players)[number]>();
     for (const player of payload.players) {
+      if (player.id) incomingById.set(player.id, player);
       for (const variant of buildVariants(player.name)) {
-        if (!incomingByVariant.has(variant)) {
-          incomingByVariant.set(variant, player);
-        }
+        if (!incomingByVariant.has(variant)) incomingByVariant.set(variant, player);
       }
     }
 
-    const matched: Array<{ selected: string; provider: string }> = [];
+    const matched: Array<{ selected: string; provider: string; matchedById: boolean }> = [];
     const unmatched: string[] = [];
     let updatedRows = 0;
 
     for (const player of selected) {
-      const hit = findIncomingPlayer(player.name, incomingByVariant);
+      // Prefer ID match (no name ambiguity)
+      const idHit = player.provider_player_id ? incomingById.get(player.provider_player_id) : null;
+      const hit = idHit ?? findIncomingPlayer(player.name, incomingByVariant);
       if (!hit) {
         unmatched.push(player.name);
         continue;
       }
 
-      matched.push({ selected: player.name, provider: hit.name });
+      matched.push({ selected: player.name, provider: hit.name, matchedById: Boolean(idHit) });
+
+      // Write stats + lazily capture provider_player_id for future ID-based matching
+      const updatePayload: Record<string, unknown> = {
+        runs: hit.runs,
+        wickets: hit.wickets,
+        catches: hit.catches,
+        fifty_bonus: hit.fifty_bonus,
+        hundred_bonus: hit.hundred_bonus,
+        three_w_bonus: hit.three_w_bonus,
+        five_w_bonus: hit.five_w_bonus,
+      };
+      if (!player.provider_player_id && hit.id) {
+        updatePayload.provider_player_id = hit.id;
+      }
 
       await supabaseAdmin
         .from("fantasy_players")
-        .update({
-          runs: hit.runs,
-          wickets: hit.wickets,
-          catches: hit.catches,
-          fifty_bonus: hit.fifty_bonus,
-          hundred_bonus: hit.hundred_bonus,
-          three_w_bonus: hit.three_w_bonus,
-          five_w_bonus: hit.five_w_bonus,
-        })
+        .update(updatePayload)
         .eq("id", player.id);
 
       updatedRows += 1;
@@ -222,7 +232,7 @@ export async function POST(req: Request) {
     }
 
     const { data: selectedPlayers } = await supabaseAdmin
-      .from("fantasy_players").select("id,name,side").eq("match_id", currentMatch.id).order("id", { ascending: true });
+      .from("fantasy_players").select("id,name,side,provider_player_id").eq("match_id", currentMatch.id).order("id", { ascending: true });
 
     const selected = (selectedPlayers ?? []) as SelectedPlayer[];
     const lastSyncedAt = currentMatch.last_synced_at ? new Date(currentMatch.last_synced_at).getTime() : 0;
@@ -236,26 +246,31 @@ export async function POST(req: Request) {
 
     const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id));
 
+    const incomingById      = new Map<string, (typeof payload.players)[number]>();
     const incomingByVariant = new Map<string, (typeof payload.players)[number]>();
     for (const player of payload.players) {
+      if (player.id) incomingById.set(player.id, player);
       for (const variant of buildVariants(player.name)) {
         if (!incomingByVariant.has(variant)) incomingByVariant.set(variant, player);
       }
     }
 
-    const matched: Array<{ selected: string; provider: string }> = [];
+    const matched: Array<{ selected: string; provider: string; matchedById: boolean }> = [];
     const unmatched: string[] = [];
     let updatedRows = 0;
 
     for (const player of selected) {
-      const hit = findIncomingPlayer(player.name, incomingByVariant);
+      const idHit = player.provider_player_id ? incomingById.get(player.provider_player_id) : null;
+      const hit = idHit ?? findIncomingPlayer(player.name, incomingByVariant);
       if (!hit) { unmatched.push(player.name); continue; }
-      matched.push({ selected: player.name, provider: hit.name });
-      await supabaseAdmin.from("fantasy_players").update({
+      matched.push({ selected: player.name, provider: hit.name, matchedById: Boolean(idHit) });
+      const updatePayload: Record<string, unknown> = {
         runs: hit.runs, wickets: hit.wickets, catches: hit.catches,
         fifty_bonus: hit.fifty_bonus, hundred_bonus: hit.hundred_bonus,
         three_w_bonus: hit.three_w_bonus, five_w_bonus: hit.five_w_bonus,
-      }).eq("id", player.id);
+      };
+      if (!player.provider_player_id && hit.id) updatePayload.provider_player_id = hit.id;
+      await supabaseAdmin.from("fantasy_players").update(updatePayload).eq("id", player.id);
       updatedRows += 1;
     }
 

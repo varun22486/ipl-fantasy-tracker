@@ -90,5 +90,8 @@ create table if not exists fantasy_players (
   three_w_bonus integer not null default 0,
   five_w_bonus integer not null default 0,
   mom_bonus integer not null default 0,
+  /** CricAPI player UUID — used for reliable ID-based sync matching */
+  provider_player_id text,
   unique(match_id, name)
 );
+alter table fantasy_players add column if not exists provider_player_id text;

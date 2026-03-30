@@ -39,6 +39,8 @@ export type MatchSeed = {
 };
 
 export type PlayerStats = {
+  /** CricAPI player UUID — used for reliable ID-based sync matching */
+  id?: string;
   name: string;
   runs: number;
   wickets: number;
@@ -52,6 +54,8 @@ export type PlayerStats = {
 export type SquadTeam = {
   teamName: string;
   players: string[];
+  /** lowercase player name → CricAPI player UUID */
+  playerIdMap?: Record<string, string>;
 };
 
 export type ProviderRefresh = {
@@ -66,6 +70,8 @@ export type ProviderRefresh = {
   squads: SquadTeam[];
   /** Flat unique names for lineup picker */
   rosterNames: string[];
+  /** Flat name→id map across all squads for lineup-save ID capture */
+  nameToId: Record<string, string>;
   raw?: MaybeRecord;
 };
 
@@ -717,6 +723,11 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
       return field.name.trim();
     return null;
   }
+  function playerId(field: any): string | undefined {
+    if (field && typeof field === "object" && typeof field.id === "string" && field.id.trim())
+      return field.id.trim();
+    return undefined;
+  }
 
   // CricAPI scorecard batting entry (both formats):
   //   Old: { batsman: "Travis Head", r: 11, ct: 2, ... }   ← ct = catches taken in the field
@@ -725,6 +736,7 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
   const batsmanName = playerName(node.batsman);
   if (batsmanName && "r" in node) {
     bucket.push(bonusify({
+      id: playerId(node.batsman),
       name: batsmanName,
       runs: numberValue(node.r ?? node.runs),
       wickets: 0,
@@ -741,6 +753,7 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
   const bowlerName = playerName(node.bowler);
   if (bowlerName && ("w" in node || "o" in node)) {
     bucket.push(bonusify({
+      id: playerId(node.bowler),
       name: bowlerName,
       runs: 0,
       wickets: numberValue(node.w ?? node.wickets ?? node.bowlWkts),
@@ -873,42 +886,49 @@ function extractCatchesFromWickets(data: MaybeRecord): PlayerStats[] {
 function extractCatchesFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
   const countByKey = new Map<string, number>();
   const nameByKey  = new Map<string, string>();
+  const idByKey    = new Map<string, string>(); // preserve catcher's player ID
 
-  function addCatch(name: string) {
+  function addCatch(name: string, id?: string) {
     const key = name.toLowerCase().trim();
     if (!key) return;
     nameByKey.set(key, nameByKey.get(key) ?? name.trim());
+    if (id && !idByKey.has(key)) idByKey.set(key, id);
     countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
   }
 
   function processBattingEntry(b: any) {
     const dismissal = safeString(b.dismissal ?? b.howOut ?? "").toLowerCase();
     if (!dismissal.includes("catch") && dismissal !== "caught") {
-      // Some APIs use dismissal="catch", others use the full word
-      // Also accept when dismissal-text starts with "c "
       const dt = safeString(b["dismissal-text"] ?? b.dismissalText ?? "");
       if (!/^c[\s&]/i.test(dt)) return;
     }
 
-    // Priority 1: explicit catcher field
+    // Priority 1: explicit catcher field (also carries the player UUID)
     const catcherField = b.catcher;
     if (catcherField) {
       const name =
         typeof catcherField === "string"
           ? catcherField
           : safeString(catcherField?.name ?? catcherField?.playerName ?? "");
-      if (name) { addCatch(name); return; }
+      const id =
+        catcherField && typeof catcherField === "object" && typeof catcherField.id === "string"
+          ? catcherField.id.trim() || undefined
+          : undefined;
+      if (name) { addCatch(name, id); return; }
     }
 
-    // Priority 2: parse from dismissal-text
+    // Priority 2: parse from dismissal-text ("c Phil Salt b Jacob Duffy")
     const dt = safeString(b["dismissal-text"] ?? b.dismissalText ?? "");
     if (!dt) return;
 
-    // "c&b Jacob Duffy" → caught and bowled — catcher is the bowler
     const cnb = dt.match(/^c\s*&\s*b\s+(.+)/i);
-    if (cnb) { addCatch(cnb[1].trim()); return; }
+    if (cnb) {
+      // caught-and-bowled: catcher = bowler (use bowler field's id if available)
+      const bowlerField = b.bowler;
+      const id = bowlerField && typeof bowlerField === "object" ? safeString(bowlerField.id) || undefined : undefined;
+      addCatch(cnb[1].trim(), id); return;
+    }
 
-    // "c Phil Salt b Jacob Duffy" → catcher is everything between "c " and " b "
     const caught = dt.match(/^c\s+(.+?)\s+b\s+/i);
     if (caught) { addCatch(caught[1].trim()); return; }
   }
@@ -918,7 +938,6 @@ function extractCatchesFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
       if (Array.isArray(inn.batting)) inn.batting.forEach(processBattingEntry);
     }
   }
-  // Direct batting array at root level
   if (Array.isArray((data as any).batting)) {
     (data as any).batting.forEach(processBattingEntry);
   }
@@ -927,11 +946,85 @@ function extractCatchesFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
 
   return Array.from(countByKey.entries()).map(([key, total]) =>
     bonusify({
+      id: idByKey.get(key),
       name: nameByKey.get(key) ?? key,
       runs: 0, wickets: 0, catches: total,
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
     })
   );
+}
+
+/**
+ * Build name-matching variants the same way refresh/route.ts does, so
+ * catch rows with a slightly different name form (e.g. "Phil Salt" vs
+ * "Philip Salt") still get applied to the right player.
+ */
+function nameVariants(name: string): string[] {
+  const normalized = name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const variants = new Set<string>();
+  variants.add(normalized);
+  variants.add(normalized.replace(/\s+/g, ""));
+  if (tokens.length >= 2) {
+    const first = tokens[0];
+    const last = tokens[tokens.length - 1];
+    variants.add(`${first} ${last}`);
+    variants.add(`${first[0]} ${last}`);
+    variants.add(`${first[0]}${last}`);
+    variants.add(last);
+  }
+  return Array.from(variants).filter(Boolean);
+}
+
+/**
+ * After mergePlayers, apply catches from dismissal-text-derived rows to
+ * the existing merged array using variant-based matching.  This handles
+ * cases where the dismissal-text has a different name spelling than the
+ * batting row (e.g. "Phil Salt" in dismissal-text vs "Philip Salt" from
+ * batting entry).
+ */
+function patchCatches(merged: PlayerStats[], catchRows: PlayerStats[]): PlayerStats[] {
+  // Build lookup maps over the merged array
+  const idToIdx      = new Map<string, number>();
+  const variantToIdx = new Map<string, number>();
+  merged.forEach((p, i) => {
+    if (p.id) idToIdx.set(p.id, i);
+    for (const v of nameVariants(p.name)) {
+      if (!variantToIdx.has(v)) variantToIdx.set(v, i);
+    }
+  });
+
+  const result = merged.map(p => ({ ...p }));
+
+  for (const cr of catchRows) {
+    if (cr.catches <= 0) continue;
+    let idx: number | undefined;
+
+    // ID match is authoritative — no name ambiguity
+    if (cr.id) idx = idToIdx.get(cr.id);
+
+    // Fall back to variant-based name match
+    if (idx === undefined) {
+      for (const v of nameVariants(cr.name)) {
+        idx = variantToIdx.get(v);
+        if (idx !== undefined) break;
+      }
+    }
+
+    if (idx !== undefined) {
+      result[idx] = bonusify({
+        ...result[idx],
+        catches: Math.max(result[idx].catches, cr.catches),
+        // Capture the ID if the existing row didn't have one
+        id: result[idx].id ?? cr.id,
+      });
+    } else {
+      // Fielder not in batting/bowling (rare — pure fielder with no other involvement)
+      result.push(bonusify({ ...cr }));
+    }
+  }
+
+  return result;
 }
 
 function mergePlayers(rows: PlayerStats[]) {
@@ -1018,6 +1111,15 @@ function parseSimpleLiveScore(data: MaybeRecord): PlayerStats[] {
   return rows;
 }
 
+/** Merge all playerIdMap entries across squads into one flat map */
+function buildNameToId(squads: SquadTeam[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  for (const t of squads) {
+    if (t.playerIdMap) Object.assign(m, t.playerIdMap);
+  }
+  return m;
+}
+
 function uniqueRosterNames(squads: SquadTeam[]): string[] {
   const s = new Set<string>();
   for (const t of squads) {
@@ -1027,6 +1129,23 @@ function uniqueRosterNames(squads: SquadTeam[]): string[] {
     }
   }
   return [...s].sort((a, b) => a.localeCompare(b));
+}
+
+/** Extract player IDs from an array of player objects into a lowercase-name→id map */
+function extractIdMap(pl: any[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  for (const p of pl) {
+    if (typeof p !== "object" || !p) continue;
+    const name = safeString(p.name || p.playerName || p.fullName || "");
+    const id   = safeString(p.id || p.playerId || "");
+    if (name && id) m[name.toLowerCase()] = id;
+  }
+  return m;
+}
+
+function withIdMap(teamName: string, names: string[], idMap: Record<string, string>): SquadTeam {
+  const playerIdMap = Object.keys(idMap).length ? idMap : undefined;
+  return { teamName, players: names, playerIdMap };
 }
 
 function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTeam[] {
@@ -1044,7 +1163,7 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
       const names = pl
         .map((p: any) => safeString(typeof p === "string" ? p : p.name || p.playerName || p.fullName || p.batsman))
         .filter(Boolean);
-      if (names.length) out.push({ teamName: teamName || "Team", players: names });
+      if (names.length) out.push(withIdMap(teamName || "Team", names, extractIdMap(pl)));
     }
     if (out.length) return out;
   }
@@ -1059,7 +1178,7 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
       const names = pl
         .map((p: any) => safeString(typeof p === "string" ? p : p.name || p.playerName || p.batsman || p.fullName))
         .filter(Boolean);
-      if (names.length) out.push({ teamName: teamName || "Team", players: names });
+      if (names.length) out.push(withIdMap(teamName || "Team", names, extractIdMap(pl)));
     }
     if (out.length) return out;
   }
@@ -1072,7 +1191,7 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
       const pl = (t as any).players;
       if (!Array.isArray(pl)) continue;
       const names = pl.map((p: any) => safeString(typeof p === "string" ? p : p.name)).filter(Boolean);
-      if (names.length) out.push({ teamName: teamName || "Team", players: names });
+      if (names.length) out.push(withIdMap(teamName || "Team", names, extractIdMap(pl)));
     }
     if (out.length) return out;
   }
@@ -1085,33 +1204,36 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
       const players = (block as any).players;
       if (!Array.isArray(players)) continue;
       const names = players.map((p: any) => safeString(typeof p === "string" ? p : p.name)).filter(Boolean);
-      if (names.length) out.push({ teamName: teamName || "Squad", players: names });
+      if (names.length) out.push(withIdMap(teamName || "Squad", names, extractIdMap(players)));
     }
     if (out.length) return out;
   }
 
-  // CricAPI match_scorecard new format: data.scorecard = [{ inning, batting:[{batsman:{name}},...], bowling:[{bowler:{name}},...] }]
+  // CricAPI match_scorecard: data.scorecard = [{ inning, batting:[{batsman:{id,name}},...], bowling:[{bowler:{id,name}},...] }]
   const scorecard = (data as MaybeRecord).scorecard;
   if (Array.isArray(scorecard) && scorecard.length > 0) {
-    const byTeam = new Map<string, Set<string>>();
+    const byTeam    = new Map<string, Set<string>>();
+    const byTeamIds = new Map<string, Record<string, string>>();
     for (const inn of scorecard) {
-      // "Sunrisers Hyderabad Inning 1" → "Sunrisers Hyderabad"
       const inningLabel = safeString((inn as any).inning || (inn as any).inningsName || "");
       const teamName = inningLabel.replace(/\s+(inning|innings)\s*\d+\s*$/i, "").trim() || inningLabel;
-      if (!byTeam.has(teamName)) byTeam.set(teamName, new Set<string>());
+      if (!byTeam.has(teamName)) { byTeam.set(teamName, new Set<string>()); byTeamIds.set(teamName, {}); }
       const teamSet = byTeam.get(teamName)!;
+      const idMap   = byTeamIds.get(teamName)!;
       for (const b of ((inn as any).batting ?? [])) {
         const n = typeof b.batsman === "object" ? safeString(b.batsman?.name) : safeString(b.batsman);
-        if (n) teamSet.add(n);
+        const id = typeof b.batsman === "object" ? safeString(b.batsman?.id || "") : "";
+        if (n) { teamSet.add(n); if (id) idMap[n.toLowerCase()] = id; }
       }
       for (const b of ((inn as any).bowling ?? [])) {
         const n = typeof b.bowler === "object" ? safeString(b.bowler?.name) : safeString(b.bowler);
-        if (n) teamSet.add(n);
+        const id = typeof b.bowler === "object" ? safeString(b.bowler?.id || "") : "";
+        if (n) { teamSet.add(n); if (id) idMap[n.toLowerCase()] = id; }
       }
     }
     const out: SquadTeam[] = [];
     for (const [teamName, names] of byTeam) {
-      if (names.size) out.push({ teamName, players: [...names] });
+      if (names.size) out.push(withIdMap(teamName, [...names], byTeamIds.get(teamName) ?? {}));
     }
     if (out.length) return out;
   }
@@ -1125,7 +1247,7 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
       const names = (players as any[])
         .map((p: any) => safeString(typeof p === "string" ? p : p.name || p.playerName || p.fullName))
         .filter(Boolean);
-      if (names.length) out.push({ teamName: teamName || "Team", players: names });
+      if (names.length) out.push(withIdMap(teamName || "Team", names, extractIdMap(players as any[])));
     }
     if (out.length) return out;
   }
@@ -1141,7 +1263,7 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
       const names = (pl as any[])
         .map((p: any) => safeString(typeof p === "string" ? p : p.name || p.playerName || p.fullName))
         .filter(Boolean);
-      if (names.length) out.push({ teamName: teamName || "Team", players: names });
+      if (names.length) out.push(withIdMap(teamName || "Team", names, extractIdMap(pl)));
     }
     if (out.length) return out;
   }
@@ -1223,7 +1345,7 @@ async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<Squa
  * We always prefer the scorecard result when it has ≥ 11 players per side
  * because it reflects who actually took the field, not just the squad selection.
  */
-export async function fetchMatchRoster(externalMatchId: string): Promise<{ squads: SquadTeam[]; rosterNames: string[] }> {
+export async function fetchMatchRoster(externalMatchId: string): Promise<{ squads: SquadTeam[]; rosterNames: string[]; nameToId: Record<string, string> }> {
   const id = encodeURIComponent(externalMatchId);
   const candidates: SquadTeam[][] = [];
 
@@ -1237,7 +1359,7 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
     absorb(full.squads);
     // If we got a full playing XI (≥ 11 players per team combined), prefer it
     if (squadPlayerCount(full.squads) >= 11) {
-      return { squads: full.squads, rosterNames: full.rosterNames };
+      return { squads: full.squads, rosterNames: full.rosterNames, nameToId: full.nameToId };
     }
   } catch { /* scorecard not yet published */ }
 
@@ -1258,10 +1380,10 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
 
   // Return the richest result we found
   if (candidates.length === 0) {
-    return { squads: [], rosterNames: [] };
+    return { squads: [], rosterNames: [], nameToId: {} };
   }
   const best = candidates.sort((a, b) => squadPlayerCount(b) - squadPlayerCount(a))[0];
-  return { squads: best, rosterNames: uniqueRosterNames(best) };
+  return { squads: best, rosterNames: uniqueRosterNames(best), nameToId: buildNameToId(best) };
 }
 
 export async function refreshMatchFromProvider(externalMatchId: string): Promise<ProviderRefresh> {
@@ -1328,19 +1450,23 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
       players: [],
       squads: [],
       rosterNames: [],
-      raw: null,
+      nameToId: {},
+      raw: undefined,
     };
   }
 
   const data = payload.data || payload;
   const rows: PlayerStats[] = [];
   collectPlayerRows(data, rows);
-  // Catch sources (all aggregated per-player before merge so Math.max is correct):
-  // 1. scorecard[].wickets[].fielder  (newer CricAPI format)
+  // Add wicket-fielder catches (newer CricAPI format) into the raw rows first
   rows.push(...extractCatchesFromWickets(data as MaybeRecord));
-  // 2. scorecard[].batting[].dismissal-text  (most reliable — handles missing catcher fields)
-  rows.push(...extractCatchesFromBattingDismissals(data as MaybeRecord));
-  const merged = mergePlayers(rows);
+  // Merge by exact lowercase key first
+  const mergedRaw = mergePlayers(rows);
+  // Then patch catches from dismissal-text using variant-based matching.
+  // This handles name mismatches like "Phil Salt" (dismissal-text) vs
+  // "Philip Salt" (batting row) which would otherwise be separate keys.
+  const catchRowsFromDismissals = extractCatchesFromBattingDismissals(data as MaybeRecord);
+  const merged = patchCatches(mergedRaw, catchRowsFromDismissals);
   const simpleFallback = merged.length > 0 ? merged : parseSimpleLiveScore(data);
 
   const dataRec = data as MaybeRecord;
@@ -1374,6 +1500,7 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
     players: simpleFallback,
     squads,
     rosterNames,
+    nameToId: buildNameToId(squads),
     raw: payload,
   };
 }

@@ -29,7 +29,7 @@ export async function POST() {
       return NextResponse.json({ ok: false, error: "Match has no external ID — cannot fetch roster." }, { status: 400 });
     }
 
-    const { squads, rosterNames } = await fetchMatchRoster(extId);
+    const { squads, rosterNames, nameToId } = await fetchMatchRoster(extId);
 
     if (rosterNames.length === 0) {
       return NextResponse.json({
@@ -40,7 +40,7 @@ export async function POST() {
 
     await supabaseAdmin
       .from("matches")
-      .update({ provider_squad_json: { squads, rosterNames } })
+      .update({ provider_squad_json: { squads, rosterNames, nameToId } })
       .eq("id", match.id);
 
     return NextResponse.json({ ok: true, playerCount: rosterNames.length });

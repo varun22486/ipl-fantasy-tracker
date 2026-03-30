@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-type PlayerInput = { name: string; captain: boolean };
+type PlayerInput = { name: string; captain: boolean; providerId?: string };
 
 function normalizePlayers(players: unknown): PlayerInput[] {
   if (!Array.isArray(players)) return [];
   return players
-    .map((p) => ({ name: String((p as any)?.name || "").trim(), captain: Boolean((p as any)?.captain) }))
+    .map((p) => ({
+      name: String((p as any)?.name || "").trim(),
+      captain: Boolean((p as any)?.captain),
+      providerId: typeof (p as any)?.providerId === "string" ? (p as any).providerId.trim() || undefined : undefined,
+    }))
     .filter((p) => p.name);
 }
 
@@ -46,7 +50,7 @@ export async function POST(req: NextRequest) {
       // Delete only your side, then re-insert
       await supabaseAdmin.from("fantasy_players").delete().eq("match_id", matchId).eq("side", "You");
       await supabaseAdmin.from("fantasy_players").insert(
-        yourPlayers.map((p) => ({ match_id: matchId, side: "You", name: p.name, captain: p.captain }))
+        yourPlayers.map((p) => ({ match_id: matchId, side: "You", name: p.name, captain: p.captain, provider_player_id: p.providerId ?? null }))
       );
     }
 
@@ -56,7 +60,7 @@ export async function POST(req: NextRequest) {
       // Delete only opponent side, then re-insert
       await supabaseAdmin.from("fantasy_players").delete().eq("match_id", matchId).eq("side", "Rahul");
       await supabaseAdmin.from("fantasy_players").insert(
-        opponentPlayers.map((p) => ({ match_id: matchId, side: "Rahul", name: p.name, captain: p.captain }))
+        opponentPlayers.map((p) => ({ match_id: matchId, side: "Rahul", name: p.name, captain: p.captain, provider_player_id: p.providerId ?? null }))
       );
     }
 

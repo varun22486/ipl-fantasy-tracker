@@ -23,7 +23,7 @@ function saveQuota(count: number) {
   try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: getIstDateStr() })); } catch {}
 }
 
-type Player = { name: string; captain: boolean };
+type Player = { name: string; captain: boolean; providerId?: string };
 type SquadTeam = { teamName: string; players: string[] };
 type MatchChoice = { externalMatchId?: string; fixture: string; status: string; venue?: string | null; match_date: string };
 
@@ -34,6 +34,8 @@ type Props = {
   opponentPlayers: Player[];
   rosterNames: string[];
   squads: SquadTeam[];
+  /** lowercase player name → CricAPI UUID; used to save provider_player_id at lineup time */
+  nameToId: Record<string, string>;
   hasLinkedMatch: boolean;
 };
 
@@ -45,7 +47,7 @@ function withFallback(players: Player[]) {
   return next;
 }
 
-export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, hasLinkedMatch }: Props) {
+export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch }: Props) {
   const [saving, setSaving] = useState<"mine" | "theirs" | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
@@ -170,7 +172,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     const setter = activeSide === "mine" ? setMine : setTheirs;
     const next = list.findIndex((p) => !p.name.trim());
     if (next === -1) { setMessage("All 4 slots are full. Remove a player first."); return; }
-    setter((prev) => prev.map((p, i) => i === next ? { ...p, name } : p));
+    const providerId = nameToId[name.toLowerCase()] || undefined;
+    setter((prev) => prev.map((p, i) => i === next ? { ...p, name, providerId } : p));
     setMessage("");
   }
 
