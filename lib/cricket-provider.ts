@@ -679,6 +679,27 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
   if (!node) return;
 
   if (Array.isArray(node)) {
+    // Old-format catching array: [{ catcher: {name}, catch: 1 }, ...]
+    // Aggregate per player into a SINGLE row each so Math.max merge is correct.
+    const isCatchingArr = node.length > 0 && node.every(
+      (item: any) => item && typeof item === "object" && ("catcher" in item || "catch" in item)
+    );
+    if (isCatchingArr) {
+      const acc = new Map<string, { name: string; total: number }>();
+      for (const item of node) {
+        const n = playerName(item.catcher);
+        if (!n) continue;
+        const k = n.toLowerCase();
+        const c = numberValue(item["catch"] ?? 0);
+        if (c <= 0) continue;
+        if (!acc.has(k)) acc.set(k, { name: n, total: 0 });
+        acc.get(k)!.total += c;
+      }
+      for (const { name, total } of acc.values()) {
+        bucket.push(bonusify({ name, runs: 0, wickets: 0, catches: total, fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0 }));
+      }
+      return;
+    }
     for (const item of node) collectPlayerRows(item, bucket);
     return;
   }
@@ -694,16 +715,16 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
   }
 
   // CricAPI scorecard batting entry (both formats):
-  //   Old: { batsman: "Travis Head", r: 11, ... }
+  //   Old: { batsman: "Travis Head", r: 11, ct: 2, ... }   ← ct = catches taken in the field
   //   New: { batsman: { id: "...", name: "Travis Head" }, r: 11, ... }
-  // "r" here = runs SCORED
+  // "r" here = runs SCORED. ct/c = fielding catches (only present in old format).
   const batsmanName = playerName(node.batsman);
   if (batsmanName && "r" in node) {
     bucket.push(bonusify({
       name: batsmanName,
       runs: numberValue(node.r ?? node.runs),
       wickets: 0,
-      catches: 0, // catches tracked exclusively via the catching[] array to avoid double-counting
+      catches: numberValue(node.ct ?? node.c ?? 0),
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
     }));
     return; // leaf node — don't recurse further
@@ -725,20 +746,19 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
     return; // leaf node — don't recurse further
   }
 
-  // CricAPI catching entry: { catcher: { id: "...", name: "Philip Salt" }, catch: 1, ... }
+  // Old-format per-entry catching node: { catcher: { id, name }, catch: 1 }
+  // (When NOT inside a catching array — handled above — treat as a single-entry aggregate.)
   const catcherName = playerName(node.catcher);
   if (catcherName && "catch" in node) {
     const numCatches = numberValue(node["catch"] ?? 0);
     if (numCatches > 0) {
       bucket.push(bonusify({
         name: catcherName,
-        runs: 0,
-        wickets: 0,
-        catches: numCatches,
+        runs: 0, wickets: 0, catches: numCatches,
         fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
       }));
     }
-    return; // leaf node
+    return;
   }
 
   // Generic fallback for other provider formats
@@ -776,6 +796,62 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
   }
 }
 
+/**
+ * CricAPI newer match_scorecard format stores catches inside:
+ *   scorecard[].wickets = [{ kind:"caught", fielder:[{name:"Philip Salt"}], ... }]
+ *
+ * This function aggregates catches per fielder into one PlayerStats row each
+ * so Math.max merge works correctly alongside batting-row ct values.
+ */
+function extractCatchesFromWickets(data: MaybeRecord): PlayerStats[] {
+  const countByKey = new Map<string, number>();
+  const nameByKey  = new Map<string, string>();
+
+  function processWicket(w: any) {
+    const kind      = safeString(w.kind ?? w.howOut ?? w.dismissalKind ?? "");
+    const dismissal = safeString(w.dismissal ?? w.desc ?? w.dismissalText ?? "");
+    // Caught dismissal: kind contains "caught", OR dismissal text starts with "c <name>" (not "c&b")
+    const isCaught =
+      /caught/i.test(kind) ||
+      /^c\s+(?!&\s*b\s)\w/i.test(dismissal);
+    if (!isCaught) return;
+
+    const raw = w.fielder ?? w.fielders ?? w.catcher_player;
+    const fielders: any[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    for (const f of fielders) {
+      const name =
+        typeof f === "string"
+          ? f.trim()
+          : safeString(f?.name ?? f?.playerName ?? f?.fullName ?? "");
+      if (!name) continue;
+      const key = name.toLowerCase();
+      nameByKey.set(key, nameByKey.get(key) ?? name);
+      countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+    }
+  }
+
+  // Path 1: scorecard[].wickets
+  if (Array.isArray((data as any).scorecard)) {
+    for (const inn of (data as any).scorecard) {
+      const wkts = inn.wickets ?? inn.fall_wickets ?? inn.fallWickets;
+      if (Array.isArray(wkts)) wkts.forEach(processWicket);
+    }
+  }
+  // Path 2: top-level wickets / fall_wickets
+  const direct = (data as any).wickets ?? (data as any).fall_wickets ?? (data as any).fallWickets;
+  if (Array.isArray(direct)) direct.forEach(processWicket);
+
+  if (countByKey.size === 0) return [];
+
+  return Array.from(countByKey.entries()).map(([key, total]) =>
+    bonusify({
+      name: nameByKey.get(key) ?? key,
+      runs: 0, wickets: 0, catches: total,
+      fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
+    })
+  );
+}
+
 function mergePlayers(rows: PlayerStats[]) {
   const byName = new Map<string, PlayerStats>();
 
@@ -789,9 +865,9 @@ function mergePlayers(rows: PlayerStats[]) {
 
     byName.set(key, bonusify({
       ...existing,
-      runs: Math.max(existing.runs, row.runs),       // batting total is one authoritative row
-      wickets: Math.max(existing.wickets, row.wickets), // bowling total is one authoritative row
-      catches: existing.catches + row.catches,       // each catch is a separate entry — must SUM
+      runs: Math.max(existing.runs, row.runs),
+      wickets: Math.max(existing.wickets, row.wickets),
+      catches: Math.max(existing.catches, row.catches), // each source emits one aggregated row
       fifty_bonus: 0,
       hundred_bonus: 0,
       three_w_bonus: 0,
@@ -1163,6 +1239,8 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   const data = payload.data || payload;
   const rows: PlayerStats[] = [];
   collectPlayerRows(data, rows);
+  // New-format catches live in scorecard[].wickets[].fielder — add them before merge
+  rows.push(...extractCatchesFromWickets(data as MaybeRecord));
   const merged = mergePlayers(rows);
   const simpleFallback = merged.length > 0 ? merged : parseSimpleLiveScore(data);
 
