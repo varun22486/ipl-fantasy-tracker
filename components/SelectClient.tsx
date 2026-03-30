@@ -268,7 +268,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         </div>
         {hasRoster && (
           <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
-            When the scorecard is available (live or finished), we show each team&apos;s <strong>Playing XI</strong> (~11 per side). Before that, or if only squad data exists, you may see the full squad — use <strong>🔄 Refresh Players</strong> after the XI is out.
+            <strong>Before toss:</strong> full squad lists. <strong>After play starts:</strong> announced playing XI from the batting card (about 11 per team; impact subs omitted when the API flags them). Use <strong>🔄 Refresh Players</strong> if the list looks stale.
           </div>
         )}
 
