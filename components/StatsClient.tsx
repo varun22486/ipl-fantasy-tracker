@@ -190,18 +190,15 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
     };
   });
 
-  // 5b. Series totals for the overview bar
-  const totalYourRuns    = played.reduce((s, m) => s + m.players.filter((p) => p.side === "You").reduce((a, p) => a + p.runs, 0), 0);
-  const totalOppRuns     = played.reduce((s, m) => s + m.players.filter((p) => p.side !== "You").reduce((a, p) => a + p.runs, 0), 0);
-  const totalYourWickets = played.reduce((s, m) => s + m.players.filter((p) => p.side === "You").reduce((a, p) => a + p.wickets, 0), 0);
-  const totalOppWickets  = played.reduce((s, m) => s + m.players.filter((p) => p.side !== "You").reduce((a, p) => a + p.wickets, 0), 0);
-  const totalYourCatches = played.reduce((s, m) => s + m.players.filter((p) => p.side === "You").reduce((a, p) => a + p.catches, 0), 0);
-  const totalOppCatches  = played.reduce((s, m) => s + m.players.filter((p) => p.side !== "You").reduce((a, p) => a + p.catches, 0), 0);
-  const seriesTotalsData = [
-    { stat: "Runs",    [yourName]: totalYourRuns,    [opponentName]: totalOppRuns    },
-    { stat: "Wickets", [yourName]: totalYourWickets, [opponentName]: totalOppWickets },
-    { stat: "Catches", [yourName]: totalYourCatches, [opponentName]: totalOppCatches },
-  ];
+  // 5b. Cumulative captain points
+  const captainPtsRunningData = played.map((m, i) => {
+    const slice = played.slice(0, i + 1);
+    return {
+      name: shortFixture(m.fixture), fullName: m.fixture,
+      [yourName]:     slice.reduce((s, x) => s + (x.players.find((p) => p.side === "You" && p.captain)?.points ?? 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + (x.players.find((p) => p.side !== "You" && p.captain)?.points ?? 0), 0),
+    };
+  });
 
   // 6. Rolling win-rate (%) per match
   const winRateData = played.map((m, i) => {
@@ -513,58 +510,59 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
             </div>
           </div>
 
-          {/* ── SERIES TOTALS overview + CAPTAIN POINTS ─────────────────────── */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20 }}>
-
-            <div style={sectionStyle}>
-              <h2 style={sectionTitle}>Series Totals</h2>
-              <p style={sectionSub}>Overall Runs, Wickets and Catches across all matches — who's dominated each discipline?</p>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={seriesTotalsData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }} barCategoryGap="35%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="stat" tick={{ fontSize: 13, fill: "#334155", fontWeight: 600 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 13 }} />
-                  <Bar dataKey={yourName} fill={YOU_COLOR} radius={[6, 6, 0, 0]} />
-                  <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div style={sectionStyle}>
-              <h2 style={sectionTitle}>Captain Points</h2>
-              <p style={sectionSub}>Total points (×2 applied) earned by each captain per match — who picked better?</p>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={captainPtsData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }} barCategoryGap="30%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                  <Tooltip content={({ active, payload, label: lbl }: any) => {
-                    if (!active || !payload?.length) return null;
-                    const d = payload[0]?.payload;
-                    return (
-                      <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 12, padding: "10px 14px", fontSize: 13, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
-                        <div style={{ fontWeight: 700, marginBottom: 8, color: "#0f172a" }}>{d?.fullName ?? lbl}</div>
-                        {payload.map((p: any, i: number) => {
-                          const capName = p.dataKey === yourName ? d?.yourCapName : d?.oppCapName;
-                          return (
+          {/* ── CAPTAIN POINTS: per match + cumulative ──────────────────────── */}
+          <div style={sectionStyle}>
+            <h2 style={sectionTitle}>Captain Points</h2>
+            <p style={sectionSub}>Per-match captain points (×2 applied, left) and cumulative series tally (right) — captain name shown in tooltip</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+              <div>
+                <div style={miniChartLabel}>Per Match</div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={captainPtsData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <Tooltip content={({ active, payload, label: lbl }: any) => {
+                      if (!active || !payload?.length) return null;
+                      const d = payload[0]?.payload;
+                      return (
+                        <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 12, padding: "10px 14px", fontSize: 13, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+                          <div style={{ fontWeight: 700, marginBottom: 8, color: "#0f172a" }}>{d?.fullName ?? lbl}</div>
+                          {payload.map((p: any, i: number) => (
                             <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
                               <span style={{ width: 10, height: 10, borderRadius: 2, background: p.fill, display: "inline-block" }} />
                               <span style={{ color: "#475569" }}>{p.name}:</span>
                               <span style={{ fontWeight: 700, color: "#0f172a" }}>{p.value} pts</span>
-                              <span style={{ color: "#94a3b8", fontSize: 12 }}>({capName})</span>
+                              <span style={{ color: "#94a3b8", fontSize: 12 }}>({p.dataKey === yourName ? d?.yourCapName : d?.oppCapName})</span>
                             </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  }} />
-                  <Legend wrapperStyle={{ fontSize: 13 }} />
-                  <Bar dataKey={yourName} fill={YOU_COLOR} radius={[6, 6, 0, 0]} />
-                  <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+                          ))}
+                        </div>
+                      );
+                    }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
+                    <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div>
+                <div style={miniChartLabel}>Cumulative Total</div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={captainPtsRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="capGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
+                      <linearGradient id="capGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                    <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} pts`} />} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#capGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
+                    <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#capGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
