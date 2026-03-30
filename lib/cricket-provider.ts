@@ -1580,6 +1580,26 @@ function squadPlayerCount(squads: SquadTeam[]) {
   return squads.reduce((n, t) => n + t.players.length, 0);
 }
 
+/** When structured squad endpoints parse to nothing, use any names we already extracted for stats sync. */
+function squadsFromProviderPlayerRows(players: PlayerStats[] | undefined | null): SquadTeam[] {
+  if (!Array.isArray(players) || players.length === 0) return [];
+  const names: string[] = [];
+  const idMap: Record<string, string> = {};
+  const seen = new Set<string>();
+  for (const p of players) {
+    const n = safeString(p.name);
+    if (!n) continue;
+    const k = n.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    names.push(n);
+    if (p.id) idMap[k] = p.id;
+  }
+  names.sort((a, b) => a.localeCompare(b));
+  if (!names.length) return [];
+  return [withIdMap("Players (from match feed)", names, idMap)];
+}
+
 async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<SquadTeam[]> {
   if (!isCricapiBase(envBaseUrl())) return [];
   const paths = [
@@ -1590,7 +1610,7 @@ async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<Squa
     try {
       const payload = await fetchJson(path);
       const squads = extractSquadsFromPayload(payload);
-      if (squadPlayerCount(squads) >= 8) return squads;
+      if (squadPlayerCount(squads) > 0) return squads;
     } catch {
       // try next path
     }
@@ -1623,6 +1643,8 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
   if (pre && full) {
     const preCandidates: SquadTeam[][] = [];
     if (squadPlayerCount(full.squads) > 0) preCandidates.push(full.squads);
+    const fromStatsPre = squadsFromProviderPlayerRows(full.players);
+    if (squadPlayerCount(fromStatsPre) > 0) preCandidates.push(fromStatsPre);
     if (isCricapiBase(envBaseUrl())) {
       try {
         const payload = await fetchJson(`/v1/match_info?id=${id}`);
@@ -1651,7 +1673,10 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
     if (squadPlayerCount(squads) > 0) candidates.push(squads);
   };
 
-  if (full) absorb(full.squads);
+  if (full) {
+    absorb(full.squads);
+    absorb(squadsFromProviderPlayerRows(full.players));
+  }
 
   if (full && squadPlayerCount(full.squads) >= 11) {
     return { squads: full.squads, rosterNames: full.rosterNames, nameToId: full.nameToId };
@@ -1703,20 +1728,54 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   let scorecardFailed = false;
   let lastFailReason = "";
 
-  for (const path of candidatePaths) {
-    try {
-      const p = await fetchJson(path);
-      // Skip explicit API failures — quota errors are handled inside fetchJson.
-      if (p?.status === "failure") {
-        scorecardFailed = true;
-        const r = safeString(p.reason || p.message || p.error || "");
-        if (r) lastFailReason = r;
-        continue;
+  if (isCricapiBase(envBaseUrl())) {
+    let bestPayload: MaybeRecord | null = null;
+    let bestScore = -1;
+    let lastOk: MaybeRecord | null = null;
+    for (const path of candidatePaths) {
+      try {
+        const p = await fetchJson(path);
+        if (p?.status === "failure") {
+          scorecardFailed = true;
+          const r = safeString(p.reason || p.message || p.error || "");
+          if (r) lastFailReason = r;
+          continue;
+        }
+        if (!p) continue;
+        lastOk = p as MaybeRecord;
+        const data = ((p as MaybeRecord).data ?? p) as MaybeRecord;
+        const probe: PlayerStats[] = [];
+        if (data && typeof data === "object") collectPlayerRows(data, probe);
+        const sq = extractSquadsFromPayload(p as MaybeRecord);
+        const score = probe.length + squadPlayerCount(sq) * 2;
+        if (score > bestScore) {
+          bestScore = score;
+          bestPayload = p as MaybeRecord;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg) lastFailReason = msg;
       }
-      if (p) { payload = p; break; }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg) lastFailReason = msg;
+    }
+    payload = bestPayload ?? lastOk;
+  } else {
+    for (const path of candidatePaths) {
+      try {
+        const p = await fetchJson(path);
+        if (p?.status === "failure") {
+          scorecardFailed = true;
+          const r = safeString(p.reason || p.message || p.error || "");
+          if (r) lastFailReason = r;
+          continue;
+        }
+        if (p) {
+          payload = p;
+          break;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg) lastFailReason = msg;
+      }
     }
   }
 

@@ -34,7 +34,7 @@ export async function POST() {
     if (rosterNames.length === 0) {
       return NextResponse.json({
         ok: false,
-        error: `No player data returned by the API for match ${extId}. Try the debug endpoint: /api/debug-roster?id=${extId}`,
+        error: `No player data returned for match ${extId} (all scorecard, squad, and stat fallbacks were empty). Check API keys/quota, then try again. Debug: /api/debug-roster?id=${extId}`,
       }, { status: 404 });
     }
 
