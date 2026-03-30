@@ -90,38 +90,45 @@ export default function StatsClient({ opponentName, matchStats, leaderboard, sum
       ? `You lead by ${summary.yourTotal - summary.oppTotal} pts`
       : `${opponentName} leads by ${summary.oppTotal - summary.yourTotal} pts`;
 
-  return (
-    <div style={{ display: "grid", gap: 24 }}>
-      <NavBar title="Series Overview" subtitle={`You vs ${opponentName}`} />
-
-      {played.length === 0 ? (
+  // True empty = no matches at all in the DB
+  if (matchStats.length === 0) {
+    return (
+      <div style={{ display: "grid", gap: 24 }}>
+        <NavBar title="Series Overview" subtitle={`You vs ${opponentName}`} />
         <div style={{ textAlign: "center", padding: 60, background: "white", border: "1px solid #e2e8f0", borderRadius: 24 }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>📊</div>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>No match data yet</div>
-          <div style={{ color: "#64748b", marginBottom: 24 }}>
-            Link a match and select your players, then sync scores to see stats here.
-          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>No matches yet</div>
+          <div style={{ color: "#64748b", marginBottom: 24 }}>Link a match and select your players to get started.</div>
           <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
             <Link href="/select" style={{ ...btnPrimary, textDecoration: "none", display: "inline-block" }}>👥 Select Teams</Link>
             <Link href="/match" style={{ ...btnSecondary, textDecoration: "none", display: "inline-block" }}>🏏 Live Match</Link>
           </div>
         </div>
-      ) : (
-        <>
-          {/* Summary cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
-            <ScoreCard label="Your Total" value={summary.yourTotal} sub="series points" color={YOU_COLOR} />
-            <ScoreCard label={`${opponentName}'s Total`} value={summary.oppTotal} sub="series points" color={OPP_COLOR} />
-            <ScoreCard
-              label="Leader"
-              value={summary.yourTotal > summary.oppTotal ? "You" : summary.oppTotal > summary.yourTotal ? opponentName : "Tied"}
-              sub={leader}
-              color={summary.yourTotal > summary.oppTotal ? YOU_COLOR : summary.oppTotal > summary.yourTotal ? OPP_COLOR : "#92400e"}
-            />
-            <ScoreCard label="Your Wins" value={summary.yourWins} sub={`${summary.oppWins}W ${summary.ties}T for ${opponentName}`} color={YOU_COLOR} />
-            <ScoreCard label="Matches Played" value={summary.matchesPlayed} />
-          </div>
+      </div>
+    );
+  }
 
+  return (
+    <div style={{ display: "grid", gap: 24 }}>
+      <NavBar title="Series Overview" subtitle={`You vs ${opponentName}`} />
+
+      {/* Summary cards — always visible */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
+        <ScoreCard label="Your Total" value={summary.yourTotal} sub="series points" color={YOU_COLOR} />
+        <ScoreCard label={`${opponentName}'s Total`} value={summary.oppTotal} sub="series points" color={OPP_COLOR} />
+        <ScoreCard
+          label="Leader"
+          value={summary.yourTotal > summary.oppTotal ? "You" : summary.oppTotal > summary.yourTotal ? opponentName : played.length > 0 ? "Tied" : "—"}
+          sub={played.length > 0 ? leader : "Sync scores to update"}
+          color={summary.yourTotal > summary.oppTotal ? YOU_COLOR : summary.oppTotal > summary.yourTotal ? OPP_COLOR : "#92400e"}
+        />
+        <ScoreCard label="Your Wins" value={summary.yourWins} sub={`${summary.oppWins}W ${summary.ties}T for ${opponentName}`} color={YOU_COLOR} />
+        <ScoreCard label="Matches" value={matchStats.length} sub={`${played.length} synced`} />
+      </div>
+
+      {/* Charts — only when we have score data */}
+      {played.length > 0 && (
+        <>
           {/* Running total line chart */}
           <div style={sectionStyle}>
             <h2 style={sectionTitle}>Running Series Total</h2>
@@ -156,83 +163,92 @@ export default function StatsClient({ opponentName, matchStats, leaderboard, sum
               </BarChart>
             </ResponsiveContainer>
           </div>
-
-          {/* Match results table */}
-          <div style={sectionStyle}>
-            <h2 style={sectionTitle}>Match Results</h2>
-            <p style={sectionSub}>Click any row to see detailed player scores</p>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["Match", "Date", "Your Pts", `${opponentName} Pts`, "Winner", "Diff", ""].map((h) => (
-                      <th key={h} style={thStyle}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {matchStats.map((m) => {
-                    const youWon = m.winner === "You";
-                    const oppWon = m.winner === opponentName;
-                    return (
-                      <tr key={m.matchId} style={{ background: m.isCurrent ? "#f0fdf4" : "transparent" }}>
-                        <td style={{ ...tdStyle, fontWeight: 600 }}>
-                          {m.fixture}
-                          {m.isCurrent && <span style={{ marginLeft: 6, padding: "2px 8px", borderRadius: 999, background: "#dcfce7", color: "#16a34a", fontSize: 11, fontWeight: 700 }}>Current</span>}
-                        </td>
-                        <td style={{ ...tdStyle, color: "#94a3b8", fontSize: 12, whiteSpace: "nowrap" }}>{m.date}</td>
-                        <td style={{ ...tdStyle, fontWeight: 700, color: youWon ? YOU_COLOR : "#0f172a" }}>{m.hasData ? m.yourPoints : "—"}</td>
-                        <td style={{ ...tdStyle, fontWeight: 700, color: oppWon ? OPP_COLOR : "#0f172a" }}>{m.hasData ? m.oppPoints : "—"}</td>
-                        <td style={{ ...tdStyle, fontWeight: 600, color: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#92400e" }}>{m.winner ?? "—"}</td>
-                        <td style={{ ...tdStyle, color: "#64748b" }}>{m.hasData ? `${m.pointsDiff} pts` : "—"}</td>
-                        <td style={{ ...tdStyle }}>
-                          <Link href={`/match/${m.matchId}`} style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #e2e8f0", color: "#475569", textDecoration: "none", fontSize: 13, fontWeight: 500, whiteSpace: "nowrap" }}>
-                            View →
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Player leaderboard */}
-          <div style={sectionStyle}>
-            <h2 style={sectionTitle}>Player Leaderboard</h2>
-            <p style={sectionSub}>Total fantasy points across all series matches</p>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    {["#", "Player", "Team", "Matches", "Runs", "Wkts", "Ct", "Points"].map((h) => (
-                      <th key={h} style={thStyle}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {leaderboard.map((p, i) => (
-                    <tr key={`${p.side}-${p.name}`} style={{ background: i % 2 === 0 ? "white" : "#f8fafc" }}>
-                      <td style={{ ...tdStyle, color: i === 0 ? "#d97706" : "#94a3b8", fontWeight: 700 }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</td>
-                      <td style={{ ...tdStyle, fontWeight: 600 }}>{p.name}</td>
-                      <td style={tdStyle}>
-                        <span style={{ padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700, background: p.side === "You" ? "#dbeafe" : "#fee2e2", color: p.side === "You" ? YOU_COLOR : OPP_COLOR }}>
-                          {p.side === "You" ? "You" : opponentName}
-                        </span>
-                      </td>
-                      <td style={tdStyle}>{p.matches}</td>
-                      <td style={tdStyle}>{p.runs}</td>
-                      <td style={tdStyle}>{p.wickets}</td>
-                      <td style={tdStyle}>{p.catches}</td>
-                      <td style={{ ...tdStyle, fontWeight: 800, fontSize: 15, color: "#0f172a" }}>{p.totalPoints}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
         </>
+      )}
+
+      {/* Match results table — always visible */}
+      <div style={sectionStyle}>
+        <h2 style={sectionTitle}>Match Results</h2>
+        <p style={sectionSub}>Click View → on any match to see detailed player scores</p>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                {["Match", "Date", "Your Pts", `${opponentName} Pts`, "Winner", "Diff", ""].map((h) => (
+                  <th key={h} style={thStyle}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {matchStats.map((m) => {
+                const youWon = m.winner === "You";
+                const oppWon = m.winner === opponentName;
+                return (
+                  <tr key={m.matchId} style={{ background: m.isCurrent ? "#f0fdf4" : "transparent" }}>
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>
+                      {m.fixture}
+                      {m.isCurrent && <span style={{ marginLeft: 6, padding: "2px 8px", borderRadius: 999, background: "#dcfce7", color: "#16a34a", fontSize: 11, fontWeight: 700 }}>Current</span>}
+                    </td>
+                    <td style={{ ...tdStyle, color: "#94a3b8", fontSize: 12, whiteSpace: "nowrap" }}>{m.date || "—"}</td>
+                    <td style={{ ...tdStyle, fontWeight: 700, color: youWon ? YOU_COLOR : "#0f172a" }}>{m.hasData ? m.yourPoints : "—"}</td>
+                    <td style={{ ...tdStyle, fontWeight: 700, color: oppWon ? OPP_COLOR : "#0f172a" }}>{m.hasData ? m.oppPoints : "—"}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#92400e" }}>{m.winner ?? "—"}</td>
+                    <td style={{ ...tdStyle, color: "#64748b" }}>{m.hasData ? `${m.pointsDiff} pts` : "—"}</td>
+                    <td style={{ ...tdStyle }}>
+                      <Link href={`/match/${m.matchId}`} style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #e2e8f0", color: "#475569", textDecoration: "none", fontSize: 13, fontWeight: 500, whiteSpace: "nowrap" }}>
+                        View →
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {played.length === 0 && (
+          <div style={{ textAlign: "center", padding: "24px 0 8px", color: "#94a3b8", fontSize: 13 }}>
+            Scores not synced yet — go to{" "}
+            <Link href="/match" style={{ color: "#2563eb", textDecoration: "none", fontWeight: 600 }}>Live Match</Link>
+            {" "}and click Sync Scores Now
+          </div>
+        )}
+      </div>
+
+      {/* Player leaderboard — only shown if there's score data */}
+      {leaderboard.length > 0 && (
+        <div style={sectionStyle}>
+          <h2 style={sectionTitle}>Player Leaderboard</h2>
+          <p style={sectionSub}>Total fantasy points across all series matches</p>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  {["#", "Player", "Team", "Matches", "Runs", "Wkts", "Ct", "Points"].map((h) => (
+                    <th key={h} style={thStyle}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboard.map((p, i) => (
+                  <tr key={`${p.side}-${p.name}`} style={{ background: i % 2 === 0 ? "white" : "#f8fafc" }}>
+                    <td style={{ ...tdStyle, color: i === 0 ? "#d97706" : "#94a3b8", fontWeight: 700 }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600 }}>{p.name}</td>
+                    <td style={tdStyle}>
+                      <span style={{ padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700, background: p.side === "You" ? "#dbeafe" : "#fee2e2", color: p.side === "You" ? YOU_COLOR : OPP_COLOR }}>
+                        {p.side === "You" ? "You" : opponentName}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>{p.matches}</td>
+                    <td style={tdStyle}>{p.runs}</td>
+                    <td style={tdStyle}>{p.wickets}</td>
+                    <td style={tdStyle}>{p.catches}</td>
+                    <td style={{ ...tdStyle, fontWeight: 800, fontSize: 15, color: "#0f172a" }}>{p.totalPoints}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
