@@ -185,11 +185,13 @@ async function fetchJson(path: string) {
       continue;
     }
     const payload = await response.json();
+    // Always track the hit — even quota errors count against the CricAPI server limit.
+    // Tracking failures lets the DB reflect real usage and prevents invisible quota burn.
+    trackKeyHit(key);
     if (isQuotaError(payload)) {
       lastError = String(payload.reason || "quota exceeded");
       continue; // try next key
     }
-    trackKeyHit(key); // fire-and-forget
     return payload;
   }
 
