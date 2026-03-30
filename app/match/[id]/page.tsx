@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, playerPoints, teamPoints } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import NavBar from "@/components/NavBar";
+import SyncButton from "@/components/SyncButton";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
@@ -87,9 +88,6 @@ export default async function MatchDetailPage({ params }: PageProps) {
   const fixtureName = formatFixture(match.fixture) || match.fixture || "Match";
   const winner = !hasData ? null : yourTotal > oppTotal ? yourName : oppTotal > yourTotal ? opponentName : "Tie";
   const diff = Math.abs(yourTotal - oppTotal);
-  const lastSynced = match.last_synced_at
-    ? new Date(match.last_synced_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-    : null;
 
   return (
     <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24 }}>
@@ -103,7 +101,9 @@ export default async function MatchDetailPage({ params }: PageProps) {
             <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4, color: "#0f172a" }}>{fixtureName}</div>
             {match.venue && <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>{match.venue}</div>}
             {match.toss_winner && <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Toss: {match.toss_winner}</div>}
-            {lastSynced && <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 6 }}>Last synced: {lastSynced}</div>}
+            <div style={{ marginTop: 14 }}>
+              <SyncButton matchId={matchId} lastSyncedAt={match.last_synced_at ?? null} />
+            </div>
           </div>
           <span style={{ padding: "4px 12px", borderRadius: 999, background: match.status === "LIVE" ? "#dcfce7" : "#f1f5f9", color: match.status === "LIVE" ? "#16a34a" : "#64748b", fontSize: 13, fontWeight: 600 }}>
             {match.status ?? "—"}

@@ -56,23 +56,26 @@ function summarizeNames(names: string[], limit = 12) {
   return names.slice(0, limit);
 }
 
+async function doRefresh(matchId?: number) {
+  // If a specific matchId is provided, load that match directly
+  let currentMatch: any = null;
+  if (matchId) {
+    ({ data: currentMatch } = await supabaseAdmin.from("matches").select("*").eq("id", matchId).single());
+  }
+  // Otherwise fall back to the "current" match
+  if (!currentMatch) {
+    ({ data: currentMatch } = await supabaseAdmin.from("matches").select("*").eq("is_current", true).limit(1).maybeSingle());
+  }
+  if (!currentMatch) {
+    ({ data: currentMatch } = await supabaseAdmin.from("matches").select("*").order("id", { ascending: false }).limit(1).maybeSingle());
+  }
+
+  return currentMatch;
+}
+
 export async function GET() {
   try {
-    // Mirror page.tsx: prefer is_current flag, fall back to most recently inserted
-    let { data: currentMatch } = await supabaseAdmin
-      .from("matches")
-      .select("*")
-      .eq("is_current", true)
-      .limit(1)
-      .maybeSingle();
-    if (!currentMatch) {
-      ({ data: currentMatch } = await supabaseAdmin
-        .from("matches")
-        .select("*")
-        .order("id", { ascending: false })
-        .limit(1)
-        .maybeSingle());
-    }
+    const currentMatch = await doRefresh();
 
     if (!currentMatch?.external_match_id) {
       return NextResponse.json({ ok: false, error: "No seeded match with an external match id yet." }, { status: 400 });
@@ -204,6 +207,81 @@ export async function GET() {
   }
 }
 
-export async function POST() {
-  return GET();
+export async function POST(req: Request) {
+  try {
+    let matchId: number | undefined;
+    try {
+      const body = await req.json();
+      if (body?.matchId) matchId = Number(body.matchId);
+    } catch { /* no body or not JSON — that's fine */ }
+
+    const currentMatch = await doRefresh(matchId);
+
+    if (!currentMatch?.external_match_id) {
+      return NextResponse.json({ ok: false, error: "No match with an external ID found." }, { status: 400 });
+    }
+
+    const { data: selectedPlayers } = await supabaseAdmin
+      .from("fantasy_players").select("id,name,side").eq("match_id", currentMatch.id).order("id", { ascending: true });
+
+    const selected = (selectedPlayers ?? []) as SelectedPlayer[];
+    const lastSyncedAt = currentMatch.last_synced_at ? new Date(currentMatch.last_synced_at).getTime() : 0;
+    const now = Date.now();
+    const minIntervalMs = 25_000;
+
+    if (lastSyncedAt && now - lastSyncedAt < minIntervalMs) {
+      const secondsUntilNext = Math.max(1, Math.ceil((minIntervalMs - (now - lastSyncedAt)) / 1000));
+      return NextResponse.json({ ok: true, skipped: true, reason: `Using cached data. Try again in ${secondsUntilNext}s.` });
+    }
+
+    const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id));
+
+    const incomingByVariant = new Map<string, (typeof payload.players)[number]>();
+    for (const player of payload.players) {
+      for (const variant of buildVariants(player.name)) {
+        if (!incomingByVariant.has(variant)) incomingByVariant.set(variant, player);
+      }
+    }
+
+    const matched: Array<{ selected: string; provider: string }> = [];
+    const unmatched: string[] = [];
+    let updatedRows = 0;
+
+    for (const player of selected) {
+      const hit = findIncomingPlayer(player.name, incomingByVariant);
+      if (!hit) { unmatched.push(player.name); continue; }
+      matched.push({ selected: player.name, provider: hit.name });
+      await supabaseAdmin.from("fantasy_players").update({
+        runs: hit.runs, wickets: hit.wickets, catches: hit.catches,
+        fifty_bonus: hit.fifty_bonus, hundred_bonus: hit.hundred_bonus,
+        three_w_bonus: hit.three_w_bonus, five_w_bonus: hit.five_w_bonus,
+      }).eq("id", player.id);
+      updatedRows += 1;
+    }
+
+    const syncedAt = new Date().toISOString();
+    await supabaseAdmin.from("matches").update({
+      status: payload.status || currentMatch.status,
+      fixture: payload.fixture || currentMatch.fixture,
+      venue: payload.venue ?? currentMatch.venue,
+      toss_winner: payload.toss_winner ?? currentMatch.toss_winner,
+      live_summary: payload.live_summary ?? currentMatch.live_summary,
+      source_url: payload.source_url ?? currentMatch.source_url,
+      last_synced_at: syncedAt,
+      ...(payload.rosterNames.length > 0 ? { provider_squad_json: { squads: payload.squads, rosterNames: payload.rosterNames } } : {}),
+    }).eq("id", currentMatch.id);
+
+    return NextResponse.json({
+      ok: true, skipped: false,
+      message: payload.players.length === 0
+        ? (payload.live_summary || "Scorecard not available from API — stats unchanged.")
+        : updatedRows > 0
+          ? `Updated ${updatedRows} of ${selected.length} players.`
+          : "Names in lineup didn't match the scorecard — check spelling.",
+      live_summary: payload.live_summary,
+      debug: { matchId: currentMatch.id, selectedCount: selected.length, updatedRows, matched, unmatched, providerPlayersSample: summarizeNames(payload.players.map(p => p.name)), syncedAt },
+    });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Refresh failed" }, { status: 500 });
+  }
 }
