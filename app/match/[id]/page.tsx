@@ -2,10 +2,11 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer, playerPoints, teamPoints } from "@/lib/scoring";
+import { FantasyPlayer, playerPoints, teamPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import NavBar from "@/components/NavBar";
 import SyncButton from "@/components/SyncButton";
+import ScoreEditor from "@/components/ScoreEditor";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
@@ -15,18 +16,19 @@ async function getData(matchId: number) {
   const [{ data: match }, { data: players }, { data: settings }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").eq("id", matchId).single(),
     supabaseAdmin.from("fantasy_players").select("*").eq("match_id", matchId).order("id", { ascending: true }),
-    supabaseAdmin.from("series_settings").select("opponent_name").limit(1).single(),
+    supabaseAdmin.from("series_settings").select("*").limit(1).single(),
   ]);
   return {
     match,
     players: (players ?? []) as FantasyPlayer[],
     opponentName: settings?.opponent_name ?? "Rahul",
     yourName: (settings as any)?.your_name ?? "Varun",
+    rules: scoringFromSettings(settings as any),
   };
 }
 
-function PlayerRow({ p, yourName, opponentName }: { p: FantasyPlayer; yourName: string; opponentName: string }) {
-  const pts = playerPoints(p);
+function PlayerRow({ p, yourName, opponentName, rules }: { p: FantasyPlayer; yourName: string; opponentName: string; rules: ReturnType<typeof scoringFromSettings> }) {
+  const pts = playerPoints(p, rules);
   const isYou = p.side === "You";
   return (
     <tr style={{ background: "white" }}>
@@ -44,13 +46,17 @@ function PlayerRow({ p, yourName, opponentName }: { p: FantasyPlayer; yourName: 
       <td style={{ ...td, color: "#475569" }}>{p.runs}</td>
       <td style={{ ...td, color: "#475569" }}>{p.wickets}</td>
       <td style={{ ...td, color: "#475569" }}>{p.catches}</td>
-      <td style={{ ...td, color: "#64748b", fontSize: 13 }}>
-        {pts.base > 0 && <div>Bat: {pts.base}</div>}
-        {pts.wicketBonus > 0 && <div>Wkt: {pts.wicketBonus}</div>}
-        {pts.catchBonus > 0 && <div>Catch: {pts.catchBonus}</div>}
-        {pts.captainBonus > 0 && <div>Cap: ×2</div>}
+      <td style={{ ...td, color: "#64748b", fontSize: 12 }}>
+        {p.fifty_bonus > 0 && <div>50+: +{rules.fifty}</div>}
+        {p.hundred_bonus > 0 && <div>100: +{rules.hundred}</div>}
+        {p.three_w_bonus > 0 && <div>3W: +{rules.threeW}</div>}
+        {p.five_w_bonus > 0 && <div>5W: +{rules.fiveW}</div>}
+        {p.mom_bonus > 0 && <div>MOM: +{rules.mom}</div>}
+        {p.captain && <div>Cap: ×2</div>}
+        {!p.fifty_bonus && !p.hundred_bonus && !p.three_w_bonus && !p.five_w_bonus && !p.mom_bonus && !p.captain && <span style={{ color: "#cbd5e1" }}>—</span>}
       </td>
       <td style={{ ...td, fontWeight: 800, fontSize: 18, color: "#0f172a" }}>{pts.final}</td>
+      <td style={td}><ScoreEditor player={p} /></td>
     </tr>
   );
 }
@@ -67,7 +73,7 @@ export default async function MatchDetailPage({ params }: PageProps) {
     );
   }
 
-  const { match, players, opponentName, yourName } = await getData(matchId);
+  const { match, players, opponentName, yourName, rules } = await getData(matchId);
 
   if (!match) {
     return (
@@ -81,8 +87,8 @@ export default async function MatchDetailPage({ params }: PageProps) {
 
   const yourPlayers = players.filter((p) => p.side === "You");
   const oppPlayers = players.filter((p) => p.side !== "You");
-  const yourTotal = teamPoints(yourPlayers);
-  const oppTotal = teamPoints(oppPlayers);
+  const yourTotal = yourPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
+  const oppTotal = oppPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
   const hasData = yourTotal > 0 || oppTotal > 0;
 
   const fixtureName = formatFixture(match.fixture) || match.fixture || "Match";
@@ -142,13 +148,13 @@ export default async function MatchDetailPage({ params }: PageProps) {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Player", "Runs", "Wkts", "Ct", "Breakdown", "Points"].map((h) => (
+                      {["Player", "Runs", "Wkts", "Ct", "Bonuses", "Points", ""].map((h) => (
                         <th key={h} style={th}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {yourPlayers.map((p) => <PlayerRow key={p.id} p={p} yourName={yourName} opponentName={opponentName} />)}
+                    {yourPlayers.map((p) => <PlayerRow key={p.id} p={p} yourName={yourName} opponentName={opponentName} rules={rules} />)}
                   </tbody>
                 </table>
               </div>
@@ -162,13 +168,13 @@ export default async function MatchDetailPage({ params }: PageProps) {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Player", "Runs", "Wkts", "Ct", "Breakdown", "Points"].map((h) => (
+                      {["Player", "Runs", "Wkts", "Ct", "Bonuses", "Points", ""].map((h) => (
                         <th key={h} style={th}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {oppPlayers.map((p) => <PlayerRow key={p.id} p={p} yourName={yourName} opponentName={opponentName} />)}
+                    {oppPlayers.map((p) => <PlayerRow key={p.id} p={p} yourName={yourName} opponentName={opponentName} rules={rules} />)}
                   </tbody>
                 </table>
               </div>

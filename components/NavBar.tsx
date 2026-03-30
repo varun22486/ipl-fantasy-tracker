@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { href: "/", label: "📊 Series" },
   { href: "/match", label: "🏏 Live Match" },
   { href: "/select", label: "👥 Select Teams" },
+  { href: "/settings", label: "⚙️ Settings" },
 ];
 
 export default function NavBar({ title, subtitle }: { title?: string; subtitle?: string }) {

@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer, playerPoints } from "@/lib/scoring";
+import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import StatsClient from "@/components/StatsClient";
 
@@ -10,12 +10,13 @@ async function getData() {
   const [{ data: matches, error: matchErr }, { data: allPlayers }, { data: settings }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").order("id", { ascending: true }),
     supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
-    supabaseAdmin.from("series_settings").select("opponent_name").limit(1).single(),
+    supabaseAdmin.from("series_settings").select("*").limit(1).single(),
   ]);
 
   if (matchErr) console.error("[home] matches query error:", matchErr.message);
   const opponentName = settings?.opponent_name ?? "Rahul";
   const yourName = (settings as any)?.your_name ?? "Varun";
+  const rules = scoringFromSettings(settings as any);
 
   const playersByMatch: Record<number, FantasyPlayer[]> = {};
   for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
@@ -37,8 +38,8 @@ async function getData() {
     const mp = playersByMatch[m.id] ?? [];
     const yourPlayers = mp.filter((p) => p.side === "You");
     const oppPlayers = mp.filter((p) => p.side !== "You");
-    const yourPts = yourPlayers.reduce((s, p) => s + playerPoints(p).final, 0);
-    const oppPts = oppPlayers.reduce((s, p) => s + playerPoints(p).final, 0);
+    const yourPts = yourPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
+    const oppPts = oppPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
     yourCumulative += yourPts;
     oppCumulative += oppPts;
 
@@ -47,7 +48,7 @@ async function getData() {
       name: p.name,
       side: p.side as "You" | string,
       captain: p.captain,
-      points: playerPoints(p).final,
+      points: playerPoints(p, rules).final,
       runs: p.runs,
       wickets: p.wickets,
       catches: p.catches,
@@ -73,7 +74,7 @@ async function getData() {
   for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
     const key = `${p.side}::${p.name}`;
     if (!leaderMap[key]) leaderMap[key] = { name: p.name, side: p.side, totalPoints: 0, matches: 0, runs: 0, wickets: 0, catches: 0 };
-    leaderMap[key].totalPoints += playerPoints(p).final;
+    leaderMap[key].totalPoints += playerPoints(p, rules).final;
     leaderMap[key].matches += 1;
     leaderMap[key].runs += p.runs;
     leaderMap[key].wickets += p.wickets;
@@ -85,11 +86,21 @@ async function getData() {
   const oppWins = matchStats.filter((m) => m.winner === opponentName).length;
   const ties = matchStats.filter((m) => m.winner === "Tie").length;
 
+  // Next unplayed match — first match with no data and a future-or-today date
+  const today = new Date().toISOString().slice(0, 10);
+  const nextMatch = (matches ?? []).find((m: any) => {
+    const hasPlayers = (playersByMatch[m.id] ?? []).length > 0;
+    return !hasPlayers && (m.match_date ?? "") >= today;
+  }) ?? null;
+
   return {
     yourName,
     opponentName,
     matchStats,
     leaderboard,
+    nextMatch: nextMatch
+      ? { fixture: formatFixture(nextMatch.fixture) || nextMatch.fixture || "TBD", date: nextMatch.match_date ?? "", venue: nextMatch.venue ?? null }
+      : null,
     summary: {
       yourWins,
       oppWins,

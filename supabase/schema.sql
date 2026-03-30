@@ -1,8 +1,27 @@
 create table if not exists series_settings (
   id bigint generated always as identity primary key,
   your_name text not null default 'You',
-  opponent_name text not null default 'Rahul'
+  opponent_name text not null default 'Rahul',
+  pts_run integer not null default 1,
+  pts_wicket integer not null default 20,
+  pts_catch integer not null default 10,
+  pts_fifty integer not null default 10,
+  pts_hundred integer not null default 20,
+  pts_three_w integer not null default 10,
+  pts_five_w integer not null default 20,
+  pts_mom integer not null default 10
 );
+
+-- Add scoring columns if upgrading an existing DB
+alter table series_settings add column if not exists your_name text not null default 'You';
+alter table series_settings add column if not exists pts_run integer not null default 1;
+alter table series_settings add column if not exists pts_wicket integer not null default 20;
+alter table series_settings add column if not exists pts_catch integer not null default 10;
+alter table series_settings add column if not exists pts_fifty integer not null default 10;
+alter table series_settings add column if not exists pts_hundred integer not null default 20;
+alter table series_settings add column if not exists pts_three_w integer not null default 10;
+alter table series_settings add column if not exists pts_five_w integer not null default 20;
+alter table series_settings add column if not exists pts_mom integer not null default 10;
 
 insert into series_settings (your_name, opponent_name)
 select 'You', 'Rahul'

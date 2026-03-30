@@ -1,0 +1,115 @@
+"use client";
+
+import { useState, type CSSProperties } from "react";
+import type { FantasyPlayer } from "@/lib/scoring";
+
+type Field = "runs" | "wickets" | "catches" | "fifty_bonus" | "hundred_bonus" | "three_w_bonus" | "five_w_bonus" | "mom_bonus";
+
+const FIELDS: { key: Field; label: string }[] = [
+  { key: "runs",          label: "Runs" },
+  { key: "wickets",       label: "Wickets" },
+  { key: "catches",       label: "Catches" },
+  { key: "fifty_bonus",   label: "50-run bonus (0 or 1)" },
+  { key: "hundred_bonus", label: "100-run bonus (0 or 1)" },
+  { key: "three_w_bonus", label: "3-wkt bonus (0 or 1)" },
+  { key: "five_w_bonus",  label: "5-wkt bonus (0 or 1)" },
+  { key: "mom_bonus",     label: "MOM bonus (0 or 1)" },
+];
+
+export default function ScoreEditor({ player }: { player: FantasyPlayer }) {
+  const [open, setOpen] = useState(false);
+  const [values, setValues] = useState<Record<Field, number>>({
+    runs:          player.runs,
+    wickets:       player.wickets,
+    catches:       player.catches,
+    fifty_bonus:   player.fifty_bonus,
+    hundred_bonus: player.hundred_bonus,
+    three_w_bonus: player.three_w_bonus,
+    five_w_bonus:  player.five_w_bonus,
+    mom_bonus:     player.mom_bonus,
+  });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  async function save() {
+    setSaving(true); setMsg("");
+    try {
+      const res = await fetch("/api/correct-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId: player.id, ...values }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setMsg("Saved!");
+        setTimeout(() => { setOpen(false); window.location.reload(); }, 700);
+      } else {
+        setMsg(json.error ?? "Error saving.");
+      }
+    } catch { setMsg("Network error."); }
+    setSaving(false);
+  }
+
+  function set(key: Field, val: string) {
+    const n = parseInt(val, 10);
+    if (!isNaN(n) && n >= 0) setValues((v) => ({ ...v, [key]: n }));
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} style={editBtn} title="Manually correct scores">
+        ✏️
+      </button>
+
+      {open && (
+        <div style={overlay} onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}>
+          <div style={modal}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16 }}>Edit: {player.name}</div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>Correct API mistakes manually</div>
+              </div>
+              <button onClick={() => setOpen(false)} style={closeBtn}>✕</button>
+            </div>
+
+            <div style={{ display: "grid", gap: 10, marginBottom: 16 }}>
+              {FIELDS.map(({ key, label }) => (
+                <div key={key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                  <label style={{ fontSize: 13, color: "#475569", fontWeight: 500 }}>{label}</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <button type="button" style={nudge} onClick={() => set(key, String(values[key] - 1))} disabled={values[key] <= 0}>−</button>
+                    <input
+                      type="number"
+                      min={0}
+                      value={values[key]}
+                      onChange={(e) => set(key, e.target.value)}
+                      style={numInput}
+                    />
+                    <button type="button" style={nudge} onClick={() => set(key, String(values[key] + 1))}>+</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <button onClick={save} disabled={saving} style={saveBtn}>
+                {saving ? "Saving…" : "Save Corrections"}
+              </button>
+              <button onClick={() => setOpen(false)} style={cancelBtn}>Cancel</button>
+              {msg && <span style={{ fontSize: 13, color: msg === "Saved!" ? "#16a34a" : "#dc2626", fontWeight: 600 }}>{msg}</span>}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+const editBtn: CSSProperties = { background: "none", border: "1px solid #e2e8f0", borderRadius: 7, cursor: "pointer", padding: "3px 7px", fontSize: 14, color: "#64748b" };
+const overlay: CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 };
+const modal: CSSProperties = { background: "white", borderRadius: 20, padding: 24, width: "100%", maxWidth: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" };
+const closeBtn: CSSProperties = { background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#94a3b8", padding: "2px 6px", borderRadius: 6 };
+const numInput: CSSProperties = { width: 60, padding: "5px 8px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, textAlign: "center" };
+const nudge: CSSProperties = { width: 28, height: 28, borderRadius: 8, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontWeight: 700, fontSize: 15 };
+const saveBtn: CSSProperties = { padding: "9px 18px", borderRadius: 10, border: "1px solid #0f172a", background: "#0f172a", color: "white", cursor: "pointer", fontWeight: 700, fontSize: 14 };
+const cancelBtn: CSSProperties = { ...saveBtn, background: "white", color: "#0f172a" };

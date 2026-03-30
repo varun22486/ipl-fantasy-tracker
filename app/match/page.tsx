@@ -52,6 +52,8 @@ export default async function MatchPage() {
         opponentFantasyPlayers={oppPlayers}
         currentMatch={currentMatchData}
         hasLinkedMatch={Boolean(currentMatch)}
+        yourLineupSaved={yourPlayers.length > 0}
+        opponentLineupSaved={oppPlayers.length > 0}
       />
     </main>
   );

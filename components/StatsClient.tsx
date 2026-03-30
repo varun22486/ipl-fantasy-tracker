@@ -26,10 +26,13 @@ type LeaderboardEntry = {
   runs: number; wickets: number; catches: number;
 };
 
+type NextMatch = { fixture: string; date: string; venue: string | null };
+
 type Props = {
   yourName: string; opponentName: string;
   matchStats: MatchStat[];
   leaderboard: LeaderboardEntry[];
+  nextMatch?: NextMatch | null;
   summary: { yourWins: number; oppWins: number; ties: number; yourTotal: number; oppTotal: number; matchesPlayed: number };
 };
 
@@ -111,7 +114,7 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function StatsClient({ yourName, opponentName, matchStats, leaderboard, summary }: Props) {
+export default function StatsClient({ yourName, opponentName, matchStats, leaderboard, summary, nextMatch }: Props) {
   const played = matchStats.filter((m) => m.hasData);
   const ins = computeInsights(played, yourName, opponentName);
 
@@ -202,6 +205,22 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
   return (
     <div style={{ display: "grid", gap: 24 }}>
       <NavBar title="Series Overview" subtitle={`${yourName} vs ${opponentName}`} />
+
+      {/* ── Next match card ────────────────────────────────────────────────── */}
+      {nextMatch && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, padding: "16px 20px", background: "linear-gradient(135deg,#0f172a,#1e3a5f)", borderRadius: 18, color: "white" }}>
+          <div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#94a3b8", marginBottom: 4 }}>Next Match</div>
+            <div style={{ fontSize: 20, fontWeight: 800 }}>{nextMatch.fixture}</div>
+            <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 3 }}>
+              {nextMatch.date}{nextMatch.venue ? ` · ${nextMatch.venue}` : ""}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <Link href="/select" style={{ padding: "9px 18px", borderRadius: 10, background: "white", color: "#0f172a", textDecoration: "none", fontWeight: 700, fontSize: 14 }}>👥 Pick Teams</Link>
+          </div>
+        </div>
+      )}
 
       {/* ── Summary scorecards ─────────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>

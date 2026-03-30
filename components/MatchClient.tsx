@@ -39,6 +39,8 @@ type Props = {
   opponentFantasyPlayers: FantasyPlayer[];
   currentMatch: CurrentMatch | null;
   hasLinkedMatch: boolean;
+  yourLineupSaved: boolean;
+  opponentLineupSaved: boolean;
 };
 
 function DebugPanel({ info }: { info: DebugData | null }) {
@@ -64,7 +66,7 @@ function DebugPanel({ info }: { info: DebugData | null }) {
   );
 }
 
-export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch }: Props) {
+export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
   const [debugInfo, setDebugInfo] = useState<DebugData | null>(null);
@@ -151,8 +153,25 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     );
   }
 
+  const missingLineups = [
+    !yourLineupSaved && yourName,
+    !opponentLineupSaved && opponentName,
+  ].filter(Boolean) as string[];
+
   return (
     <div style={{ display: "grid", gap: 20 }}>
+
+      {/* Missing lineup warning */}
+      {hasLinkedMatch && missingLineups.length > 0 && (
+        <div style={{ padding: "12px 16px", borderRadius: 14, background: "#fff7ed", border: "1px solid #fed7aa", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ fontSize: 14, color: "#92400e" }}>
+            ⚠️ <strong>{missingLineups.join(" & ")}</strong> {missingLineups.length === 1 ? "hasn't" : "haven't"} saved {missingLineups.length === 1 ? "their" : "their"} team yet — scores will show as 0.
+          </div>
+          <a href="/select" style={{ padding: "6px 14px", borderRadius: 8, background: "#0f172a", color: "white", textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
+            → Select Teams
+          </a>
+        </div>
+      )}
 
       {/* Match header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, padding: "18px 20px", background: "white", border: "1px solid #e2e8f0", borderRadius: 20 }}>
