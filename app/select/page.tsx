@@ -44,7 +44,10 @@ async function getData() {
     supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
   ]);
 
-  const currentMatch = (matches ?? []).find((m: any) => m.is_current) ?? matches?.[0] ?? null;
+  // Prefer the explicitly-marked current match; if none (e.g. is_current column
+  // missing from DB), fall back to highest id to at least show the latest match.
+  const allMatches = matches ?? [];
+  const currentMatch = allMatches.find((m: any) => m.is_current) ?? allMatches[0] ?? null;
   const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
 
   return { currentMatch, matchPlayers, settings };
