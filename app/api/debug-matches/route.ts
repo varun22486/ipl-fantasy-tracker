@@ -10,6 +10,8 @@ export async function GET() {
     (process.env.CRICKET_API_KEY || "").trim(),
     (process.env.CRICKET_API_KEY_2 || "").trim(),
     (process.env.CRICKET_API_KEY_3 || "").trim(),
+    (process.env.CRICKET_API_KEY_4 || "").trim(),
+    (process.env.CRICKET_API_KEY_5 || "").trim(),
   ].filter(Boolean);
 
   if (keys.length === 0) {
