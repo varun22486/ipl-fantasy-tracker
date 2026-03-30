@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import DashboardClient from "@/components/DashboardClient";
 import { supabase } from "@/lib/supabase";
 import { FantasyPlayer } from "@/lib/scoring";
