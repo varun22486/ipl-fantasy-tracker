@@ -856,6 +856,84 @@ function extractCatchesFromWickets(data: MaybeRecord): PlayerStats[] {
   );
 }
 
+/**
+ * Most reliable source for catches: parse the catcher from each batting
+ * entry's dismissal-text / catcher field.
+ *
+ * CricAPI sometimes omits the "catcher" field on the catching[] row for
+ * certain fielders (e.g. Phil Salt's 3 catches in RCB vs SRH Match 1 had
+ * no name on the catching[] entry). The dismissal-text "c NAME b BOWLER"
+ * always carries the correct name.
+ *
+ * Formats handled:
+ *   dismissal-text "c Phil Salt b Jacob Duffy"  → catcher = Phil Salt
+ *   dismissal-text "c&b Jacob Duffy"            → caught-and-bowled, catcher = Jacob Duffy
+ *   catcher field present                        → use that directly
+ */
+function extractCatchesFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
+  const countByKey = new Map<string, number>();
+  const nameByKey  = new Map<string, string>();
+
+  function addCatch(name: string) {
+    const key = name.toLowerCase().trim();
+    if (!key) return;
+    nameByKey.set(key, nameByKey.get(key) ?? name.trim());
+    countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+  }
+
+  function processBattingEntry(b: any) {
+    const dismissal = safeString(b.dismissal ?? b.howOut ?? "").toLowerCase();
+    if (!dismissal.includes("catch") && dismissal !== "caught") {
+      // Some APIs use dismissal="catch", others use the full word
+      // Also accept when dismissal-text starts with "c "
+      const dt = safeString(b["dismissal-text"] ?? b.dismissalText ?? "");
+      if (!/^c[\s&]/i.test(dt)) return;
+    }
+
+    // Priority 1: explicit catcher field
+    const catcherField = b.catcher;
+    if (catcherField) {
+      const name =
+        typeof catcherField === "string"
+          ? catcherField
+          : safeString(catcherField?.name ?? catcherField?.playerName ?? "");
+      if (name) { addCatch(name); return; }
+    }
+
+    // Priority 2: parse from dismissal-text
+    const dt = safeString(b["dismissal-text"] ?? b.dismissalText ?? "");
+    if (!dt) return;
+
+    // "c&b Jacob Duffy" → caught and bowled — catcher is the bowler
+    const cnb = dt.match(/^c\s*&\s*b\s+(.+)/i);
+    if (cnb) { addCatch(cnb[1].trim()); return; }
+
+    // "c Phil Salt b Jacob Duffy" → catcher is everything between "c " and " b "
+    const caught = dt.match(/^c\s+(.+?)\s+b\s+/i);
+    if (caught) { addCatch(caught[1].trim()); return; }
+  }
+
+  if (Array.isArray((data as any).scorecard)) {
+    for (const inn of (data as any).scorecard) {
+      if (Array.isArray(inn.batting)) inn.batting.forEach(processBattingEntry);
+    }
+  }
+  // Direct batting array at root level
+  if (Array.isArray((data as any).batting)) {
+    (data as any).batting.forEach(processBattingEntry);
+  }
+
+  if (countByKey.size === 0) return [];
+
+  return Array.from(countByKey.entries()).map(([key, total]) =>
+    bonusify({
+      name: nameByKey.get(key) ?? key,
+      runs: 0, wickets: 0, catches: total,
+      fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
+    })
+  );
+}
+
 function mergePlayers(rows: PlayerStats[]) {
   const byName = new Map<string, PlayerStats>();
 
@@ -1257,8 +1335,11 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   const data = payload.data || payload;
   const rows: PlayerStats[] = [];
   collectPlayerRows(data, rows);
-  // New-format catches live in scorecard[].wickets[].fielder — add them before merge
+  // Catch sources (all aggregated per-player before merge so Math.max is correct):
+  // 1. scorecard[].wickets[].fielder  (newer CricAPI format)
   rows.push(...extractCatchesFromWickets(data as MaybeRecord));
+  // 2. scorecard[].batting[].dismissal-text  (most reliable — handles missing catcher fields)
+  rows.push(...extractCatchesFromBattingDismissals(data as MaybeRecord));
   const merged = mergePlayers(rows);
   const simpleFallback = merged.length > 0 ? merged : parseSimpleLiveScore(data);
 
