@@ -703,7 +703,7 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
       name: batsmanName,
       runs: numberValue(node.r ?? node.runs),
       wickets: 0,
-      catches: numberValue(node.ct ?? node.catches ?? node.c ?? 0),
+      catches: 0, // catches tracked exclusively via the catching[] array to avoid double-counting
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
     }));
     return; // leaf node — don't recurse further
@@ -789,9 +789,9 @@ function mergePlayers(rows: PlayerStats[]) {
 
     byName.set(key, bonusify({
       ...existing,
-      runs: Math.max(existing.runs, row.runs),
-      wickets: Math.max(existing.wickets, row.wickets),
-      catches: Math.max(existing.catches, row.catches),
+      runs: Math.max(existing.runs, row.runs),       // batting total is one authoritative row
+      wickets: Math.max(existing.wickets, row.wickets), // bowling total is one authoritative row
+      catches: existing.catches + row.catches,       // each catch is a separate entry — must SUM
       fifty_bonus: 0,
       hundred_bonus: 0,
       three_w_bonus: 0,
