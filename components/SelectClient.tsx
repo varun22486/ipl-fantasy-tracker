@@ -3,6 +3,8 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { formatFixture } from "@/lib/format";
 import type { CSSProperties } from "react";
+import ApiMessage from "@/components/ApiMessage";
+import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 
 const KEY_LIMIT = 100;
 const QUOTA_LIMIT = 300;
@@ -52,6 +54,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   const [saving, setSaving] = useState<"mine" | "theirs" | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
+  const [apiMsg, setApiMsg] = useState<ApiMsg | null>(null);
   const [rival, setRival] = useState(opponentName || "Rahul");
   const [mine, setMine] = useState<Player[]>(withFallback(yourPlayers));
   const [theirs, setTheirs] = useState<Player[]>(withFallback(opponentPlayers));
@@ -90,55 +93,74 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
 
   const hasRoster = rosterNames.length > 0 || squads.some((t) => t.players.length > 0);
 
+  const showMsg = useCallback((text: string, context?: string) => {
+    setApiMsg(classifyApiMsg(text, context));
+    setMessage(""); // clear the old plain string
+  }, []);
+
   function guardedRun(cost: number, fn: () => Promise<void>) {
-    if (isAtLimit) { setMessage(`API quota reached. Resets at midnight IST.`); return; }
+    if (isAtLimit) {
+      setApiMsg(classifyApiMsg("Daily API quota exhausted", "Quota"));
+      return;
+    }
     if (isNearLimit) { setPendingAction({ fn, cost }); return; }
     void fn();
   }
 
   async function doSubmitSeedLink(externalMatchId: string) {
-    if (!externalMatchId) { setMessage("Pick a match first."); return; }
-    setSyncing(true); setMessage("Linking match…");
+    if (!externalMatchId) { showMsg("Pick a match first.", "Link"); return; }
+    setSyncing(true);
+    setApiMsg({ type: "loading", title: "Linking match…" });
     try {
       const res = await fetch("/api/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ externalMatchId }) });
       const json = await res.json();
       setLinkChoices(null); addUsage(1);
-      setMessage(json.ok ? "Match linked! Refreshing…" : json.error || "Could not link match.");
+      showMsg(json.ok ? "Match linked! Refreshing…" : (json.error || "Could not link match."), "Link match");
       if (json.ok) window.location.reload();
-    } catch { setMessage("Network error while linking."); }
+    } catch { showMsg("Network error while linking.", "Link match"); }
     setSyncing(false);
   }
 
   async function doStartLinkTodaysMatch() {
-    setSyncing(true); setMessage("Loading IPL fixtures…"); setLinkChoices(null);
+    setSyncing(true);
+    setApiMsg({ type: "loading", title: "Loading IPL fixtures…" });
+    setLinkChoices(null);
     try {
       const res = await fetch("/api/matches/today");
       const json = await res.json();
       addUsage(2);
-      if (!json.ok) { setMessage(json.error || "Could not load matches."); setSyncing(false); return; }
+      if (!json.ok) { showMsg(json.error || "Could not load matches.", "Load fixtures"); setSyncing(false); return; }
       setLinkDateHint(typeof json.date === "string" ? json.date : "");
       const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
-      if (choices.length === 0) { setMessage(`${json.totalRaw ?? 0} matches in feed but none are IPL yet.`); setSyncing(false); return; }
+      if (choices.length === 0) {
+        showMsg(`${json.totalRaw ?? 0} matches in feed but none are IPL yet.`, "Load fixtures");
+        setSyncing(false); return;
+      }
       if (choices.length === 1) { await doSubmitSeedLink(choices[0].externalMatchId || ""); return; }
       setLinkChoices(choices); setPickedLinkId(choices[0].externalMatchId || "");
-      setMessage(`${choices.length} IPL fixtures found — pick one.`);
-    } catch { setMessage("Network error loading matches."); }
+      setApiMsg({ type: "info", title: `${choices.length} IPL fixtures found`, detail: "Pick one below to link it." });
+    } catch { showMsg("Network error loading matches.", "Load fixtures"); }
     setSyncing(false);
   }
 
   async function doFetchRoster() {
-    setSyncing(true); setMessage("Fetching player roster…");
+    setSyncing(true);
+    setApiMsg({ type: "loading", title: "Fetching player roster…" });
     try {
       const res = await fetch("/api/fetch-roster", { method: "POST" });
       const json = await res.json(); addUsage(1);
-      if (json.ok) { setMessage(`Roster loaded (${json.playerCount} players). Refreshing…`); window.setTimeout(() => window.location.reload(), 800); }
-      else setMessage(json.error || "Could not load roster.");
-    } catch { setMessage("Network error loading roster."); }
+      if (json.ok) {
+        setApiMsg({ type: "success", title: `Roster loaded — ${json.playerCount} players. Refreshing…` });
+        window.setTimeout(() => window.location.reload(), 900);
+      } else {
+        showMsg(json.error || "Could not load roster.", "Refresh Players");
+      }
+    } catch { showMsg("Network error loading roster.", "Refresh Players"); }
     setSyncing(false);
   }
 
   async function saveSide(side: "mine" | "theirs") {
-    setSaving(side); setMessage("");
+    setSaving(side); setApiMsg(null);
     const payload =
       side === "mine"
         ? { saveSide: "mine", yourPlayers: mine, opponentName: rival }
@@ -148,12 +170,12 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       const json = await res.json();
       setSaving(null);
       if (json.ok) {
-        setMessage(`${side === "mine" ? yourName : rival} team saved!`);
-        window.setTimeout(() => { window.location.href = "/match"; }, 800);
+        setApiMsg({ type: "success", title: `${side === "mine" ? yourName : rival}'s team saved! Taking you to the match…` });
+        window.setTimeout(() => { window.location.href = "/match"; }, 900);
       } else {
-        setMessage(json.error || "Could not save.");
+        showMsg(json.error || "Could not save.", "Save team");
       }
-    } catch { setSaving(null); setMessage("Network error saving lineup."); }
+    } catch { setSaving(null); showMsg("Network error saving lineup.", "Save team"); }
   }
 
   function updateCaptain(side: "mine" | "theirs", index: number) {
@@ -185,8 +207,32 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   const sideColor = (side: "mine" | "theirs") => side === "mine" ? YOU_COLOR : OPP_COLOR;
   const sideBg   = (side: "mine" | "theirs") => side === "mine" ? "#eff6ff" : "#fef2f2";
 
+  // Proactive banner: all keys are currently blocked
+  const allBlocked = keyStats.length > 0 && keyStats.every((k) => k.blocked);
+  const minResume = allBlocked
+    ? keyStats.reduce((min, k) => {
+        const m = k.resumesInMin ?? 999;
+        return m < min ? m : min;
+      }, 999)
+    : null;
+
   return (
     <div style={{ display: "grid", gap: 20 }}>
+
+      {/* ── All keys blocked banner ────────────────────────────────────────── */}
+      {allBlocked && (
+        <ApiMessage
+          msg={{
+            type: "error",
+            title: "All API keys are currently blocked",
+            detail: minResume && minResume < 900
+              ? `Some keys are in a 15-min rate-limit window, earliest resumes in ~${minResume} min. Others may have hit the daily 100-hit cap (resets at midnight). Any API action will fail until at least one key is available.`
+              : "All keys have hit their daily 100-hit limit and won't reset until midnight. You can still manually enter player scores using the ✏️ Edit button on each player.",
+            action: "View key usage",
+            actionHref: "/api/key-stats",
+          }}
+        />
+      )}
 
       {/* ── Quota warning ─────────────────────────────────────────────────── */}
       {pendingAction && (
@@ -572,16 +618,13 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         </div>
       </div>
 
-      {/* ── Status message ────────────────────────────────────────────────── */}
-      {message && linkChoices === null && (
-        <div style={{
-          fontSize: 13, padding: "10px 16px", borderRadius: 10,
-          background: message.toLowerCase().includes("error") || message.toLowerCase().includes("fail") ? "#fff1f2" : "#f0fdf4",
-          color: message.toLowerCase().includes("error") || message.toLowerCase().includes("fail") ? "#be123c" : "#166534",
-          border: message.toLowerCase().includes("error") || message.toLowerCase().includes("fail") ? "1px solid #fecdd3" : "1px solid #bbf7d0",
-        }}>
-          {message}
-        </div>
+      {/* ── Status / error message ────────────────────────────────────────── */}
+      {apiMsg && linkChoices === null && (
+        <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />
+      )}
+      {/* Fallback plain text (for any old codepath that still calls setMessage) */}
+      {message && !apiMsg && linkChoices === null && (
+        <ApiMessage msg={classifyApiMsg(message)} onDismiss={() => setMessage("")} />
       )}
 
       {/* ── Responsive override for narrow screens ───────────────────────── */}

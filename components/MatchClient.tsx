@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback, type CSSProperties } from "rea
 import { formatFixture } from "@/lib/format";
 import PlayerTable from "@/components/PlayerTable";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
+import ApiMessage from "@/components/ApiMessage";
+import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 
 const QUOTA_LIMIT = 300;
 const QUOTA_WARN_AT = 240;
@@ -69,6 +71,7 @@ function DebugPanel({ info }: { info: DebugData | null }) {
 export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
+  const [apiMsg, setApiMsg] = useState<ApiMsg | null>(null);
   const [debugInfo, setDebugInfo] = useState<DebugData | null>(null);
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number } | null>(null);
@@ -90,50 +93,62 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   const oppTotal = teamPoints(opponentFantasyPlayers);
   const leader = yourTotal === oppTotal ? "Tied" : yourTotal > oppTotal ? `You +${yourTotal - oppTotal}` : `${opponentName} +${oppTotal - yourTotal}`;
 
+  const showMsg = useCallback((text: string, context?: string) => {
+    setApiMsg(classifyApiMsg(text, context));
+    setMessage("");
+  }, []);
+
   function guardedRun(cost: number, fn: () => Promise<void>) {
-    if (isAtLimit) { setMessage(`Quota reached. Resets midnight IST.`); return; }
+    if (isAtLimit) { setApiMsg(classifyApiMsg("Daily API quota exhausted", "Quota")); return; }
     if (isNearLimit) { setPendingAction({ fn, cost }); return; }
     void fn();
   }
 
   async function doRefreshNow() {
-    setSyncing(true); setMessage("Syncing scores…");
+    setSyncing(true);
+    setApiMsg({ type: "loading", title: "Syncing scores…" });
     try {
       const res = await fetch("/api/refresh", { method: "POST" });
       const json = await res.json();
       setSyncing(false); setDebugInfo(json);
       if (!json.skipped) addUsage(1);
-      setMessage(json.ok ? (json.reason || json.message || "Scores updated!") : (json.error || "Refresh failed."));
+      const text = json.ok
+        ? (json.reason || json.message || "Scores updated!")
+        : (json.error || "Refresh failed.");
+      showMsg(text, json.ok ? undefined : "Sync scores");
       if (json.ok && !json.skipped) window.setTimeout(() => window.location.reload(), 1200);
-    } catch { setSyncing(false); setMessage("Network error during sync."); }
+    } catch { setSyncing(false); showMsg("Network error during sync.", "Sync scores"); }
   }
 
   async function doSubmitSeedLink(externalMatchId: string) {
-    if (!externalMatchId) { setMessage("Pick a match first."); return; }
-    setSyncing(true); setMessage("Linking match…");
+    if (!externalMatchId) { showMsg("Pick a match first.", "Link"); return; }
+    setSyncing(true);
+    setApiMsg({ type: "loading", title: "Linking match…" });
     try {
       const res = await fetch("/api/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ externalMatchId }) });
       const json = await res.json();
       setLinkChoices(null); addUsage(1);
-      setMessage(json.ok ? "Match linked! Reloading…" : json.error || "Could not link match.");
+      showMsg(json.ok ? "Match linked! Reloading…" : (json.error || "Could not link match."), "Link match");
       if (json.ok) window.location.reload();
-    } catch { setMessage("Network error while linking."); }
+    } catch { showMsg("Network error while linking.", "Link match"); }
     setSyncing(false);
   }
 
   async function doStartLinkMatch() {
-    setSyncing(true); setMessage("Loading IPL fixtures…"); setLinkChoices(null);
+    setSyncing(true);
+    setApiMsg({ type: "loading", title: "Loading IPL fixtures…" });
+    setLinkChoices(null);
     try {
       const res = await fetch("/api/matches/today");
       const json = await res.json(); addUsage(2);
-      if (!json.ok) { setMessage(json.error || "Could not load matches."); setSyncing(false); return; }
+      if (!json.ok) { showMsg(json.error || "Could not load matches.", "Load fixtures"); setSyncing(false); return; }
       setLinkDateHint(typeof json.date === "string" ? json.date : "");
       const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
-      if (choices.length === 0) { setMessage(`${json.totalRaw ?? 0} matches in feed but none are IPL.`); setSyncing(false); return; }
+      if (choices.length === 0) { showMsg(`${json.totalRaw ?? 0} matches in feed but none are IPL.`, "Load fixtures"); setSyncing(false); return; }
       if (choices.length === 1) { await doSubmitSeedLink(choices[0].externalMatchId || ""); return; }
       setLinkChoices(choices); setPickedLinkId(choices[0].externalMatchId || "");
-      setMessage(`${choices.length} fixtures found — pick one below.`);
-    } catch { setMessage("Network error loading matches."); }
+      setApiMsg({ type: "info", title: `${choices.length} fixtures found`, detail: "Pick one below to link it." });
+    } catch { showMsg("Network error loading matches.", "Load fixtures"); }
     setSyncing(false);
   }
 
@@ -212,7 +227,16 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           {syncing ? "Loading…" : "Link Different Match"}
         </button>
         <span style={{ fontSize: 12, color: "#94a3b8" }}>Last synced: {lastSynced}</span>
-        {message && !linkChoices && <span style={{ fontSize: 13, color: "#475569" }}>{message}</span>}
+        {apiMsg && !linkChoices && (
+          <div style={{ flex: 1 }}>
+            <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />
+          </div>
+        )}
+        {message && !apiMsg && !linkChoices && (
+          <div style={{ flex: 1 }}>
+            <ApiMessage msg={classifyApiMsg(message)} onDismiss={() => setMessage("")} />
+          </div>
+        )}
         <span style={{ marginLeft: "auto", fontSize: 12, color: isAtLimit ? "#b91c1c" : "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
       </div>
 
