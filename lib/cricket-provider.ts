@@ -248,11 +248,21 @@ async function fetchJson(path: string) {
   const statusFor = (k: string): KeyStatus =>
     keyStatusMap[keyAlias(k)] ?? { hits: 0, rateLimitedUntil: null, quotaExhaustedAt: null };
 
+  const KEY_LIMIT_PER_DAY = 100;
+
   const isBlocked = (k: string): boolean => {
     const s = statusFor(k);
-    if (s.quotaExhaustedAt === today) return true;  // daily quota gone
-    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() > nowMs) return true; // still in 15-min window
+    if (s.quotaExhaustedAt === today) return true;          // explicitly marked exhausted
+    if (s.hits >= KEY_LIMIT_PER_DAY) return true;           // hit count reached 100 — works without migration
+    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() > nowMs) return true; // 15-min block window
     return false;
+  };
+
+  const blockTypeFor = (k: string): "quota" | "rate_limit" | null => {
+    const s = statusFor(k);
+    if (s.quotaExhaustedAt === today || s.hits >= KEY_LIMIT_PER_DAY) return "quota";
+    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() > nowMs) return "rate_limit";
+    return null;
   };
 
   // Order by ascending hit count; skip blocked keys (push them to end so they can still be
@@ -268,19 +278,24 @@ async function fetchJson(path: string) {
   if (ordered.length === 0) ordered.push("");
 
   let lastError = "";
-  let skippedDueToBlock = 0;
+  let skippedQuota = 0;
+  let skippedRateLimit = 0;
 
   for (const key of ordered) {
-    // Hard-skip keys we know are blocked (don't even make the HTTP call)
+    // Hard-skip keys we know are blocked — zero HTTP calls made
     if (key && isBlocked(key)) {
-      const s = statusFor(key);
-      if (s.quotaExhaustedAt === today) {
-        lastError = `Key ${keyAlias(key)} quota exhausted for today`;
-      } else if (s.rateLimitedUntil) {
-        const resumeIn = Math.ceil((s.rateLimitedUntil.getTime() - nowMs) / 60000);
-        lastError = `Key ${keyAlias(key)} rate-limited for ~${resumeIn} more min`;
+      const bt = blockTypeFor(key);
+      if (bt === "quota") {
+        skippedQuota++;
+        lastError = `[QUOTA_EXHAUSTED] Key ${keyAlias(key)} daily quota exhausted`;
+      } else {
+        skippedRateLimit++;
+        const s = statusFor(key);
+        const resumeIn = s.rateLimitedUntil
+          ? Math.ceil((s.rateLimitedUntil.getTime() - nowMs) / 60000)
+          : 15;
+        lastError = `[RATE_LIMITED] Key ${keyAlias(key)} rate-limited (~${resumeIn} min remaining)`;
       }
-      skippedDueToBlock++;
       continue;
     }
 
@@ -298,16 +313,26 @@ async function fetchJson(path: string) {
 
     if (isQuotaError(payload)) {
       const reason = String(payload.reason || payload.message || "");
-      lastError = reason || "quota/rate-limit exceeded";
       const blockType = classifyBlock(reason);
+      if (blockType === "quota") {
+        lastError = `[QUOTA_EXHAUSTED] ${reason || "daily quota exceeded"}`;
+        skippedQuota++;
+      } else {
+        lastError = `[RATE_LIMITED] ${reason || "rate-limit exceeded"}`;
+        skippedRateLimit++;
+      }
       if (blockType) recordKeyBlock(key, blockType);
       continue; // try next key
     }
     return payload;
   }
 
-  const blockedMsg = skippedDueToBlock > 0 ? ` (${skippedDueToBlock} key(s) skipped — blocked)` : "";
-  throw new Error(`Cricket API error: ${lastError || "all keys failed"}${blockedMsg}`);
+  const total = skippedQuota + skippedRateLimit;
+  const summaryParts: string[] = [];
+  if (skippedQuota > 0) summaryParts.push(`${skippedQuota} quota-exhausted`);
+  if (skippedRateLimit > 0) summaryParts.push(`${skippedRateLimit} rate-limited`);
+  const summary = summaryParts.length ? ` [${total} keys skipped: ${summaryParts.join(", ")}]` : "";
+  throw new Error(`Cricket API error: ${lastError || "all keys failed"}${summary}`);
 }
 
 function todayIso() {
@@ -1850,16 +1875,29 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   // When no scorecard is available, return empty stats rather than throwing so
   // the match metadata (status, venue, etc.) still gets updated on sync.
   if (!payload) {
-    // Classify the failure so the UI can give actionable advice
-    const isRateLimit = /block|rate.?limit|15.?min/i.test(lastFailReason);
-    const isPlanError = /plan|subscri|paid|unauthori|forbidden|access|403/i.test(lastFailReason) ||
-                        (scorecardFailed && !isRateLimit && !lastFailReason);
-    const liveMsg = isRateLimit
-      ? `API rate-limited (${lastFailReason}). Wait 15 minutes and try again.`
+    // Classify using the [TAG] prefixes written by fetchJson so regex matching is unambiguous
+    const isQuotaExhausted = /\[QUOTA_EXHAUSTED\]/i.test(lastFailReason) ||
+      /quota.?(exhausted|today|limit)|all.?keys.*(quota|exhausted)/i.test(lastFailReason);
+    const isRateLimit = !isQuotaExhausted && (
+      /\[RATE_LIMITED\]/i.test(lastFailReason) ||
+      /\bblocked? for 15\b|rate.?limit|15.?min/i.test(lastFailReason)
+    );
+    const isPlanError = !isQuotaExhausted && !isRateLimit && (
+      /plan|subscri|paid|unauthori|forbidden|access|403/i.test(lastFailReason) ||
+      (scorecardFailed && !lastFailReason)
+    );
+
+    // Strip internal tags from the user-facing message
+    const cleanReason = lastFailReason.replace(/\[(QUOTA_EXHAUSTED|RATE_LIMITED)\]\s*/gi, "").trim();
+
+    const liveMsg = isQuotaExhausted
+      ? `All API keys have hit today's quota. Try again tomorrow (resets at midnight). Key usage: /api/key-stats`
+      : isRateLimit
+      ? `All API keys are rate-limited — wait ~15 minutes then try again.`
       : isPlanError
       ? `Scorecard endpoint requires a paid CricAPI plan. Use ✏️ Edit to enter stats manually.`
-      : lastFailReason
-      ? `Scorecard not available: ${lastFailReason}. Use ✏️ Edit to enter stats manually.`
+      : cleanReason
+      ? `Scorecard not available: ${cleanReason}. Use ✏️ Edit to enter stats manually.`
       : "Scorecard not available from the API for this match. Use ✏️ Edit to enter stats manually.";
 
     return {

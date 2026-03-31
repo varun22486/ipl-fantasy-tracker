@@ -11,8 +11,9 @@ export type ApiMsg = {
   actionHref?: string; // if set, action is a link
 };
 
-const RATE_LIMIT_RE = /block|rate.?limit|15.?min/i;
-const QUOTA_RE     = /exceeded|hits.?today|hits.?limit|quota|credits/i;
+// Check quota BEFORE rate-limit — "blocked" appears in both our tags and quota messages
+const QUOTA_RE = /\[QUOTA_EXHAUSTED\]|quota.?(exhausted|today|limit)|all.?keys.*(quota|exhausted)|daily.?quota|hits.?today|hits.?limit|exceeded.*limit/i;
+const RATE_LIMIT_RE = /\[RATE_LIMITED\]|blocked? for 15|rate.?limit|15.?min/i;
 const NETWORK_RE   = /network|fetch|failed to fetch|econnrefused|timeout/i;
 const SUCCESS_RE   = /\b(ok|success|saved|linked|loaded|updated\s+\d|roster loaded|match linked|scores updated|refreshing|team saved)\b/i;
 const INFO_RE      = /\b(cached|try again in|no ipl|none are ipl|matches in feed|scorecard not available|stats unchanged|fixture|fixtures found)\b/i;
@@ -25,23 +26,29 @@ export function classifyApiMsg(raw: string, context?: string): ApiMsg {
 
   if (!r) return { type: "success", title: "Done" };
 
-  if (RATE_LIMIT_RE.test(r)) {
-    const mins = (r.match(/(\d+)\s*min/i) || [])[1] ?? "15";
-    return {
-      type: "warning",
-      title: `API rate-limited — wait ~${mins} min`,
-      detail: `CricAPI temporarily blocks a key after too many rapid requests. All keys are in cooldown. Try again in ${mins} minutes.`,
-      action: "View key status",
-      actionHref: "/api/key-stats",
-    };
-  }
+  // Strip internal tags before showing to user
+  const display = r.replace(/\[(QUOTA_EXHAUSTED|RATE_LIMITED)\]\s*/gi, "").trim();
+  void display; // used in fallback below
 
+  // Quota exhaustion checked first — must be before rate-limit check because
+  // "blocked" appears in quota messages too
   if (QUOTA_RE.test(r)) {
     return {
       type: "error",
       title: "Daily API quota exhausted",
-      detail: "All keys have reached their 100-hit daily limit. Quota resets at midnight (CricAPI time). Try again tomorrow or add more API keys.",
+      detail: "All 7 keys have reached the 100-hit daily limit. Quota resets at midnight (CricAPI time). Try again tomorrow or add more keys in your .env.",
       action: "View key usage",
+      actionHref: "/api/key-stats",
+    };
+  }
+
+  if (RATE_LIMIT_RE.test(r)) {
+    const mins = (r.match(/~?(\d+)\s*min/i) || [])[1] ?? "15";
+    return {
+      type: "warning",
+      title: `All keys rate-limited — wait ~${mins} min`,
+      detail: `CricAPI temporarily blocks a key after too many requests in a short burst. All keys are in the cooldown window. Try again in ${mins} minutes — no action needed on your side.`,
+      action: "View key status",
       actionHref: "/api/key-stats",
     };
   }
@@ -63,17 +70,17 @@ export function classifyApiMsg(raw: string, context?: string): ApiMsg {
   }
 
   if (INFO_RE.test(r)) {
-    return { type: "info", title: r };
+    return { type: "info", title: display || r };
   }
 
   if (WARNING_RE.test(r)) {
-    return { type: "warning", title: r };
+    return { type: "warning", title: display || r };
   }
 
-  // Fallback: if we have a context label use it, otherwise show the raw text as a plain error
+  // Fallback — strip tags from user-visible text
   return {
     type: "error",
-    title: context ? `${context} failed` : r,
-    detail: context ? r : undefined,
+    title: context ? `${context} failed` : (display || r),
+    detail: context ? (display || r) : undefined,
   };
 }
