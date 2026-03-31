@@ -252,15 +252,17 @@ async function fetchJson(path: string) {
 
   const isBlocked = (k: string): boolean => {
     const s = statusFor(k);
-    if (s.quotaExhaustedAt === today) return true;          // explicitly marked exhausted
-    if (s.hits >= KEY_LIMIT_PER_DAY) return true;           // hit count reached 100 — works without migration
-    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() > nowMs) return true; // 15-min block window
+    // Quota: only trust the hit count — the DB quota flag can go stale.
+    // hits >= 100 is the definitive check (works even without migration).
+    if (s.hits >= KEY_LIMIT_PER_DAY) return true;
+    // Rate-limit: trust the timestamp (set fresh from live CricAPI responses)
+    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() > nowMs) return true;
     return false;
   };
 
   const blockTypeFor = (k: string): "quota" | "rate_limit" | null => {
     const s = statusFor(k);
-    if (s.quotaExhaustedAt === today || s.hits >= KEY_LIMIT_PER_DAY) return "quota";
+    if (s.hits >= KEY_LIMIT_PER_DAY) return "quota";
     if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() > nowMs) return "rate_limit";
     return null;
   };

@@ -15,25 +15,9 @@ export async function GET() {
 
     return NextResponse.json({ ok: true, choices, totalRaw, nonIplSample, date });
   } catch (error) {
+    // Pass the raw error through — classifyApiMsg on the client will render it correctly
+    // with the right icon/colour. Avoid hardcoding key counts here.
     const msg = error instanceof Error ? error.message : "Could not load matches";
-    const lower = msg.toLowerCase();
-    const isRateLimit = lower.includes("block") || lower.includes("blocked");
-    const isDailyQuota =
-      lower.includes("exceeded") ||
-      lower.includes("hits today") ||
-      lower.includes("all keys failed") ||
-      lower.includes("quota");
-    const friendlyError = isRateLimit
-      ? "Rate-limited for 15 minutes — too many requests in a short window. Wait a moment and try again."
-      : isDailyQuota
-        ? "Both API keys have hit today's quota (100 req/day each). Quota resets at midnight UTC. Try again later or check cricketdata.org."
-        : msg;
-    return NextResponse.json(
-      {
-        ok: false,
-        error: friendlyError,
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
