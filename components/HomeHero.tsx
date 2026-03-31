@@ -27,11 +27,10 @@ export default function HomeHero({
       <div className="home-hero__inner">
         <p className="home-hero__eyebrow">IPL fantasy · head-to-head</p>
         <h2 id="home-hero-heading" className="home-hero__title">
-          Welcome back, {yourName}
+          Welcome back
         </h2>
         <p className="home-hero__lead">
-          You&apos;re tracking the series against <strong style={{ color: "#fff" }}>{opponentName}</strong>. Below is your
-          running story: match-by-match results, cumulative points, and deeper charts.
+          Tracking <strong style={{ color: "#93c5fd" }}>{yourName}</strong> vs <strong style={{ color: "#fca5a5" }}>{opponentName}</strong> — match-by-match results, cumulative points, and season insights.
         </p>
         <div className="home-hero__stats">
           <div className="home-hero__stat">

@@ -109,7 +109,7 @@ exception when undefined_column then null; end $$;
 create table if not exists fantasy_players (
   id bigint generated always as identity primary key,
   match_id bigint not null references matches(id) on delete cascade,
-  side text not null check (side in ('You', 'Rahul')),
+  side text not null,
   name text not null,
   captain boolean not null default false,
   runs integer not null default 0,
@@ -125,3 +125,9 @@ create table if not exists fantasy_players (
   unique(match_id, name)
 );
 alter table fantasy_players add column if not exists provider_player_id text;
+
+-- Remove the hardcoded 'Rahul' constraint so any opponent name works
+-- (safe to run multiple times — drops only if the constraint exists)
+do $$ begin
+  alter table fantasy_players drop constraint if exists fantasy_players_side_check;
+exception when others then null; end $$;

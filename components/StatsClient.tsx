@@ -386,128 +386,128 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
           </div>}
 
           {/* RUNS & WICKETS TAB */}
-          {chartTab === "Runs & Wickets" && (<div style={sectionStyle}>
-            <h2 style={sectionTitle}>Runs</h2>
-            <p style={sectionSub}>Per-match total runs and cumulative series tally for each side</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
-              <div>
-                <div style={miniChartLabel}>Per Match</div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={runsData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} runs`} />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
-                    <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+          {chartTab === "Runs & Wickets" && (
+            <div style={sectionStyle}>
+              <h2 style={sectionTitle}>Runs</h2>
+              <p style={sectionSub}>Per-match total runs and cumulative series tally for each side</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
+                <div>
+                  <div style={miniChartLabel}>Per Match</div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={runsData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} runs`} />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
+                      <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div>
+                  <div style={miniChartLabel}>Cumulative Total</div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={runsRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="runsGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
+                        <linearGradient id="runsGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                      <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} runs`} />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#runsGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
+                      <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#runsGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-              <div>
-                <div style={miniChartLabel}>Cumulative Total</div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <AreaChart data={runsRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="runsGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
-                      <linearGradient id="runsGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
-                    <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                    <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} runs`} />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#runsGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
-                    <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#runsGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div style={{ marginTop: 24 }}>
+                <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Wickets</h2>
+                <p style={sectionSub}>Per-match wickets taken and cumulative series tally</p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
+                  <div>
+                    <div style={miniChartLabel}>Per Match</div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={wicketsData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} wkt${v !== 1 ? "s" : ""}`} />} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
+                        <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div>
+                    <div style={miniChartLabel}>Cumulative Total</div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <AreaChart data={wicketsRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="wktsGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
+                          <linearGradient id="wktsGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                        <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} wkt${v !== 1 ? "s" : ""}`} />} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#wktsGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
+                        <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#wktsGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-
-            <div style={{ marginTop: 24 }}>
-              <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Wickets</h2>
-              <p style={sectionSub}>Per-match wickets taken and cumulative series tally</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
-              <div>
-                <div style={miniChartLabel}>Per Match</div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={wicketsData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} wkt${v !== 1 ? "s" : ""}`} />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
-                    <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div>
-                <div style={miniChartLabel}>Cumulative Total</div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <AreaChart data={wicketsRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="wktsGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
-                      <linearGradient id="wktsGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                    <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} wkt${v !== 1 ? "s" : ""}`} />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#wktsGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
-                    <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#wktsGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>)}
+          )}
 
           {/* CATCHES & CAPTAIN TAB */}
-          {chartTab === "Catches & Captain" && (<div style={sectionStyle}>
-            <h2 style={sectionTitle}>Catches</h2>
-            <p style={sectionSub}>Per-match catches and cumulative series tally</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
-              <div>
-                <div style={miniChartLabel}>Per Match</div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={catchesData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} catch${v !== 1 ? "es" : ""}`} />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
-                    <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+          {chartTab === "Catches & Captain" && (
+            <div style={sectionStyle}>
+              <h2 style={sectionTitle}>Catches</h2>
+              <p style={sectionSub}>Per-match catches and cumulative series tally</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
+                <div>
+                  <div style={miniChartLabel}>Per Match</div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={catchesData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} catch${v !== 1 ? "es" : ""}`} />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
+                      <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div>
+                  <div style={miniChartLabel}>Cumulative Total</div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={catchesRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="ctGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
+                        <linearGradient id="ctGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                      <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} catch${v !== 1 ? "es" : ""}`} />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#ctGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
+                      <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#ctGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-              <div>
-                <div style={miniChartLabel}>Cumulative Total</div>
-                <ResponsiveContainer width="100%" height={220}>
-                  <AreaChart data={catchesRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="ctGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
-                      <linearGradient id="ctGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
-                    <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} catch${v !== 1 ? "es" : ""}`} />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#ctGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
-                    <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#ctGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-            <div style={{ marginTop: 24 }}>
-              <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Captain Points</h2>
-              <p style={sectionSub}>Per-match captain points (×2 applied) and cumulative tally — captain name in tooltip</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
+              <div style={{ marginTop: 24 }}>
+                <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Captain Points</h2>
+                <p style={sectionSub}>Per-match captain points (×2 applied) and cumulative tally — captain name in tooltip</p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
               <div>
                 <div style={miniChartLabel}>Per Match</div>
                 <ResponsiveContainer width="100%" height={220}>
@@ -556,8 +556,10 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
+              </div>
             </div>
-          </div>)}
+          </div>
+          )}
 
           {/* DISTRIBUTION TAB */}
           {chartTab === "Distribution" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px,100%), 1fr))", gap: 20 }}>
