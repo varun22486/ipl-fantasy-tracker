@@ -7,6 +7,7 @@ import {
   ComposedChart, Line, ReferenceLine,
 } from "recharts";
 import type { CSSProperties } from "react";
+import { useState } from "react";
 import Link from "next/link";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -109,8 +110,12 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
   return { streak, streakSide, yourAvg: Math.round(yourAvg * 10) / 10, oppAvg: Math.round(oppAvg * 10) / 10, biggestWin, closest, topPerf, capPctYou, capPctOpp, brkd, yourTrend, oppTrend };
 }
 
+const CHART_TABS = ["Points", "Runs & Wickets", "Catches & Captain", "Distribution"] as const;
+type ChartTab = typeof CHART_TABS[number];
+
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function StatsClient({ yourName, opponentName, matchStats, leaderboard, summary }: Props) {
+  const [chartTab, setChartTab] = useState<ChartTab>("Points");
   const played = matchStats.filter((m) => m.hasData);
   const ins = computeInsights(played, yourName, opponentName);
 
@@ -264,76 +269,82 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
 
       {/* ── Insight mini-cards ─────────────────────────────────────────────── */}
       {ins && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px,100%), 1fr))", gap: 14 }}>
-          {/* Form */}
-          <div style={insightCard}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(170px,100%), 1fr))", gap: 12 }}>
+          <div className="insight-card insight-card--blue">
             <div style={insightLabel}>Last 5 Form</div>
-            <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+            <div style={{ display: "flex", gap: 5, marginTop: 8 }}>
               {played.slice(-5).map((m, i) => {
                 const w = m.winner === "You" || m.winner === yourName;
                 const l = m.winner === opponentName;
                 return (
-                  <div key={i} title={m.fixture} style={{ width: 30, height: 30, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 12, background: w ? YOU_LIGHT : l ? OPP_LIGHT : "#fef9c3", color: w ? YOU_COLOR : l ? OPP_COLOR : "#92400e" }}>
+                  <div key={i} title={m.fixture} style={{ width: 28, height: 28, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 11, background: w ? YOU_LIGHT : l ? OPP_LIGHT : "#fef9c3", color: w ? YOU_COLOR : l ? OPP_COLOR : "#92400e" }}>
                     {w ? "W" : l ? "L" : "T"}
                   </div>
                 );
               })}
             </div>
-            <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: "#334155" }}>
-              {ins.streak >= 2 ? `${ins.streakSide === "You" || ins.streakSide === yourName ? yourName : ins.streakSide === opponentName ? opponentName : "Tied"} on ${ins.streak}-match run` : "No current streak"}
+            <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: "#334155" }}>
+              {ins.streak >= 2 ? `${ins.streakSide === "You" || ins.streakSide === yourName ? yourName : ins.streakSide === opponentName ? opponentName : "Tied"} — ${ins.streak} in a row` : "No streak yet"}
             </div>
           </div>
-          {/* Avg */}
-          <div style={insightCard}>
-            <div style={insightLabel}>Avg Per Match</div>
-            <div style={{ display: "flex", gap: 14, marginTop: 8 }}>
-              <div><div style={{ fontSize: 22, fontWeight: 800, color: YOU_COLOR }}>{ins.yourAvg}</div><div style={{ fontSize: 11, color: "#64748b" }}>{yourName}</div></div>
-              <div style={{ fontSize: 20, color: "#d1d5db", alignSelf: "center" }}>vs</div>
-              <div><div style={{ fontSize: 22, fontWeight: 800, color: OPP_COLOR }}>{ins.oppAvg}</div><div style={{ fontSize: 11, color: "#64748b" }}>{opponentName}</div></div>
+
+          <div className="insight-card insight-card--teal">
+            <div style={insightLabel}>Avg per match</div>
+            <div style={{ display: "flex", gap: 10, marginTop: 8, alignItems: "flex-end" }}>
+              <div><div style={{ fontSize: 24, fontWeight: 800, color: YOU_COLOR, lineHeight: 1 }}>{ins.yourAvg}</div><div style={{ fontSize: 11, color: "#64748b", marginTop: 3 }}>{yourName}</div></div>
+              <div style={{ fontSize: 13, color: "#d1d5db", paddingBottom: 14 }}>vs</div>
+              <div><div style={{ fontSize: 24, fontWeight: 800, color: OPP_COLOR, lineHeight: 1 }}>{ins.oppAvg}</div><div style={{ fontSize: 11, color: "#64748b", marginTop: 3 }}>{opponentName}</div></div>
             </div>
           </div>
-          {/* Best individual */}
-          <div style={insightCard}>
-            <div style={insightLabel}>Best Performance</div>
-            <div style={{ fontWeight: 800, fontSize: 22, color: ins.topPerf.side === "You" ? YOU_COLOR : OPP_COLOR, marginTop: 6 }}>{ins.topPerf.points} pts</div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>{ins.topPerf.name}</div>
-            <div style={{ fontSize: 12, color: "#94a3b8" }}>{ins.topPerf.fixture}</div>
+
+          <div className="insight-card insight-card--amber">
+            <div style={insightLabel}>Best performance</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: ins.topPerf.side === "You" ? YOU_COLOR : OPP_COLOR, marginTop: 6, lineHeight: 1 }}>{ins.topPerf.points}<span style={{ fontSize: 13, fontWeight: 500, color: "#64748b" }}> pts</span></div>
+            <div style={{ fontWeight: 600, fontSize: 13, marginTop: 4 }}>{ins.topPerf.name}</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{ins.topPerf.fixture}</div>
           </div>
-          {/* Momentum */}
+
           {played.length >= 4 && (
-            <div style={insightCard}>
-              <div style={insightLabel}>Recent Momentum</div>
+            <div className="insight-card insight-card--purple">
+              <div style={insightLabel}>Momentum</div>
               {[{ name: yourName, trend: ins.yourTrend, color: YOU_COLOR }, { name: opponentName, trend: ins.oppTrend, color: OPP_COLOR }].map(({ name, trend, color }) => (
-                <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 999, background: color, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, color: "#334155", flex: 1 }}>{name}</span>
-                  <span style={{ fontSize: 16 }}>{trend > 0 ? "▲" : trend < 0 ? "▼" : "—"}</span>
-                  <span style={{ fontWeight: 700, color }}>{trend > 0 ? `+${trend}` : trend}</span>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: trend > 0 ? "#16a34a" : trend < 0 ? "#dc2626" : "#94a3b8" }}>{trend > 0 ? `▲ +${trend}` : trend < 0 ? `▼ ${trend}` : "—"}</span>
                 </div>
               ))}
             </div>
           )}
-          {/* Biggest win */}
-          <div style={insightCard}>
-            <div style={insightLabel}>Biggest Win</div>
-            <div style={{ fontWeight: 800, fontSize: 22, color: ins.biggestWin.winner === "You" || ins.biggestWin.winner === yourName ? YOU_COLOR : OPP_COLOR, marginTop: 6 }}>+{ins.biggestWin.pointsDiff} pts</div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{ins.biggestWin.winner === "You" ? yourName : ins.biggestWin.winner}</div>
-            <div style={{ fontSize: 12, color: "#94a3b8" }}>{ins.biggestWin.fixture}</div>
+
+          <div className="insight-card insight-card--green">
+            <div style={insightLabel}>Biggest win</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: ins.biggestWin.winner === "You" || ins.biggestWin.winner === yourName ? YOU_COLOR : OPP_COLOR, marginTop: 6, lineHeight: 1 }}>+{ins.biggestWin.pointsDiff}<span style={{ fontSize: 13, fontWeight: 500, color: "#64748b" }}> pts</span></div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4 }}>{ins.biggestWin.winner === "You" ? yourName : ins.biggestWin.winner} won</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{ins.biggestWin.fixture}</div>
           </div>
-          {/* Closest */}
-          <div style={insightCard}>
-            <div style={insightLabel}>Closest Match</div>
-            <div style={{ fontWeight: 800, fontSize: 22, color: "#92400e", marginTop: 6 }}>{ins.closest.pointsDiff} pt{ins.closest.pointsDiff !== 1 ? "s" : ""}</div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{ins.closest.fixture}</div>
-            <div style={{ fontSize: 12, color: "#94a3b8" }}>{ins.closest.yourPoints} vs {ins.closest.oppPoints}</div>
+
+          <div className="insight-card insight-card--red">
+            <div style={insightLabel}>Closest match</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: "#d97706", marginTop: 6, lineHeight: 1 }}>{ins.closest.pointsDiff}<span style={{ fontSize: 13, fontWeight: 500, color: "#64748b" }}> pt gap</span></div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 4 }}>{ins.closest.fixture}</div>
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{ins.closest.yourPoints} vs {ins.closest.oppPoints}</div>
           </div>
         </div>
       )}
 
-      {/* ── Charts ────────────────────────────────────────────────────────── */}
+      {/* ── Charts with tab switcher ──────────────────────────────────────── */}
       {played.length > 0 && (
         <>
-          {/* CHART 2: Running Totals */}
-          <div style={sectionStyle}>
+          {/* Tab bar */}
+          <div className="tab-bar">
+            {CHART_TABS.map((t) => (
+              <button key={t} className={`tab-btn${chartTab === t ? " tab-btn--active" : ""}`} onClick={() => setChartTab(t)}>{t}</button>
+            ))}
+          </div>
+
+          {/* POINTS TAB */}
+          {chartTab === "Points" && <div style={sectionStyle}>
             <h2 style={sectionTitle}>Running Series Total</h2>
             <p style={sectionSub}>Cumulative fantasy points — who is building the lead match by match</p>
             <ResponsiveContainer width="100%" height={270}>
@@ -357,29 +368,27 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
                 <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={3} fill="url(#gradOpp)" dot={{ r: 5, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} activeDot={{ r: 7 }} />
               </AreaChart>
             </ResponsiveContainer>
-          </div>
+            <div style={{ marginTop: 24 }}>
+              <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Match-by-Match</h2>
+              <p style={sectionSub}>Points scored in each individual match</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={barData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }} barCategoryGap="30%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} pts`} />} />
+                  <Legend wrapperStyle={{ fontSize: 13 }} />
+                  <Bar dataKey={yourName} fill={YOU_COLOR} radius={[6, 6, 0, 0]} />
+                  <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>}
 
-          {/* Match-by-match bars */}
-          <div style={sectionStyle}>
-            <h2 style={sectionTitle}>Match-by-Match</h2>
-            <p style={sectionSub}>Points scored in each individual match</p>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={barData} margin={{ top: 5, right: 20, left: 0, bottom: 0 }} barCategoryGap="30%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} pts`} />} />
-                <Legend wrapperStyle={{ fontSize: 13 }} />
-                <Bar dataKey={yourName} fill={YOU_COLOR} radius={[6, 6, 0, 0]} />
-                <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* ── RUNS: per match + running total ─────────────────────────────── */}
-          <div style={sectionStyle}>
+          {/* RUNS & WICKETS TAB */}
+          {chartTab === "Runs & Wickets" && (<div style={sectionStyle}>
             <h2 style={sectionTitle}>Runs</h2>
-            <p style={sectionSub}>Per-match total runs (left) and cumulative series tally (right) for each side's 4 players</p>
+            <p style={sectionSub}>Per-match total runs and cumulative series tally for each side</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
               <div>
                 <div style={miniChartLabel}>Per Match</div>
@@ -416,10 +425,9 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
             </div>
           </div>
 
-          {/* ── WICKETS: per match + running total ──────────────────────────── */}
-          <div style={sectionStyle}>
-            <h2 style={sectionTitle}>Wickets</h2>
-            <p style={sectionSub}>Per-match wickets taken (left) and cumulative series tally (right)</p>
+            <div style={{ marginTop: 24 }}>
+              <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Wickets</h2>
+              <p style={sectionSub}>Per-match wickets taken and cumulative series tally</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
               <div>
                 <div style={miniChartLabel}>Per Match</div>
@@ -454,12 +462,12 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
                 </ResponsiveContainer>
               </div>
             </div>
-          </div>
+          </div>)}
 
-          {/* ── CATCHES: per match + running total ──────────────────────────── */}
-          <div style={sectionStyle}>
+          {/* CATCHES & CAPTAIN TAB */}
+          {chartTab === "Catches & Captain" && (<div style={sectionStyle}>
             <h2 style={sectionTitle}>Catches</h2>
-            <p style={sectionSub}>Per-match catches taken (left) and cumulative series tally (right)</p>
+            <p style={sectionSub}>Per-match catches and cumulative series tally</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
               <div>
                 <div style={miniChartLabel}>Per Match</div>
@@ -496,10 +504,9 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
             </div>
           </div>
 
-          {/* ── CAPTAIN POINTS: per match + cumulative ──────────────────────── */}
-          <div style={sectionStyle}>
-            <h2 style={sectionTitle}>Captain Points</h2>
-            <p style={sectionSub}>Per-match captain points (×2 applied, left) and cumulative series tally (right) — captain name shown in tooltip</p>
+            <div style={{ marginTop: 24 }}>
+              <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Captain Points</h2>
+              <p style={sectionSub}>Per-match captain points (×2 applied) and cumulative tally — captain name in tooltip</p>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
               <div>
                 <div style={miniChartLabel}>Per Match</div>
@@ -550,16 +557,16 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
                 </ResponsiveContainer>
               </div>
             </div>
-          </div>
+          </div>)}
 
-          {/* WIN-RATE TRACKER + SCORE DISTRIBUTION side-by-side */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px,100%), 1fr))", gap: 20 }}>
+          {/* DISTRIBUTION TAB */}
+          {chartTab === "Distribution" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px,100%), 1fr))", gap: 20 }}>
 
             {/* Rolling win rate */}
             {played.length >= 2 && (
               <div style={sectionStyle}>
                 <h2 style={sectionTitle}>Win Rate Over Time</h2>
-                <p style={sectionSub}>Rolling win % after each match — above 50% means you're dominating</p>
+                <p style={sectionSub}>Rolling win % after each match</p>
                 <ResponsiveContainer width="100%" height={240}>
                   <ComposedChart data={winRateData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
                     <defs>
@@ -601,50 +608,74 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </div>}
         </>
       )}
 
-      {/* ── Match results table ────────────────────────────────────────────── */}
+      {/* ── Match results — visual score cards ────────────────────────────── */}
       <div style={sectionStyle}>
         <h2 style={sectionTitle}>Match Results</h2>
-        <p style={sectionSub}>Click View → to see full player score breakdown for any match</p>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                {["Match", "Date", yourName, opponentName, "Winner", "Diff", ""].map((h) => (
-                  <th key={h} style={thStyle}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {matchStats.map((m) => {
-                const youWon = m.winner === "You" || m.winner === yourName;
-                const oppWon = m.winner === opponentName;
-                return (
-                  <tr key={m.matchId} style={{ background: m.isCurrent ? "#f0fdf4" : "transparent" }}>
-                    <td style={{ ...tdStyle, fontWeight: 600 }}>
-                      {m.fixture}
-                      {m.isCurrent && <span style={{ marginLeft: 6, padding: "2px 8px", borderRadius: 999, background: "#dcfce7", color: "#16a34a", fontSize: 11, fontWeight: 700 }}>Live</span>}
-                    </td>
-                    <td style={{ ...tdStyle, color: "#94a3b8", fontSize: 12, whiteSpace: "nowrap" }}>{m.date || "—"}</td>
-                    <td style={{ ...tdStyle, fontWeight: 700, color: youWon ? YOU_COLOR : "#0f172a" }}>{m.hasData ? m.yourPoints : "—"}</td>
-                    <td style={{ ...tdStyle, fontWeight: 700, color: oppWon ? OPP_COLOR : "#0f172a" }}>{m.hasData ? m.oppPoints : "—"}</td>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#92400e" }}>{m.winner === "You" ? yourName : (m.winner ?? "—")}</td>
-                    <td style={{ ...tdStyle, color: "#64748b" }}>{m.hasData ? `${m.pointsDiff} pts` : "—"}</td>
-                    <td style={tdStyle}>
-                      <Link href={`/match/${m.matchId}`} style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #e2e8f0", color: "#475569", textDecoration: "none", fontSize: 13, fontWeight: 500, whiteSpace: "nowrap" }}>
-                        View →
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <p style={sectionSub}>Tap any match to see full player score breakdown</p>
+        <div style={{ display: "grid", gap: 10 }}>
+          {matchStats.map((m) => {
+            const youWon = m.winner === "You" || m.winner === yourName;
+            const oppWon = m.winner === opponentName;
+            const winnerName = m.winner === "You" ? yourName : m.winner;
+            const totalPts = m.hasData ? m.yourPoints + m.oppPoints : 0;
+            const youPct = totalPts > 0 ? Math.round((m.yourPoints / totalPts) * 100) : 50;
+            return (
+              <Link key={m.matchId} href={`/match/${m.matchId}`} style={{ textDecoration: "none" }}>
+                <div className={`match-card${m.isCurrent ? " match-card--current" : ""}`}>
+                  {/* Header row */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>{m.fixture}</div>
+                      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>{m.date || "—"}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+                      {m.isCurrent && (
+                        <span style={{ padding: "2px 8px", borderRadius: 999, background: "#dcfce7", color: "#16a34a", fontSize: 11, fontWeight: 700 }}>● Live</span>
+                      )}
+                      {m.hasData && winnerName && (
+                        <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, background: youWon ? YOU_LIGHT : oppWon ? OPP_LIGHT : "#fef9c3", color: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#92400e" }}>
+                          {m.winner === "Tie" ? "Tie" : `${winnerName} +${m.pointsDiff}`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {/* Score row */}
+                  {m.hasData && (
+                    <>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 999, background: YOU_COLOR }} />
+                          <span style={{ fontSize: 13, color: "#334155", fontWeight: 600 }}>{yourName}</span>
+                          <span style={{ fontSize: 20, fontWeight: 800, color: youWon ? YOU_COLOR : "#0f172a" }}>{m.yourPoints}</span>
+                          <span style={{ fontSize: 11, color: "#94a3b8" }}>pts</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 700 }}>vs</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexDirection: "row-reverse" as const }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 999, background: OPP_COLOR }} />
+                          <span style={{ fontSize: 13, color: "#334155", fontWeight: 600 }}>{opponentName}</span>
+                          <span style={{ fontSize: 20, fontWeight: 800, color: oppWon ? OPP_COLOR : "#0f172a" }}>{m.oppPoints}</span>
+                          <span style={{ fontSize: 11, color: "#94a3b8" }}>pts</span>
+                        </div>
+                      </div>
+                      {/* Score bar */}
+                      <div className="score-bar">
+                        <div className="score-bar__fill" style={{ width: `${youPct}%`, background: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#94a3b8" }} />
+                      </div>
+                    </>
+                  )}
+                  {!m.hasData && (
+                    <div style={{ fontSize: 13, color: "#94a3b8", fontStyle: "italic" }}>No scores yet — sync once the match starts</div>
+                  )}
+                </div>
+              </Link>
+            );
+          })}
         </div>
-        {played.length === 0 && (
+        {played.length === 0 && matchStats.length > 0 && (
           <div style={{ textAlign: "center", padding: "24px 0 8px", color: "#94a3b8", fontSize: 13 }}>
             No synced scores yet —{" "}
             <Link href="/match" style={{ color: "#2563eb", textDecoration: "none", fontWeight: 600 }}>go to Live Match</Link> and Sync Scores Now

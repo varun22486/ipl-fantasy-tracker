@@ -189,3 +189,81 @@ body { margin: 0; font-family: var(--font-sans); background: var(--bg); color: v
 @media (max-width: 760px) {
   .select-two-col { grid-template-columns: 1fr !important; }
 }
+
+/* ── Transitions & hover ─────────────────────────────────────────────────── */
+a, button { transition: opacity 0.12s ease, transform 0.12s ease, box-shadow 0.12s ease; }
+button:active:not(:disabled) { transform: scale(0.97); }
+
+/* ── Match cards ─────────────────────────────────────────────────────────── */
+.match-card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  padding: 14px 18px;
+  display: grid;
+  gap: 12px;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.match-card:hover { box-shadow: 0 4px 20px rgba(15,23,42,0.09); border-color: #cbd5e1; }
+.match-card--current { border-color: #86efac; background: #f0fdf4; }
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+.tab-bar { display: flex; gap: 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 2px; }
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab-btn {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+}
+.tab-btn:hover { border-color: #cbd5e1; color: #0f172a; }
+.tab-btn--active { background: #0f172a; border-color: #0f172a; color: white; }
+
+/* ── Score bar (match card head-to-head bar) ─────────────────────────────── */
+.score-bar { height: 6px; border-radius: 999px; background: #f1f5f9; overflow: hidden; }
+.score-bar__fill { height: 100%; border-radius: 999px; }
+
+/* ── Insight card accents ────────────────────────────────────────────────── */
+.insight-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  background: white;
+  padding: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.insight-card::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+}
+.insight-card--blue::before   { background: #2563eb; }
+.insight-card--red::before    { background: #dc2626; }
+.insight-card--amber::before  { background: #d97706; }
+.insight-card--green::before  { background: #16a34a; }
+.insight-card--purple::before { background: #7c3aed; }
+.insight-card--teal::before   { background: #0891b2; }
+
+/* ── Section card ────────────────────────────────────────────────────────── */
+.section-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
+  background: white;
+  padding: 22px;
+  box-shadow: 0 1px 3px rgba(15,23,42,0.06);
+}
+.section-card__eyebrow {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: #94a3b8; margin: 0 0 4px;
+}
+.section-card__title { font-size: 17px; font-weight: 800; color: #0f172a; margin: 0 0 4px; }
+.section-card__sub { font-size: 13px; color: #64748b; margin: 0 0 20px; line-height: 1.5; }
