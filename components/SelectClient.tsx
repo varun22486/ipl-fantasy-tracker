@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { formatFixture } from "@/lib/format";
+import type { CSSProperties } from "react";
 
 const KEY_LIMIT = 100;
 const QUOTA_LIMIT = 300;
@@ -177,212 +178,420 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     setMessage("");
   }
 
-  return (
-    <div style={{ display: "grid", gap: 16 }}>
+  const YOU_COLOR = "#2563eb";
+  const OPP_COLOR = "#dc2626";
+  const sideColor = (side: "mine" | "theirs") => side === "mine" ? YOU_COLOR : OPP_COLOR;
+  const sideBg   = (side: "mine" | "theirs") => side === "mine" ? "#eff6ff" : "#fef2f2";
 
-      {/* Quota warning dialog */}
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+
+      {/* ── Quota warning ─────────────────────────────────────────────────── */}
       {pendingAction && (
         <div style={warnStyle}>
           <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 6 }}>⚠️ Low on API credits</div>
-          <div style={{ color: "#78350f", fontSize: 14, marginBottom: 12 }}>{remaining} credit{remaining === 1 ? "" : "s"} left. This uses {pendingAction.cost}. Proceed?</div>
+          <div style={{ color: "#78350f", fontSize: 14, marginBottom: 12 }}>
+            {remaining} credit{remaining === 1 ? "" : "s"} left. This action uses {pendingAction.cost}. Continue?
+          </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button style={btnPrimary} onClick={() => { const a = pendingAction; setPendingAction(null); void a.fn(); }}>Yes, proceed</button>
-            <button style={btnSecondary} onClick={() => setPendingAction(null)}>Cancel</button>
+            <button style={btnDark} onClick={() => { const a = pendingAction; setPendingAction(null); void a.fn(); }}>Yes, proceed</button>
+            <button style={btnOutline} onClick={() => setPendingAction(null)}>Cancel</button>
           </div>
         </div>
       )}
 
-      {/* Link match row */}
-      <div style={barStyle}>
-        <button onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit} style={btnPrimary}>
-          {syncing ? "⏳ Loading…" : "Link IPL Match"}
+      {/* ── Match control bar ─────────────────────────────────────────────── */}
+      <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, padding: "14px 20px", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <button onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit} style={btnDark}>
+          {syncing ? "Loading…" : "Link IPL Match"}
         </button>
-        {message && !linkChoices && <span style={{ fontSize: 13, color: "#475569", flex: 1 }}>{message}</span>}
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
-          {keyStats.map((k, i) => {
-            const pct = k.hits / KEY_LIMIT;
-            const c = pct >= 1 ? "#ef4444" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
+        {message && !linkChoices && (
+          <span style={{ fontSize: 13, color: "#475569", flex: 1 }}>{message}</span>
+        )}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
+          <span style={{
+            fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999,
+            background: isAtLimit ? "#fee2e2" : isNearLimit ? "#fef9c3" : "#f1f5f9",
+            color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#64748b",
+          }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
+          <div style={{ display: "flex", gap: 6 }}>
+            {keyStats.map((k, i) => {
+              const pct = k.hits / KEY_LIMIT;
+              const c = pct >= 1 ? "#ef4444" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
+              return (
+                <div key={k.alias} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                  <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600 }}>K{i + 1}</span>
+                  <div style={{ width: 6, height: 32, borderRadius: 4, background: "#e2e8f0", position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: `${Math.min(100, pct * 100)}%`, background: c, borderRadius: 4 }} />
+                  </div>
+                  <span style={{ fontSize: 10, color: "#94a3b8" }}>{k.hits}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Match picker ──────────────────────────────────────────────────── */}
+      {linkChoices && linkChoices.length > 1 && (
+        <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 18, padding: 20 }}>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Choose a match</div>
+          {linkDateHint && <div style={{ color: "#64748b", fontSize: 13, marginBottom: 14 }}>Showing ±1 day (IST) · {linkDateHint}</div>}
+          <div style={{ display: "grid", gap: 10 }}>
+            {linkChoices.map((c) => {
+              const picked = pickedLinkId === c.externalMatchId;
+              return (
+                <label key={c.externalMatchId || c.fixture} style={{
+                  display: "flex", gap: 14, alignItems: "center", padding: "14px 16px",
+                  borderRadius: 14, cursor: "pointer",
+                  border: picked ? "2px solid #2563eb" : "1px solid #e2e8f0",
+                  background: picked ? "#eff6ff" : "white",
+                  transition: "all 0.12s",
+                }}>
+                  <input type="radio" name="lp" checked={picked} onChange={() => setPickedLinkId(c.externalMatchId || "")} style={{ accentColor: "#2563eb" }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{formatFixture(c.fixture) || c.fixture}</div>
+                    <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
+                      {c.status}{c.venue ? ` · ${c.venue}` : ""}{c.match_date ? ` · ${c.match_date}` : ""}
+                    </div>
+                  </div>
+                  {picked && <span style={{ fontSize: 18 }}>✓</span>}
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+            <button style={btnDark} onClick={() => void (guardedRun(1, () => doSubmitSeedLink(pickedLinkId)))} disabled={syncing || !pickedLinkId}>
+              {syncing ? "Linking…" : "Link selected match"}
+            </button>
+            <button style={btnOutline} onClick={() => { setLinkChoices(null); setMessage(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Main two-column layout ─────────────────────────────────────────── */}
+        <div className="select-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20, alignItems: "start" }}>
+
+        {/* LEFT — Player roster ─────────────────────────────────────────── */}
+        <div style={panel}>
+          {/* Panel header */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>Match Players</div>
+              <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
+                {hasRoster
+                  ? "Tap a name to add to the selected team"
+                  : hasLinkedMatch ? "Fetch the playing XI once the teams are announced" : "Link a match first"}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {hasRoster && (
+                <button type="button" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing} style={btnSm}>
+                  {syncing ? "…" : "↺ Refresh XI"}
+                </button>
+              )}
+              {!hasLinkedMatch && (
+                <button type="button" onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit} style={btnSm}>
+                  Link Match
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Active side switcher */}
+          {hasRoster && (
+            <div style={{ display: "flex", gap: 0, borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", marginBottom: 16, width: "fit-content" }}>
+              {(["mine", "theirs"] as const).map((s) => (
+                <button key={s} type="button" onClick={() => setActiveSide(s)} style={{
+                  padding: "8px 18px", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, transition: "all 0.12s",
+                  background: activeSide === s ? sideColor(s) : "white",
+                  color: activeSide === s ? "white" : "#64748b",
+                }}>
+                  {s === "mine" ? `+ ${yourName}` : `+ ${rival}`}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Roster content */}
+          {!hasLinkedMatch ? (
+            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🏏</div>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: "#0f172a" }}>No match linked</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>Link an IPL match to see the players.</div>
+              <button style={btnDark} onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>
+                Link IPL Match
+              </button>
+            </div>
+          ) : !hasRoster ? (
+            <div style={{ textAlign: "center", padding: "40px 20px" }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: "#0f172a" }}>Roster not loaded yet</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>Usually available a few hours before the match starts.</div>
+              <button style={btnDark} onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>
+                {syncing ? "Loading…" : "Load Player Roster"}
+              </button>
+            </div>
+          ) : (
+            <>
+              {squads.length > 0 ? (
+                <div style={{ display: "grid", gap: 20 }}>
+                  {squads.map((team) => (
+                    <div key={team.teamName}>
+                      {/* Team label */}
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
+                        paddingBottom: 8, borderBottom: "1px solid #f1f5f9",
+                      }}>
+                        <div style={{ width: 3, height: 18, borderRadius: 2, background: "#0f172a" }} />
+                        <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", letterSpacing: 0.2 }}>{team.teamName}</span>
+                        <span style={{ fontSize: 11, color: "#94a3b8" }}>{team.players.length} players</span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {team.players.map((name) => {
+                          const taken = takenNames.has(name.trim().toLowerCase());
+                          const isTarget = activeSide === "mine"
+                            ? mine.some((p) => p.name === name)
+                            : theirs.some((p) => p.name === name);
+                          return (
+                            <button
+                              key={`${team.teamName}-${name}`}
+                              type="button"
+                              disabled={taken}
+                              onClick={() => applyRosterName(name)}
+                              style={{
+                                padding: "7px 14px",
+                                borderRadius: 999,
+                                fontSize: 13,
+                                fontWeight: 500,
+                                cursor: taken ? "not-allowed" : "pointer",
+                                border: isTarget
+                                  ? `2px solid ${sideColor(activeSide)}`
+                                  : taken ? "1px solid #e2e8f0" : "1px solid #cbd5e1",
+                                background: isTarget
+                                  ? sideBg(activeSide)
+                                  : taken ? "#f8fafc" : "white",
+                                color: taken ? "#94a3b8" : "#0f172a",
+                                textDecoration: taken && !isTarget ? "line-through" : "none",
+                                opacity: taken && !isTarget ? 0.55 : 1,
+                                transition: "all 0.1s",
+                              }}
+                            >
+                              {name}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {rosterNames.map((name) => {
+                    const taken = takenNames.has(name.trim().toLowerCase());
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        disabled={taken}
+                        onClick={() => applyRosterName(name)}
+                        style={{
+                          padding: "7px 14px", borderRadius: 999, fontSize: 13, fontWeight: 500,
+                          cursor: taken ? "not-allowed" : "pointer",
+                          border: taken ? "1px solid #e2e8f0" : "1px solid #cbd5e1",
+                          background: taken ? "#f8fafc" : "white",
+                          color: taken ? "#94a3b8" : "#0f172a",
+                          textDecoration: taken ? "line-through" : "none",
+                          opacity: taken ? 0.55 : 1,
+                        }}
+                      >
+                        {name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* RIGHT — Team lineup cards ────────────────────────────────────── */}
+        <div style={{ display: "grid", gap: 16 }}>
+          {/* Tip */}
+          <div style={{ fontSize: 12, color: "#64748b", padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
+            💡 <strong>Independent saves</strong> — {yourName} and {rival} each save their own 4.
+          </div>
+
+          {(["mine", "theirs"] as const).map((side) => {
+            const list = side === "mine" ? mine : theirs;
+            const name = side === "mine" ? yourName : rival;
+            const canSave = side === "mine" ? canSaveMine : canSaveTheirs;
+            const isSaving = saving === side;
+            const isActive = activeSide === side;
+            const color = sideColor(side);
+            const bg = sideBg(side);
+            const filled = list.filter((p) => p.name.trim()).length;
+
             return (
-              <span key={k.alias} style={{ fontSize: 11, color: "#64748b", display: "flex", alignItems: "center", gap: 4 }}>
-                K{i + 1} <span style={{ display: "inline-block", width: 28, height: 4, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
-                  <span style={{ display: "block", height: "100%", width: `${Math.min(100, pct * 100)}%`, background: c }} />
-                </span> {k.hits}
-              </span>
+              <div
+                key={side}
+                style={{
+                  ...panel,
+                  border: isActive ? `2px solid ${color}` : "1px solid #e2e8f0",
+                  transition: "border 0.15s",
+                }}
+              >
+                {/* Card header */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 999, background: color, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>{name}</div>
+                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>
+                        {filled}/4 picked · 1 captain
+                      </div>
+                    </div>
+                  </div>
+                  {!isActive && (
+                    <button type="button" onClick={() => setActiveSide(side)} style={{
+                      fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 8,
+                      border: `1px solid ${color}`, background: "white", color, cursor: "pointer",
+                    }}>
+                      Select here
+                    </button>
+                  )}
+                  {isActive && (
+                    <span style={{ fontSize: 12, fontWeight: 700, color, background: bg, padding: "4px 10px", borderRadius: 999 }}>
+                      Active ✓
+                    </span>
+                  )}
+                </div>
+
+                {/* Opponent name field */}
+                {side === "theirs" && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.05, display: "block", marginBottom: 5 }}>
+                      Opponent name
+                    </label>
+                    <input value={rival} onChange={(e) => setRival(e.target.value)} style={inputStyle} placeholder="e.g. Rahul" />
+                  </div>
+                )}
+
+                {/* Player slots */}
+                <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>
+                  {list.map((player, index) => {
+                    const filled = Boolean(player.name.trim());
+                    return (
+                      <div
+                        key={index}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "10px 12px", borderRadius: 12,
+                          background: filled ? (player.captain ? "#fefce8" : "#f8fafc") : "#f8fafc",
+                          border: filled
+                            ? player.captain ? "1px solid #fde68a" : "1px solid #e2e8f0"
+                            : "1px dashed #cbd5e1",
+                          minHeight: 48,
+                        }}
+                      >
+                        {/* Slot number */}
+                        <div style={{
+                          width: 26, height: 26, borderRadius: 999, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                          background: filled ? color : "#e2e8f0", color: filled ? "white" : "#94a3b8",
+                          fontSize: 12, fontWeight: 700,
+                        }}>
+                          {index + 1}
+                        </div>
+
+                        {filled ? (
+                          <>
+                            <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: "#0f172a" }}>{player.name}</span>
+                            {/* Captain toggle */}
+                            <button
+                              type="button"
+                              onClick={() => updateCaptain(side, index)}
+                              title="Set as captain (×2 pts)"
+                              style={{
+                                fontSize: 13, padding: "3px 8px", borderRadius: 8, cursor: "pointer",
+                                fontWeight: 700, transition: "all 0.12s",
+                                border: player.captain ? "1px solid #d97706" : "1px solid #e2e8f0",
+                                background: player.captain ? "#fef9c3" : "white",
+                                color: player.captain ? "#d97706" : "#94a3b8",
+                              }}
+                            >
+                              ★ {player.captain ? "Captain" : "Cap?"}
+                            </button>
+                            {/* Remove */}
+                            <button
+                              type="button"
+                              onClick={() => { clearSlot(side, index); ensureOneCaptain(side); }}
+                              style={{ width: 26, height: 26, borderRadius: 999, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 12, fontWeight: 700, flexShrink: 0 }}
+                            >
+                              ✕
+                            </button>
+                          </>
+                        ) : (
+                          <span style={{ flex: 1, color: "#94a3b8", fontSize: 13, fontStyle: "italic" }}>
+                            {isActive ? "← tap a player" : "empty"}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Save button */}
+                <button
+                  onClick={() => void saveSide(side)}
+                  disabled={!canSave || saving !== null}
+                  style={{
+                    width: "100%", padding: "12px", borderRadius: 12, border: "none",
+                    fontWeight: 700, fontSize: 14, cursor: canSave ? "pointer" : "not-allowed",
+                    background: canSave ? color : "#e2e8f0",
+                    color: canSave ? "white" : "#94a3b8",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {isSaving ? "Saving…" : canSave ? `Save ${name}'s team →` : `Pick ${4 - list.filter(p => p.name.trim()).length} more player${4 - list.filter(p => p.name.trim()).length === 1 ? "" : "s"}`}
+                </button>
+              </div>
             );
           })}
         </div>
       </div>
 
-      {/* Match picker */}
-      {linkChoices && linkChoices.length > 1 && (
-        <div style={pickerStyle}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>Choose an IPL match to import</div>
-          {linkDateHint && <div style={{ color: "#64748b", fontSize: 13, marginBottom: 12 }}>Showing ±1 day (IST) · {linkDateHint}</div>}
-          <div style={{ display: "grid", gap: 8 }}>
-            {linkChoices.map((c) => (
-              <label key={c.externalMatchId || c.fixture} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: 12, borderRadius: 12, border: pickedLinkId === c.externalMatchId ? "2px solid #2563eb" : "1px solid #e2e8f0", background: pickedLinkId === c.externalMatchId ? "#eff6ff" : "white", cursor: "pointer" }}>
-                <input type="radio" name="lp" checked={pickedLinkId === c.externalMatchId} onChange={() => setPickedLinkId(c.externalMatchId || "")} style={{ marginTop: 3 }} />
-                <div>
-                  <div style={{ fontWeight: 600 }}>{formatFixture(c.fixture) || c.fixture}</div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{c.status}{c.venue ? ` · ${c.venue}` : ""}{c.match_date ? ` · ${c.match_date}` : ""}</div>
-                </div>
-              </label>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-            <button style={btnPrimary} onClick={() => void (guardedRun(1, () => doSubmitSeedLink(pickedLinkId)))} disabled={syncing || !pickedLinkId}>{syncing ? "Working…" : "Link selected match"}</button>
-            <button style={btnSecondary} onClick={() => { setLinkChoices(null); setMessage(""); }}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {/* Concurrent access notice */}
-      <div style={{ padding: "10px 16px", borderRadius: 12, background: "#f0fdf4", border: "1px solid #bbf7d0", fontSize: 13, color: "#166534" }}>
-        💡 <strong>Each person saves their own team independently.</strong> {yourName} saves "{yourName}'s 4", {rival} saves "{rival}'s 4" — no conflict.
-      </div>
-
-      {/* Roster panel */}
-      <div style={panelStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
-          <h3 style={{ margin: 0 }}>Players in this match</h3>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            {hasRoster && (
-              <button
-                type="button"
-                onClick={() => guardedRun(1, doFetchRoster)}
-                disabled={syncing}
-                style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}
-                title="Re-fetch from API — use this once Playing XI is announced"
-              >
-                {syncing ? "⏳" : "🔄 Refresh Players"}
-              </button>
-            )}
-            {hasRoster && (
-              <div style={{ display: "flex", borderRadius: 10, overflow: "hidden", border: "1px solid #e2e8f0" }}>
-                <button type="button" onClick={() => setActiveSide("mine")} style={tabStyle(activeSide === "mine")}>+ {yourName}&apos;s picks</button>
-                <button type="button" onClick={() => setActiveSide("theirs")} style={tabStyle(activeSide === "theirs")}>+ {rival}&apos;s picks</button>
-              </div>
-            )}
-          </div>
-        </div>
-        {hasRoster && (
-          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 10 }}>
-            <strong>Before toss:</strong> full squad lists. <strong>After play starts:</strong> announced playing XI from the batting card (about 11 per team; impact subs omitted when the API flags them). Use <strong>🔄 Refresh Players</strong> if the list looks stale.
-          </div>
-        )}
-
-        {!hasLinkedMatch ? (
-          <div style={{ color: "#64748b", fontSize: 14 }}>Use &quot;Link IPL Match&quot; above to import a fixture first.</div>
-        ) : !hasRoster ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ color: "#64748b", fontSize: 14 }}>No roster loaded yet. Usually available a few hours before match.</div>
-            <button style={btnPrimary} onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>{syncing ? "Loading…" : "Load Player Roster"}</button>
-          </div>
-        ) : (
-          <>
-            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>Tap a player to add to the active side. Greyed-out = already picked by someone.</div>
-            {squads.length > 0 ? (
-              <div style={{ display: "grid", gap: 16 }}>
-                {squads.map((team) => (
-                  <div key={team.teamName}>
-                    <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: "#334155" }}>{team.teamName}</div>
-                    <div style={chipGrid}>
-                      {team.players.map((name) => {
-                        const taken = takenNames.has(name.trim().toLowerCase());
-                        return <button key={`${team.teamName}-${name}`} type="button" style={taken ? chipTaken : chip} disabled={taken} onClick={() => applyRosterName(name)}>{name}</button>;
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={chipGrid}>
-                {rosterNames.map((name) => {
-                  const taken = takenNames.has(name.trim().toLowerCase());
-                  return <button key={name} type="button" style={taken ? chipTaken : chip} disabled={taken} onClick={() => applyRosterName(name)}>{name}</button>;
-                })}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Lineup panel — two independent sections */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
-        {(["mine", "theirs"] as const).map((side) => {
-          const list = side === "mine" ? mine : theirs;
-          const name = side === "mine" ? yourName : rival;
-          const canSave = side === "mine" ? canSaveMine : canSaveTheirs;
-          const isSaving = saving === side;
-          return (
-            <div key={side} style={{ ...panelStyle, border: activeSide === side ? "2px solid #2563eb" : "1px solid #e2e8f0" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 15 }}>{name}&apos;s Team</div>
-                  <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>Pick 4 · mark 1 as ★ Captain (×2 pts)</div>
-                </div>
-                <button type="button" onClick={() => setActiveSide(side)} style={{ ...tabStyle(activeSide === side), borderRadius: 8 }}>
-                  {activeSide === side ? "Active ✓" : "Set Active"}
-                </button>
-              </div>
-
-              {side === "theirs" && (
-                <div style={{ marginBottom: 12 }}>
-                  <label style={{ fontSize: 12, color: "#475569", display: "block", marginBottom: 4 }}>Opponent display name</label>
-                  <input value={rival} onChange={(e) => setRival(e.target.value)} style={inputStyle} placeholder="Opponent name" />
-                </div>
-              )}
-
-              {list.map((player, index) => (
-                <div key={index} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, minHeight: 40 }}>
-                  <div style={slotNum}>{index + 1}</div>
-                  {player.name.trim() ? (
-                    <>
-                      <span style={{ flex: 1, fontWeight: 500, fontSize: 14 }}>{player.name}</span>
-                      <label style={{ display: "flex", alignItems: "center", gap: 3, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>
-                        <input type="radio" name={`${side}-cap`} checked={player.captain} onChange={() => updateCaptain(side, index)} />
-                        <span style={{ color: player.captain ? "#d97706" : "#94a3b8" }}>★ Captain</span>
-                      </label>
-                      <button style={clearBtn} onClick={() => { clearSlot(side, index); ensureOneCaptain(side); }}>✕</button>
-                    </>
-                  ) : (
-                    <span style={{ flex: 1, color: "#94a3b8", fontSize: 13, fontStyle: "italic" }}>
-                      {activeSide === side ? "← tap a player above" : "empty"}
-                    </span>
-                  )}
-                </div>
-              ))}
-
-              <button
-                onClick={() => void saveSide(side)}
-                disabled={!canSave || saving !== null}
-                style={{ ...btnPrimary, width: "100%", marginTop: 12, opacity: !canSave ? 0.5 : 1 }}
-              >
-                {isSaving ? "Saving…" : `Save ${name}'s Team →`}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
+      {/* ── Status message ────────────────────────────────────────────────── */}
       {message && linkChoices === null && (
-        <div style={{ fontSize: 13, color: "#475569", padding: "8px 12px", background: "#f8fafc", borderRadius: 8 }}>{message}</div>
+        <div style={{
+          fontSize: 13, padding: "10px 16px", borderRadius: 10,
+          background: message.toLowerCase().includes("error") || message.toLowerCase().includes("fail") ? "#fff1f2" : "#f0fdf4",
+          color: message.toLowerCase().includes("error") || message.toLowerCase().includes("fail") ? "#be123c" : "#166534",
+          border: message.toLowerCase().includes("error") || message.toLowerCase().includes("fail") ? "1px solid #fecdd3" : "1px solid #bbf7d0",
+        }}>
+          {message}
+        </div>
       )}
+
+      {/* ── Responsive override for narrow screens ───────────────────────── */}
+      <style>{`
+        @media (max-width: 760px) {
+          .select-two-col { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   );
 }
 
-const panelStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 20, background: "white", padding: 20, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" };
-const barStyle: CSSProperties = { display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: "12px 16px", background: "white", border: "1px solid #e2e8f0", borderRadius: 16 };
-const pickerStyle: CSSProperties = { border: "1px solid #bfdbfe", borderRadius: 20, background: "#f0f9ff", padding: 20 };
+// ── Shared styles ─────────────────────────────────────────────────────────────
+const panel: CSSProperties = { background: "white", border: "1px solid #e2e8f0", borderRadius: 20, padding: 20, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" };
+const btnDark: CSSProperties = { padding: "10px 18px", borderRadius: 12, border: "1px solid #0f172a", background: "#0f172a", color: "white", cursor: "pointer", fontWeight: 700, fontSize: 14 };
+const btnOutline: CSSProperties = { ...btnDark, background: "white", color: "#0f172a" };
+const btnSm: CSSProperties = { padding: "7px 14px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", cursor: "pointer", fontWeight: 600, fontSize: 13 };
+const inputStyle: CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 10, boxSizing: "border-box", fontSize: 14, outline: "none" };
 const warnStyle: CSSProperties = { border: "2px solid #fcd34d", borderRadius: 16, background: "#fffbeb", padding: 16 };
-const btnPrimary: CSSProperties = { padding: "10px 16px", borderRadius: 12, border: "1px solid #0f172a", background: "#0f172a", color: "white", cursor: "pointer", fontWeight: 600, fontSize: 14 };
-const btnSecondary: CSSProperties = { ...btnPrimary, background: "white", color: "#0f172a" };
-const inputStyle: CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 10, boxSizing: "border-box", fontSize: 14 };
-const chipGrid: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8 };
-const chip: CSSProperties = { padding: "6px 12px", borderRadius: 999, border: "1px solid #cbd5e1", background: "white", color: "#0f172a", cursor: "pointer", fontSize: 13, fontWeight: 500 };
-const chipTaken: CSSProperties = { ...chip, background: "#f1f5f9", color: "#94a3b8", border: "1px solid #e2e8f0", cursor: "not-allowed", textDecoration: "line-through" };
-const slotNum: CSSProperties = { width: 24, height: 24, borderRadius: 999, background: "#e2e8f0", color: "#64748b", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 };
-const clearBtn: CSSProperties = { padding: "3px 7px", borderRadius: 8, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 11, fontWeight: 700 };
-function tabStyle(active: boolean): CSSProperties { return { padding: "6px 14px", border: "none", background: active ? "#0f172a" : "white", color: active ? "white" : "#475569", cursor: "pointer", fontWeight: 600, fontSize: 13 }; }
+
+// Legacy aliases so any other file importing these still works
+export const panelStyle = panel;
+export const chipGrid: CSSProperties = { display: "flex", flexWrap: "wrap", gap: 8 };
+export const chip: CSSProperties = { padding: "7px 14px", borderRadius: 999, border: "1px solid #cbd5e1", background: "white", color: "#0f172a", cursor: "pointer", fontSize: 13, fontWeight: 500 };
+export const chipTaken: CSSProperties = { ...chip, background: "#f8fafc", color: "#94a3b8", border: "1px solid #e2e8f0", cursor: "not-allowed", opacity: 0.55, textDecoration: "line-through" };
