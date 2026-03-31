@@ -67,11 +67,16 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   const [keyStats, setKeyStats] = useState<{
     alias: string; hits: number; blocked?: boolean; blockReason?: string | null; resumesInMin?: number | null;
   }[]>([]);
+  const [resettingBlocks, setResettingBlocks] = useState(false);
+
+  const refreshKeyStats = useCallback(() => {
+    fetch("/api/key-stats").then((r) => r.json()).then((j) => { if (j.ok && Array.isArray(j.stats)) setKeyStats(j.stats); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setApiUsed(loadQuota());
-    fetch("/api/key-stats").then((r) => r.json()).then((j) => { if (j.ok && Array.isArray(j.stats)) setKeyStats(j.stats); }).catch(() => {});
-  }, []);
+    refreshKeyStats();
+  }, [refreshKeyStats]);
 
   const addUsage = useCallback((n: number) => {
     setApiUsed((prev) => { const next = prev + n; saveQuota(next); return next; });
@@ -133,7 +138,16 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       setLinkDateHint(typeof json.date === "string" ? json.date : "");
       const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
       if (choices.length === 0) {
-        showMsg(`${json.totalRaw ?? 0} matches in feed but none are IPL yet.`, "Load fixtures");
+        const total = json.totalRaw ?? 0;
+        setApiMsg({
+          type: "info",
+          title: total === 0
+            ? "No matches returned by the API right now"
+            : `${total} match${total === 1 ? "" : "es"} in feed but none identified as IPL`,
+          detail: total === 0
+            ? "The CricAPI feed is empty — this can happen between match days or when all keys are rate-limited. Try again in a few minutes."
+            : "The API returned matches but none matched the IPL filter. Check if the series ID in your environment is correct.",
+        });
         setSyncing(false); return;
       }
       if (choices.length === 1) { await doSubmitSeedLink(choices[0].externalMatchId || ""); return; }
@@ -260,6 +274,27 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             background: isAtLimit ? "#fee2e2" : isNearLimit ? "#fef9c3" : "#f1f5f9",
             color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#64748b",
           }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
+          {/* Reset blocks button — shown when any key appears blocked */}
+          {keyStats.some((k) => k.blocked) && (
+            <button
+              type="button"
+              disabled={resettingBlocks}
+              title="Clear rate-limit blocks so all keys are retried"
+              onClick={async () => {
+                setResettingBlocks(true);
+                try {
+                  const r = await fetch("/api/reset-key-blocks", { method: "POST" });
+                  const j = await r.json();
+                  setApiMsg({ type: j.ok ? "success" : "error", title: j.message || j.error || "Done" });
+                  refreshKeyStats();
+                } catch { setApiMsg({ type: "error", title: "Could not reset blocks" }); }
+                setResettingBlocks(false);
+              }}
+              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 999, border: "1px solid #fca5a5", background: "#fff1f2", color: "#be123c", cursor: "pointer" }}
+            >
+              {resettingBlocks ? "…" : "↺ Clear blocks"}
+            </button>
+          )}
           <div style={{ display: "flex", gap: 6 }}>
             {keyStats.map((k, i) => {
               const pct = k.hits / KEY_LIMIT;

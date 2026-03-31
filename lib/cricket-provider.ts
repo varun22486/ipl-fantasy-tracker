@@ -21,7 +21,7 @@ async function recordKeyHit(alias: string) {
 
 /** Non-blocking — caller must not await this. */
 function trackKeyHit(key: string) {
-  recordKeyHit(keyAlias(key)).catch(() => {/* ignore tracking failures */});
+  void recordKeyHit(keyAlias(key)).catch(() => { /* ignore tracking failures */ });
 }
 
 type KeyBlockType = "rate_limit" | "quota";
@@ -40,20 +40,25 @@ function classifyBlock(reason: string): KeyBlockType | null {
   return null;
 }
 
-/** Record a block on a key — fire-and-forget. */
+/** Record a block on a key — fire-and-forget, always uses async/await + try-catch. */
 function recordKeyBlock(key: string, type: KeyBlockType) {
   const alias = keyAlias(key);
-  const db = getAdminClient();
-  if (!db) return;
-  if (type === "rate_limit") {
-    // Block for 16 minutes (1 extra minute buffer)
-    const until = new Date(Date.now() + 16 * 60 * 1000).toISOString();
-    db.rpc("mark_key_rate_limited", { p_alias: alias, p_until: until }).catch(() => {});
-  } else {
-    // Daily quota — block until next calendar day
-    const today = new Date().toISOString().slice(0, 10);
-    db.rpc("mark_key_quota_exhausted", { p_alias: alias, p_date: today }).catch(() => {});
-  }
+  void (async () => {
+    try {
+      const db = getAdminClient();
+      if (!db) return;
+      if (type === "rate_limit") {
+        const until = new Date(Date.now() + 16 * 60 * 1000).toISOString();
+        await db.rpc("mark_key_rate_limited", { p_alias: alias, p_until: until });
+      } else {
+        const today = new Date().toISOString().slice(0, 10);
+        await db.rpc("mark_key_quota_exhausted", { p_alias: alias, p_date: today });
+      }
+    } catch {
+      // DB functions may not exist yet (migration not run) — silently ignore.
+      // The in-memory skip still works within the same request cycle via fetchJson.
+    }
+  })();
 }
 
 type MaybeRecord = Record<string, any>;
@@ -202,21 +207,38 @@ async function fetchJson(path: string) {
   const today = new Date().toISOString().slice(0, 10);
   const nowMs = Date.now();
 
-  // Load hit counts + block state for all keys in one query
+  // Load hit counts + block state for all keys in one query.
+  // Gracefully falls back to hits-only if the migration hasn't been run yet.
   const keyStatusMap = await (async (): Promise<Record<string, KeyStatus>> => {
+    const db = getAdminClient();
+    if (!db) return {};
     try {
-      const db = getAdminClient();
-      if (!db) return {};
-      const { data } = await db
+      const { data, error } = await db
         .from("api_key_stats")
         .select("key_alias, hits, rate_limited_until, quota_exhausted_at")
         .eq("stat_date", today);
+      if (!error && data) {
+        const map: Record<string, KeyStatus> = {};
+        for (const row of data) {
+          map[row.key_alias as string] = {
+            hits: (row.hits as number) ?? 0,
+            rateLimitedUntil: row.rate_limited_until ? new Date(row.rate_limited_until as string) : null,
+            quotaExhaustedAt: (row.quota_exhausted_at as string) ?? null,
+          };
+        }
+        return map;
+      }
+      // Migration not run yet — fall back to hits-only
+      const { data: simple } = await db
+        .from("api_key_stats")
+        .select("key_alias, hits")
+        .eq("stat_date", today);
       const map: Record<string, KeyStatus> = {};
-      for (const row of data ?? []) {
+      for (const row of simple ?? []) {
         map[row.key_alias as string] = {
           hits: (row.hits as number) ?? 0,
-          rateLimitedUntil: row.rate_limited_until ? new Date(row.rate_limited_until as string) : null,
-          quotaExhaustedAt: (row.quota_exhausted_at as string) ?? null,
+          rateLimitedUntil: null,
+          quotaExhaustedAt: null,
         };
       }
       return map;
@@ -554,25 +576,35 @@ async function fetchIplSeriesMatchesForToday(seriesId: string): Promise<MaybeRec
 
   const nowMs = Date.now();
   const today = formatDateInTimeZone(new Date(nowMs), IPL_TZ);
-  const yesterday = formatDateInTimeZone(new Date(nowMs - 86_400_000), IPL_TZ);
-  const tomorrow = formatDateInTimeZone(new Date(nowMs + 86_400_000), IPL_TZ);
+  // ±3 day window so gaps between matches still show the adjacent fixture
+  const dayMs = 86_400_000;
+  const windowDates = new Set(
+    [-3, -2, -1, 0, 1, 2, 3].map((d) => formatDateInTimeZone(new Date(nowMs + d * dayMs), IPL_TZ))
+  );
 
-  const window = matchList.filter((m) => {
+  const inWindow = matchList.filter((m) => {
     const d = extractProviderMatchDate(m);
-    return d === yesterday || d === today || d === tomorrow;
+    return d && windowDates.has(d);
   });
+  if (inWindow.length > 0) return inWindow;
 
-  if (window.length > 0) return window;
-
-  // Fallback: up to 2 most recent past matches
+  // Fallback: up to 3 most recent past matches (so users can re-link completed games)
   const past = matchList
     .filter((m) => {
       const d = extractProviderMatchDate(m);
       return d && d <= today;
     })
     .sort((a, b) => (extractProviderMatchDate(b) ?? "").localeCompare(extractProviderMatchDate(a) ?? ""));
+  if (past.length > 0) return past.slice(0, 3);
 
-  return past.slice(0, 2);
+  // Fallback: next 3 upcoming matches
+  const upcoming = matchList
+    .filter((m) => {
+      const d = extractProviderMatchDate(m);
+      return d && d > today;
+    })
+    .sort((a, b) => (extractProviderMatchDate(a) ?? "").localeCompare(extractProviderMatchDate(b) ?? ""));
+  return upcoming.slice(0, 3);
 }
 
 async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
