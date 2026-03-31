@@ -94,6 +94,8 @@ function allApiKeys(): string[] {
     cleanEnvText(process.env.CRICKET_API_KEY_3),
     cleanEnvText(process.env.CRICKET_API_KEY_4),
     cleanEnvText(process.env.CRICKET_API_KEY_5),
+    cleanEnvText(process.env.CRICKET_API_KEY_6),
+    cleanEnvText(process.env.CRICKET_API_KEY_7),
   ].filter(Boolean) as string[];
 }
 

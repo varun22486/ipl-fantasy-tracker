@@ -66,7 +66,7 @@ export default async function MatchDetailPage({ params }: PageProps) {
   const matchId = parseInt(id, 10);
   if (isNaN(matchId)) {
     return (
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
+      <main className="page-main" style={{ maxWidth: 900 }}>
         <NavBar title="Match Not Found" />
         <p>Invalid match ID.</p>
       </main>
@@ -96,7 +96,7 @@ export default async function MatchDetailPage({ params }: PageProps) {
   const diff = Math.abs(yourTotal - oppTotal);
 
   return (
-    <main style={{ maxWidth: 1000, margin: "0 auto", padding: 24 }}>
+    <main className="page-main" style={{ maxWidth: 1000 }}>
       <NavBar title={fixtureName} subtitle={match.match_date ?? undefined} />
 
       {/* Match header */}

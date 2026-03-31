@@ -5,6 +5,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import StatsClient from "@/components/StatsClient";
+import HomeHero from "@/components/HomeHero";
 
 async function getData() {
   const [{ data: matches, error: matchErr }, { data: allPlayers }, { data: settings }] = await Promise.all([
@@ -115,8 +116,20 @@ async function getData() {
 export default async function Home() {
   const data = await getData();
   return (
-    <main style={{ maxWidth: 1200, margin: "0 auto", padding: 24 }}>
-      <StatsClient {...data} />
+    <main className="page-main">
+      <HomeHero
+        yourName={data.yourName}
+        opponentName={data.opponentName}
+        summary={data.summary}
+        nextMatch={data.nextMatch}
+      />
+      <StatsClient
+        yourName={data.yourName}
+        opponentName={data.opponentName}
+        matchStats={data.matchStats}
+        leaderboard={data.leaderboard}
+        summary={data.summary}
+      />
     </main>
   );
 }

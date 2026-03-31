@@ -43,7 +43,7 @@ export default async function MatchPage() {
     : "No match linked";
 
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
+    <main className="page-main">
       <NavBar title="Live Match" subtitle={subtitle} />
       <MatchClient
         yourName={yourName}

@@ -17,7 +17,7 @@ async function getData() {
 export default async function SettingsPage() {
   const settings = await getData();
   return (
-    <main style={{ maxWidth: 680, margin: "0 auto", padding: 24 }}>
+    <main className="page-main" style={{ maxWidth: 720 }}>
       <NavBar title="Settings" subtitle="Names & scoring rules" />
       <SettingsClient settings={settings as any} />
     </main>
