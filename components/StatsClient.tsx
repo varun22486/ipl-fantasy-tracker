@@ -7,7 +7,6 @@ import {
   ComposedChart, Line, ReferenceLine,
 } from "recharts";
 import type { CSSProperties } from "react";
-import { useState } from "react";
 import Link from "next/link";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -110,12 +109,8 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
   return { streak, streakSide, yourAvg: Math.round(yourAvg * 10) / 10, oppAvg: Math.round(oppAvg * 10) / 10, biggestWin, closest, topPerf, capPctYou, capPctOpp, brkd, yourTrend, oppTrend };
 }
 
-const CHART_TABS = ["Points", "Runs & Wickets", "Catches & Captain", "Distribution"] as const;
-type ChartTab = typeof CHART_TABS[number];
-
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function StatsClient({ yourName, opponentName, matchStats, leaderboard, summary }: Props) {
-  const [chartTab, setChartTab] = useState<ChartTab>("Points");
   const played = matchStats.filter((m) => m.hasData);
   const ins = computeInsights(played, yourName, opponentName);
 
@@ -336,15 +331,8 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
       {/* ── Charts with tab switcher ──────────────────────────────────────── */}
       {played.length > 0 && (
         <>
-          {/* Tab bar */}
-          <div className="tab-bar">
-            {CHART_TABS.map((t) => (
-              <button key={t} className={`tab-btn${chartTab === t ? " tab-btn--active" : ""}`} onClick={() => setChartTab(t)}>{t}</button>
-            ))}
-          </div>
-
-          {/* POINTS TAB */}
-          {chartTab === "Points" && <div style={sectionStyle}>
+          {/* Points charts */}
+          <div style={sectionStyle}>
             <h2 style={sectionTitle}>Running Series Total</h2>
             <p style={sectionSub}>Cumulative fantasy points — who is building the lead match by match</p>
             <ResponsiveContainer width="100%" height={270}>
@@ -383,10 +371,10 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>}
+          </div>
 
-          {/* RUNS & WICKETS TAB */}
-          {chartTab === "Runs & Wickets" && (
+          {/* Runs & Wickets charts */}
+          {(
             <div style={sectionStyle}>
               <h2 style={sectionTitle}>Runs</h2>
               <p style={sectionSub}>Per-match total runs and cumulative series tally for each side</p>
@@ -465,8 +453,8 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
             </div>
           )}
 
-          {/* CATCHES & CAPTAIN TAB */}
-          {chartTab === "Catches & Captain" && (
+          {/* Catches & Captain charts */}
+          {(
             <div style={sectionStyle}>
               <h2 style={sectionTitle}>Catches</h2>
               <p style={sectionSub}>Per-match catches and cumulative series tally</p>
@@ -561,8 +549,8 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
           </div>
           )}
 
-          {/* DISTRIBUTION TAB */}
-          {chartTab === "Distribution" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px,100%), 1fr))", gap: 20 }}>
+          {/* Distribution charts */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px,100%), 1fr))", gap: 20 }}>
 
             {/* Rolling win rate */}
             {played.length >= 2 && (
@@ -610,80 +598,10 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>}
+          </div>
         </>
       )}
 
-      {/* ── Match results — visual score cards ────────────────────────────── */}
-      <div style={sectionStyle}>
-        <h2 style={sectionTitle}>Match Results</h2>
-        <p style={sectionSub}>Tap any match to see full player score breakdown</p>
-        <div style={{ display: "grid", gap: 10 }}>
-          {matchStats.map((m) => {
-            const youWon = m.winner === "You" || m.winner === yourName;
-            const oppWon = m.winner === opponentName;
-            const winnerName = m.winner === "You" ? yourName : m.winner;
-            const totalPts = m.hasData ? m.yourPoints + m.oppPoints : 0;
-            const youPct = totalPts > 0 ? Math.round((m.yourPoints / totalPts) * 100) : 50;
-            return (
-              <Link key={m.matchId} href={`/match/${m.matchId}`} style={{ textDecoration: "none" }}>
-                <div className={`match-card${m.isCurrent ? " match-card--current" : ""}`}>
-                  {/* Header row */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a" }}>{m.fixture}</div>
-                      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>{m.date || "—"}</div>
-                    </div>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-                      {m.isCurrent && (
-                        <span style={{ padding: "2px 8px", borderRadius: 999, background: "#dcfce7", color: "#16a34a", fontSize: 11, fontWeight: 700 }}>● Live</span>
-                      )}
-                      {m.hasData && winnerName && (
-                        <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700, background: youWon ? YOU_LIGHT : oppWon ? OPP_LIGHT : "#fef9c3", color: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#92400e" }}>
-                          {m.winner === "Tie" ? "Tie" : `${winnerName} +${m.pointsDiff}`}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {/* Score row */}
-                  {m.hasData && (
-                    <>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 999, background: YOU_COLOR }} />
-                          <span style={{ fontSize: 13, color: "#334155", fontWeight: 600 }}>{yourName}</span>
-                          <span style={{ fontSize: 20, fontWeight: 800, color: youWon ? YOU_COLOR : "#0f172a" }}>{m.yourPoints}</span>
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>pts</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 700 }}>vs</div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexDirection: "row-reverse" as const }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 999, background: OPP_COLOR }} />
-                          <span style={{ fontSize: 13, color: "#334155", fontWeight: 600 }}>{opponentName}</span>
-                          <span style={{ fontSize: 20, fontWeight: 800, color: oppWon ? OPP_COLOR : "#0f172a" }}>{m.oppPoints}</span>
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>pts</span>
-                        </div>
-                      </div>
-                      {/* Score bar */}
-                      <div className="score-bar">
-                        <div className="score-bar__fill" style={{ width: `${youPct}%`, background: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#94a3b8" }} />
-                      </div>
-                    </>
-                  )}
-                  {!m.hasData && (
-                    <div style={{ fontSize: 13, color: "#94a3b8", fontStyle: "italic" }}>No scores yet — sync once the match starts</div>
-                  )}
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-        {played.length === 0 && matchStats.length > 0 && (
-          <div style={{ textAlign: "center", padding: "24px 0 8px", color: "#94a3b8", fontSize: 13 }}>
-            No synced scores yet —{" "}
-            <Link href="/match" style={{ color: "#2563eb", textDecoration: "none", fontWeight: 600 }}>go to Live Match</Link> and Sync Scores Now
-          </div>
-        )}
-      </div>
     </div>
   );
 }
