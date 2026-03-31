@@ -253,10 +253,12 @@ async function fetchJson(path: string) {
   const isBlocked = (k: string): boolean => {
     const s = statusFor(k);
     // Quota: only trust the hit count — the DB quota flag can go stale.
-    // hits >= 100 is the definitive check (works even without migration).
     if (s.hits >= KEY_LIMIT_PER_DAY) return true;
-    // Rate-limit: trust the timestamp (set fresh from live CricAPI responses)
-    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() > nowMs) return true;
+    // Rate-limit: add a 90-second buffer past the stored unblock time.
+    // Without this, all keys get re-hammered simultaneously the moment the DB
+    // timer expires, causing immediate cascading re-blocks from CricAPI.
+    const BUFFER_MS = 90_000;
+    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() + BUFFER_MS > nowMs) return true;
     return false;
   };
 
