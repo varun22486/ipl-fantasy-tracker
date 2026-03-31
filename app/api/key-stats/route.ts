@@ -26,22 +26,30 @@ export async function GET() {
 
     const nowMs = Date.now();
     const stats = (data ?? []).map((row) => {
+      const hits = (row.hits as number) ?? 0;
       const rateLimitedUntil = row.rate_limited_until ? new Date(row.rate_limited_until as string) : null;
-      const quotaExhausted = (row.quota_exhausted_at as string | null) === today;
-      const rateLimited = rateLimitedUntil ? rateLimitedUntil.getTime() > nowMs : false;
+      const rateLimited = !!(rateLimitedUntil && rateLimitedUntil.getTime() > nowMs);
+      // Only trust quota_exhausted_at when hits also confirm it (DB flag can go stale)
+      const dbQuotaFlag = (row.quota_exhausted_at as string | null) === today;
+      const hitQuotaExhausted = hits >= KEY_LIMIT;
+      const quotaExhausted = hitQuotaExhausted || (dbQuotaFlag && !rateLimited);
+      const blocked = quotaExhausted || rateLimited;
+      // If DB says quota but hits are well under the cap, the flag is stale — show as rate-limited
+      const blockReason = blocked
+        ? (quotaExhausted ? "quota_exhausted" : "rate_limited")
+        : null;
       const resumesInMin = rateLimited && rateLimitedUntil
         ? Math.ceil((rateLimitedUntil.getTime() - nowMs) / 60000)
         : null;
       return {
         alias: row.key_alias,
-        hits: row.hits,
-        remaining: Math.max(0, KEY_LIMIT - (row.hits as number)),
+        hits,
+        remaining: Math.max(0, KEY_LIMIT - hits),
         last_used_at: row.last_used_at,
-        blocked: quotaExhausted || rateLimited,
-        blockReason: quotaExhausted
-          ? "quota_exhausted"
-          : rateLimited ? "rate_limited" : null,
+        blocked,
+        blockReason,
         resumesInMin,
+        staleQuotaFlag: dbQuotaFlag && !hitQuotaExhausted, // flag is set but hits don't confirm it
         rate_limited_until: row.rate_limited_until ?? null,
         quota_exhausted_at: row.quota_exhausted_at ?? null,
       };

@@ -10,19 +10,20 @@ export async function POST() {
   try {
     const today = new Date().toISOString().slice(0, 10);
 
-    // Try to clear rate_limited_until (requires migration)
+    // Clear both rate_limited_until AND quota_exhausted_at for today.
+    // quota_exhausted_at can be stale — CricAPI sometimes returns the quota-exceeded
+    // message temporarily even when the key isn't fully spent for the day.
     const { error } = await supabaseAdmin
       .from("api_key_stats")
-      .update({ rate_limited_until: null })
-      .eq("stat_date", today)
-      .not("rate_limited_until", "is", null);
+      .update({ rate_limited_until: null, quota_exhausted_at: null })
+      .eq("stat_date", today);
 
     if (error) {
-      // Migration not run — column doesn't exist, nothing to clear
+      // Migration not run — columns don't exist yet
       if (error.message?.includes("column") || error.code === "42703") {
         return NextResponse.json({
           ok: true,
-          message: "No block state to clear (migration not run — all keys already treated as unblocked). Run the schema migration in Supabase to enable persistent block tracking.",
+          message: "Nothing to clear — block-tracking columns not yet created. Run the SQL migration in Supabase to enable persistent block tracking.",
         });
       }
       throw error;
@@ -30,7 +31,7 @@ export async function POST() {
 
     return NextResponse.json({
       ok: true,
-      message: "Rate-limit blocks cleared. Keys will be retried on next API call.",
+      message: "All blocks cleared (rate-limit + quota flags). Keys will be retried fresh on the next API call.",
     });
   } catch (err) {
     return NextResponse.json(

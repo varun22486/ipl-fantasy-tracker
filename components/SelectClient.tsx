@@ -65,7 +65,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number } | null>(null);
   const [keyStats, setKeyStats] = useState<{
-    alias: string; hits: number; blocked?: boolean; blockReason?: string | null; resumesInMin?: number | null;
+    alias: string; hits: number; blocked?: boolean; blockReason?: string | null;
+    resumesInMin?: number | null; staleQuotaFlag?: boolean;
   }[]>([]);
   const [resettingBlocks, setResettingBlocks] = useState(false);
 
@@ -299,23 +300,23 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             {keyStats.map((k, i) => {
               const pct = k.hits / KEY_LIMIT;
               const blocked = k.blocked;
-              const isQuotaDone = k.blockReason === "quota_exhausted";
-              const c = blocked
-                ? (isQuotaDone ? "#ef4444" : "#f59e0b")
-                : pct >= 0.8 ? "#f59e0b" : "#22c55e";
-              const tip = blocked
-                ? isQuotaDone
-                  ? `K${i + 1}: daily quota exhausted — resets at midnight`
-                  : `K${i + 1}: rate-limited${k.resumesInMin ? ` — ~${k.resumesInMin} min` : ""}`
-                : `K${i + 1}: ${k.hits}/100 hits today`;
+              const isQuotaDone = k.blockReason === "quota_exhausted" && !k.staleQuotaFlag;
+              const isRateLimited = blocked && !isQuotaDone;
+              const barColor = isQuotaDone ? "#ef4444" : isRateLimited ? "#f59e0b" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
+              const tip = isQuotaDone
+                ? `K${i + 1}: daily quota reached (${k.hits}/100) — resets at midnight`
+                : isRateLimited
+                ? `K${i + 1}: rate-limited${k.resumesInMin ? ` — ~${k.resumesInMin} min remaining` : " — ~15 min"}`
+                : `K${i + 1}: ${k.hits}/100 hits today — available`;
               return (
-                <div key={k.alias} title={tip} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, opacity: blocked ? 0.5 : 1 }}>
-                  <span style={{ fontSize: 10, color: blocked ? c : "#94a3b8", fontWeight: 600 }}>K{i + 1}</span>
+                <div key={k.alias} title={tip} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, opacity: blocked ? 0.55 : 1 }}>
+                  <span style={{ fontSize: 10, color: blocked ? barColor : "#94a3b8", fontWeight: 600 }}>K{i + 1}</span>
                   <div style={{ width: 6, height: 32, borderRadius: 4, background: "#e2e8f0", position: "relative", overflow: "hidden" }}>
-                    <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: `${Math.min(100, pct * 100)}%`, background: c, borderRadius: 4 }} />
+                    <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: `${Math.min(100, pct * 100)}%`, background: barColor, borderRadius: 4 }} />
                   </div>
                   <span style={{ fontSize: 10, color: "#94a3b8" }}>{k.hits}</span>
-                  {blocked && <span style={{ fontSize: 9, color: c, fontWeight: 700 }}>{isQuotaDone ? "✕" : "⏸"}</span>}
+                  {isQuotaDone && <span style={{ fontSize: 9, color: barColor, fontWeight: 700 }}>✕</span>}
+                  {isRateLimited && <span style={{ fontSize: 9, color: barColor, fontWeight: 700 }}>⏸</span>}
                 </div>
               );
             })}
