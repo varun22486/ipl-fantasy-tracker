@@ -371,7 +371,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       )}
 
       {/* ── Main two-column layout ─────────────────────────────────────────── */}
-        <div className="select-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20, alignItems: "start" }}>
+        <div className="select-two-col" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) min(340px,100%)", gap: 20, alignItems: "start" }}>
 
         {/* LEFT — Player roster ─────────────────────────────────────────── */}
         <div style={panel}>
@@ -661,12 +661,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         </div>
       </div>
 
-      {/* ── Responsive override for narrow screens ───────────────────────── */}
-      <style>{`
-        @media (max-width: 760px) {
-          .select-two-col { grid-template-columns: 1fr !important; }
-        }
-      `}</style>
+      {/* select-two-col responsive handled in globals.css */}
     </div>
   );
 }

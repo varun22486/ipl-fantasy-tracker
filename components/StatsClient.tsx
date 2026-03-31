@@ -264,7 +264,7 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
 
       {/* ── Insight mini-cards ─────────────────────────────────────────────── */}
       {ins && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px,100%), 1fr))", gap: 14 }}>
           {/* Form */}
           <div style={insightCard}>
             <div style={insightLabel}>Last 5 Form</div>
@@ -380,7 +380,7 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
           <div style={sectionStyle}>
             <h2 style={sectionTitle}>Runs</h2>
             <p style={sectionSub}>Per-match total runs (left) and cumulative series tally (right) for each side's 4 players</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
               <div>
                 <div style={miniChartLabel}>Per Match</div>
                 <ResponsiveContainer width="100%" height={220}>
@@ -420,7 +420,7 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
           <div style={sectionStyle}>
             <h2 style={sectionTitle}>Wickets</h2>
             <p style={sectionSub}>Per-match wickets taken (left) and cumulative series tally (right)</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
               <div>
                 <div style={miniChartLabel}>Per Match</div>
                 <ResponsiveContainer width="100%" height={220}>
@@ -460,7 +460,7 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
           <div style={sectionStyle}>
             <h2 style={sectionTitle}>Catches</h2>
             <p style={sectionSub}>Per-match catches taken (left) and cumulative series tally (right)</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
               <div>
                 <div style={miniChartLabel}>Per Match</div>
                 <ResponsiveContainer width="100%" height={220}>
@@ -500,7 +500,7 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
           <div style={sectionStyle}>
             <h2 style={sectionTitle}>Captain Points</h2>
             <p style={sectionSub}>Per-match captain points (×2 applied, left) and cumulative series tally (right) — captain name shown in tooltip</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
               <div>
                 <div style={miniChartLabel}>Per Match</div>
                 <ResponsiveContainer width="100%" height={220}>
@@ -553,7 +553,7 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
           </div>
 
           {/* WIN-RATE TRACKER + SCORE DISTRIBUTION side-by-side */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(320px,100%), 1fr))", gap: 20 }}>
 
             {/* Rolling win rate */}
             {played.length >= 2 && (

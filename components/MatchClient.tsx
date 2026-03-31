@@ -228,30 +228,33 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       </div>
 
       {/* Score cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
         {[
-        { label: `${yourName}'s Points`, value: yourTotal, color: "#1d4ed8" },
-        { label: `${opponentName}'s Points`, value: oppTotal, color: "#dc2626" },
+        { label: `${yourName}`, value: yourTotal, sub: "pts", color: "#1d4ed8" },
+        { label: `${opponentName}`, value: oppTotal, sub: "pts", color: "#dc2626" },
         { label: "Leader", value: leader, color: "#0f172a" },
-        ].map(({ label, value, color }) => (
-          <div key={label} style={{ border: "1px solid #e2e8f0", borderRadius: 16, background: "white", padding: "14px 18px" }}>
-            <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color, marginTop: 4 }}>{value}</div>
+        ].map(({ label, value, sub, color }) => (
+          <div key={label} style={{ border: "1px solid #e2e8f0", borderRadius: 14, background: "white", padding: "12px 14px" }}>
+            <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
+            <div style={{ fontSize: "clamp(1.1rem, 4vw, 1.6rem)", fontWeight: 800, color }}>{value}</div>
+            {sub && <div style={{ fontSize: 11, color: "#94a3b8" }}>{sub}</div>}
           </div>
         ))}
       </div>
 
       {/* Sync bar */}
       <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden" }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: "12px 16px" }}>
-          <button onClick={() => guardedRun(1, doRefreshNow)} disabled={syncing || isAtLimit} style={btnPrimary}>
-            {syncing ? "Syncing…" : "⟳ Sync Scores Now"}
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px" }}>
+          <button onClick={() => guardedRun(1, doRefreshNow)} disabled={syncing || isAtLimit} style={{ ...btnPrimary, flex: "1 1 auto", textAlign: "center" as const }}>
+            {syncing ? "Syncing…" : "⟳ Sync Scores"}
           </button>
-          <button onClick={() => guardedRun(2, doStartLinkMatch)} disabled={syncing || isAtLimit} style={btnSecondary}>
-            {syncing ? "Loading…" : "Link Different Match"}
+          <button onClick={() => guardedRun(2, doStartLinkMatch)} disabled={syncing || isAtLimit} style={{ ...btnSecondary, flex: "1 1 auto", textAlign: "center" as const }}>
+            {syncing ? "Loading…" : "Link Match"}
           </button>
-          <span style={{ fontSize: 12, color: "#94a3b8" }}>Last synced: {lastSynced}</span>
-          <span style={{ marginLeft: "auto", fontSize: 12, color: isAtLimit ? "#b91c1c" : "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
+          <div style={{ width: "100%", display: "flex", justifyContent: "space-between", fontSize: 11, color: "#94a3b8", padding: "0 2px" }}>
+            <span>Last synced: {lastSynced}</span>
+            <span style={{ color: isAtLimit ? "#b91c1c" : "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
+          </div>
         </div>
         {/* Message sits in its own full-width row below the buttons */}
         {(apiMsg || message) && !linkChoices && (

@@ -5,44 +5,57 @@ type Props = {
   players: FantasyPlayer[];
 };
 
+const COLS = ["Player", "Cap", "R", "W", "Ct", "50+", "100", "3W", "5W", "MoM", "Pts"] as const;
+
 export default function PlayerTable({ title, players }: Props) {
   return (
-    <div style={{
-      border: "1px solid #e2e8f0",
-      borderRadius: 20,
-      background: "white",
-      padding: 20,
-      boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
-    }}>
-      <h3 style={{ marginTop: 0 }}>{title}</h3>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+    <div style={{ border: "1px solid #e2e8f0", borderRadius: 16, background: "white", overflow: "hidden" }}>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid #f1f5f9" }}>
+        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{title}</h3>
+      </div>
+      <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
           <thead>
-            <tr>
-              {["Player", "Captain", "Runs", "Wkts", "Ct", "50", "100", "3W", "5W", "MoM", "Points"].map((h) => (
-                <th key={h} style={{ textAlign: "left", padding: 10, borderBottom: "1px solid #e2e8f0", fontSize: 13, color: "#475569" }}>{h}</th>
+            <tr style={{ background: "#f8fafc" }}>
+              {COLS.map((h) => (
+                <th key={h} style={{
+                  textAlign: h === "Player" ? "left" : "center",
+                  padding: "8px 10px", fontSize: 11, fontWeight: 700,
+                  color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5,
+                  borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap",
+                }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {players.map((p) => (
-              <tr key={p.name}>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.name}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.captain ? "★" : "-"}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.runs}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.wickets}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.catches}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.fifty_bonus}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.hundred_bonus}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.three_w_bonus}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.five_w_bonus}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9" }}>{p.mom_bonus}</td>
-                <td style={{ padding: 10, borderBottom: "1px solid #f1f5f9", fontWeight: 700 }}>{playerPoints(p).final}</td>
-              </tr>
-            ))}
+            {players.map((p) => {
+              const pts = playerPoints(p).final;
+              return (
+                <tr key={p.name} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                  <td style={{ padding: "10px 10px", fontSize: 14, fontWeight: 500 }}>
+                    {p.name}
+                    {p.captain && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: "#d97706", background: "#fef9c3", padding: "1px 5px", borderRadius: 4 }}>★ Cap</span>}
+                  </td>
+                  <td style={td}>{p.captain ? "★" : "—"}</td>
+                  <td style={td}>{p.runs}</td>
+                  <td style={td}>{p.wickets}</td>
+                  <td style={td}>{p.catches}</td>
+                  <td style={td}>{p.fifty_bonus}</td>
+                  <td style={td}>{p.hundred_bonus}</td>
+                  <td style={td}>{p.three_w_bonus}</td>
+                  <td style={td}>{p.five_w_bonus}</td>
+                  <td style={td}>{p.mom_bonus}</td>
+                  <td style={{ ...td, fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{pts}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
     </div>
   );
 }
+
+import React from "react";
+import type { CSSProperties } from "react";
+const td: CSSProperties = { padding: "10px 10px", textAlign: "center", fontSize: 13, color: "#475569" };
