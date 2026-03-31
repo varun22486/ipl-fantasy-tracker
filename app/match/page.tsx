@@ -6,6 +6,28 @@ import { FantasyPlayer } from "@/lib/scoring";
 import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
 
+type SquadTeam = { teamName: string; players: string[] };
+
+function parseRoster(match: unknown): { rosterNames: string[]; squads: SquadTeam[]; nameToId: Record<string, string> } {
+  if (!match || typeof match !== "object") return { rosterNames: [], squads: [], nameToId: {} };
+  const raw = (match as { provider_squad_json?: unknown }).provider_squad_json;
+  if (!raw || typeof raw !== "object") return { rosterNames: [], squads: [], nameToId: {} };
+  const o = raw as { squads?: unknown; rosterNames?: unknown; nameToId?: unknown };
+  const squads = Array.isArray(o.squads)
+    ? (o.squads as any[]).filter((t) => t && typeof t === "object")
+        .map((t) => ({ teamName: typeof t.teamName === "string" ? t.teamName : "Team", players: Array.isArray(t.players) ? t.players.filter((p: any) => typeof p === "string" && p.trim()) : [] }))
+        .filter((t) => t.players.length > 0)
+    : [];
+  let rosterNames = Array.isArray(o.rosterNames) ? o.rosterNames.filter((n: any) => typeof n === "string" && n.trim()) : [];
+  if (rosterNames.length === 0 && squads.length > 0) {
+    const s = new Set<string>();
+    for (const t of squads) for (const p of t.players) s.add(p.trim());
+    rosterNames = [...s].sort((a, b) => a.localeCompare(b));
+  }
+  const nameToId = o.nameToId && typeof o.nameToId === "object" && !Array.isArray(o.nameToId) ? (o.nameToId as Record<string, string>) : {};
+  return { rosterNames, squads, nameToId };
+}
+
 async function getData() {
   const [{ data: matches }, { data: settings }, { data: players }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").order("id", { ascending: false }),
@@ -26,6 +48,8 @@ export default async function MatchPage() {
   const yourPlayers = matchPlayers.filter((p) => p.side === "You");
   const oppPlayers = matchPlayers.filter((p) => p.side !== "You");
 
+  const { rosterNames, squads, nameToId } = parseRoster(currentMatch);
+
   const currentMatchData = currentMatch
     ? {
         fixture: currentMatch.fixture ?? undefined,
@@ -38,13 +62,18 @@ export default async function MatchPage() {
       }
     : null;
 
-  const subtitle = currentMatch?.fixture
-    ? currentMatch.fixture
-    : "No match linked";
+  const yourLineupSaved = yourPlayers.length > 0;
+  const oppLineupSaved = oppPlayers.length > 0;
+
+  const subtitle = !currentMatch
+    ? "No match linked"
+    : !yourLineupSaved && !oppLineupSaved
+    ? `${currentMatch.fixture} — pick your teams to start`
+    : currentMatch.fixture;
 
   return (
     <main className="page-main">
-      <NavBar title="Live Match" subtitle={subtitle} />
+      <NavBar title="Match" subtitle={subtitle} />
       <MatchClient
         yourName={yourName}
         opponentName={opponentName}
@@ -52,8 +81,13 @@ export default async function MatchPage() {
         opponentFantasyPlayers={oppPlayers}
         currentMatch={currentMatchData}
         hasLinkedMatch={Boolean(currentMatch)}
-        yourLineupSaved={yourPlayers.length > 0}
-        opponentLineupSaved={oppPlayers.length > 0}
+        yourLineupSaved={yourLineupSaved}
+        opponentLineupSaved={oppLineupSaved}
+        rosterNames={rosterNames}
+        squads={squads}
+        nameToId={nameToId}
+        existingYourPlayers={yourPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
+        existingOppPlayers={oppPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
       />
     </main>
   );

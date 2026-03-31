@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, type CSSProperties } from "rea
 import { formatFixture } from "@/lib/format";
 import PlayerTable from "@/components/PlayerTable";
 import ManualScorePanel from "@/components/ManualScorePanel";
+import SelectClient from "@/components/SelectClient";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
 import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
@@ -35,6 +36,8 @@ type DebugData = {
   debug?: { selectedCount?: number; providerRowCount?: number; updatedRows?: number; unmatched?: string[]; matched?: Array<{ selected: string; provider: string }>; providerPlayersSample?: string[]; syncedAt?: string; lastSyncedAt?: string; sourceUrl?: string | null; status?: string; rosterCount?: number };
 };
 
+type SquadTeam = { teamName: string; players: string[] };
+
 type Props = {
   yourName: string;
   opponentName: string;
@@ -44,6 +47,12 @@ type Props = {
   hasLinkedMatch: boolean;
   yourLineupSaved: boolean;
   opponentLineupSaved: boolean;
+  // Squad/roster props for inline team selection
+  rosterNames: string[];
+  squads: SquadTeam[];
+  nameToId: Record<string, string>;
+  existingYourPlayers: { name: string; captain: boolean }[];
+  existingOppPlayers: { name: string; captain: boolean }[];
 };
 
 function DebugPanel({ info }: { info: DebugData | null }) {
@@ -69,7 +78,10 @@ function DebugPanel({ info }: { info: DebugData | null }) {
   );
 }
 
-export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved }: Props) {
+export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers }: Props) {
+  // Show inline team picker if no lineup exists OR if user clicked "Change Team"
+  const needsSetup = !yourLineupSaved && !opponentLineupSaved;
+  const [teamPickerOpen, setTeamPickerOpen] = useState(needsSetup);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
   const [showManual, setShowManual] = useState(false);
@@ -190,36 +202,58 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     ? new Date(currentMatch.last_synced_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
     : "Not yet";
 
+  // ── Inline team picker (no lineup yet, or "Change Team" requested) ─────────
+  if (teamPickerOpen) {
+    return (
+      <div style={{ display: "grid", gap: 20 }}>
+        {/* Header strip */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", background: "white", border: "1px solid #e2e8f0", borderRadius: 14, flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>
+              {needsSetup ? "Set up your teams" : "Change teams"}
+            </div>
+            <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>
+              {fixtureName !== "No match linked" ? fixtureName : "Link a match first"}
+            </div>
+          </div>
+          {!needsSetup && (
+            <button
+              onClick={() => setTeamPickerOpen(false)}
+              style={{ ...btnSecondary, padding: "7px 14px", fontSize: 13 }}
+            >
+              ✕ Cancel
+            </button>
+          )}
+        </div>
+        <SelectClient
+          yourName={yourName}
+          opponentName={opponentName}
+          yourPlayers={existingYourPlayers}
+          opponentPlayers={existingOppPlayers}
+          rosterNames={rosterNames}
+          squads={squads}
+          nameToId={nameToId}
+          hasLinkedMatch={hasLinkedMatch}
+        />
+      </div>
+    );
+  }
+
   if (!hasLinkedMatch) {
     return (
       <div style={{ textAlign: "center", padding: 60, border: "1px solid #e2e8f0", borderRadius: 20, background: "white" }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>🏏</div>
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>No match linked yet</div>
-        <div style={{ color: "#64748b", marginBottom: 20 }}>Go to Select Teams to link an IPL match and set your lineup.</div>
-        <a href="/select" style={{ ...btnPrimary, textDecoration: "none", display: "inline-block" }}>👥 Select Teams →</a>
+        <div style={{ color: "#64748b", marginBottom: 20 }}>Use the "Link IPL Match" button below to get started.</div>
+        <button onClick={() => setTeamPickerOpen(true)} style={{ ...btnPrimary, border: "none", cursor: "pointer" }}>
+          Set up teams →
+        </button>
       </div>
     );
   }
 
-  const missingLineups = [
-    !yourLineupSaved && yourName,
-    !opponentLineupSaved && opponentName,
-  ].filter(Boolean) as string[];
-
   return (
     <div style={{ display: "grid", gap: 20 }}>
-
-      {/* Missing lineup warning */}
-      {hasLinkedMatch && missingLineups.length > 0 && (
-        <div style={{ padding: "12px 16px", borderRadius: 14, background: "#fff7ed", border: "1px solid #fed7aa", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ fontSize: 14, color: "#92400e" }}>
-            ⚠️ <strong>{missingLineups.join(" & ")}</strong> {missingLineups.length === 1 ? "hasn't" : "haven't"} saved {missingLineups.length === 1 ? "their" : "their"} team yet — scores will show as 0.
-          </div>
-          <a href="/select" style={{ padding: "6px 14px", borderRadius: 8, background: "#0f172a", color: "white", textDecoration: "none", fontSize: 13, fontWeight: 600 }}>
-            → Select Teams
-          </a>
-        </div>
-      )}
 
       {/* Match header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, padding: "18px 20px", background: "white", border: "1px solid #e2e8f0", borderRadius: 20 }}>
@@ -230,10 +264,16 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           {currentMatch?.live_summary && <div style={{ fontSize: 14, color: "#475569", marginTop: 4 }}>{currentMatch.live_summary}</div>}
           {currentMatch?.toss_winner && <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Toss: {currentMatch.toss_winner}</div>}
         </div>
-        <div style={{ textAlign: "right" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
           <span style={{ padding: "4px 12px", borderRadius: 999, background: currentMatch?.status === "LIVE" ? "#dcfce7" : "#f1f5f9", color: currentMatch?.status === "LIVE" ? "#16a34a" : "#64748b", fontSize: 13, fontWeight: 600 }}>
             {currentMatch?.status ?? "—"}
           </span>
+          <button
+            onClick={() => setTeamPickerOpen(true)}
+            style={{ padding: "6px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", color: "#475569", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
+          >
+            ✏️ Change teams
+          </button>
         </div>
       </div>
 
