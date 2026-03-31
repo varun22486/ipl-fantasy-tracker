@@ -71,7 +71,14 @@ function DebugPanel({ info }: { info: DebugData | null }) {
 export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved }: Props) {
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
-  const [apiMsg, setApiMsg] = useState<ApiMsg | null>(null);
+  const [apiMsg, setApiMsg] = useState<ApiMsg | null>(() => {
+    // Restore any message that was saved before a page reload
+    try {
+      const saved = typeof sessionStorage !== "undefined" ? sessionStorage.getItem("match_msg") : null;
+      if (saved) { sessionStorage.removeItem("match_msg"); return JSON.parse(saved) as ApiMsg; }
+    } catch {}
+    return null;
+  });
   const [debugInfo, setDebugInfo] = useState<DebugData | null>(null);
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number } | null>(null);
@@ -111,13 +118,29 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       const res = await fetch("/api/refresh", { method: "POST" });
       const json = await res.json();
       setSyncing(false); setDebugInfo(json);
-      if (!json.skipped) addUsage(1);
-      const text = json.ok
-        ? (json.reason || json.message || "Scores updated!")
-        : (json.error || "Refresh failed.");
-      showMsg(text, json.ok ? undefined : "Sync scores");
-      if (json.ok && !json.skipped) window.setTimeout(() => window.location.reload(), 2500);
-    } catch { setSyncing(false); showMsg("Network error during sync.", "Sync scores"); }
+
+      if (json.skipped) {
+        // Cached response — show as info, no reload needed
+        setApiMsg({ type: "info", title: json.reason || "Already up to date", detail: "Scores were synced very recently. The displayed values are current." });
+        return;
+      }
+
+      if (!json.ok) {
+        const errorText = json.error || "Refresh failed";
+        setApiMsg(classifyApiMsg(errorText, "Sync scores"));
+        return;
+      }
+
+      addUsage(1);
+      // Success — persist the message through the upcoming page reload
+      const successMsg: ApiMsg = { type: "success", title: json.message || "Scores updated!" };
+      try { sessionStorage.setItem("match_msg", JSON.stringify(successMsg)); } catch {}
+      setApiMsg(successMsg);
+      window.setTimeout(() => window.location.reload(), 2500);
+    } catch (e) {
+      setSyncing(false);
+      setApiMsg(classifyApiMsg(e instanceof Error ? e.message : "Network error during sync.", "Sync scores"));
+    }
   }
 
   async function doSubmitSeedLink(externalMatchId: string) {
