@@ -24,6 +24,38 @@ function trackKeyHit(key: string) {
   recordKeyHit(keyAlias(key)).catch(() => {/* ignore tracking failures */});
 }
 
+type KeyBlockType = "rate_limit" | "quota";
+
+/**
+ * Classify the CricAPI failure reason into a block type:
+ * - "rate_limit" = "Blocked for 15 minutes" → skip for 16 min
+ * - "quota"      = "hits today exceeded hits limit" → skip for rest of day
+ */
+function classifyBlock(reason: string): KeyBlockType | null {
+  const r = reason.toLowerCase();
+  if (r.includes("15 minutes") || r.includes("blocked for")) return "rate_limit";
+  if (r.includes("exceeded") || r.includes("hits today") || r.includes("hits limit") || r.includes("blocking since"))
+    return "quota";
+  if (r.includes("block") || r.includes("limit") || r.includes("credit")) return "rate_limit"; // safe default
+  return null;
+}
+
+/** Record a block on a key — fire-and-forget. */
+function recordKeyBlock(key: string, type: KeyBlockType) {
+  const alias = keyAlias(key);
+  const db = getAdminClient();
+  if (!db) return;
+  if (type === "rate_limit") {
+    // Block for 16 minutes (1 extra minute buffer)
+    const until = new Date(Date.now() + 16 * 60 * 1000).toISOString();
+    db.rpc("mark_key_rate_limited", { p_alias: alias, p_until: until }).catch(() => {});
+  } else {
+    // Daily quota — block until next calendar day
+    const today = new Date().toISOString().slice(0, 10);
+    db.rpc("mark_key_quota_exhausted", { p_alias: alias, p_date: today }).catch(() => {});
+  }
+}
+
 type MaybeRecord = Record<string, any>;
 
 export type MatchSeed = {
@@ -152,41 +184,84 @@ function injectKey(path: string, apiKey: string): string {
   return `${path}${joiner}apikey=${encodeURIComponent(apiKey)}`;
 }
 
+type KeyStatus = {
+  hits: number;
+  rateLimitedUntil: Date | null;
+  quotaExhaustedAt: string | null; // ISO date string
+};
+
 /**
- * Tries each API key ordered by today's hit count (least-used first),
- * falling back to the next one if the current key is over quota.
- * Throws only when all keys are exhausted.
+ * Tries each API key ordered by today's hit count (least-used first).
+ * Skips keys that are currently rate-limited (15-min block) or have exceeded
+ * their daily quota. Records blocks in Supabase so future calls also skip them.
+ * Throws only when all usable keys are exhausted.
  */
 async function fetchJson(path: string) {
   const baseUrl = envBaseUrl();
   const keys = allApiKeys();
-
-  // Order by ascending hit count so the least-used key goes first;
-  // ties broken randomly so load is spread across equally-fresh keys.
   const today = new Date().toISOString().slice(0, 10);
-  const hitsToday = await (async () => {
+  const nowMs = Date.now();
+
+  // Load hit counts + block state for all keys in one query
+  const keyStatusMap = await (async (): Promise<Record<string, KeyStatus>> => {
     try {
       const db = getAdminClient();
-      if (!db) return {} as Record<string, number>;
+      if (!db) return {};
       const { data } = await db
         .from("api_key_stats")
-        .select("key_alias, hits")
+        .select("key_alias, hits, rate_limited_until, quota_exhausted_at")
         .eq("stat_date", today);
-      const map: Record<string, number> = {};
-      for (const row of data ?? []) map[row.key_alias as string] = row.hits as number;
+      const map: Record<string, KeyStatus> = {};
+      for (const row of data ?? []) {
+        map[row.key_alias as string] = {
+          hits: (row.hits as number) ?? 0,
+          rateLimitedUntil: row.rate_limited_until ? new Date(row.rate_limited_until as string) : null,
+          quotaExhaustedAt: (row.quota_exhausted_at as string) ?? null,
+        };
+      }
       return map;
-    } catch { return {} as Record<string, number>; }
+    } catch { return {}; }
   })();
 
+  const statusFor = (k: string): KeyStatus =>
+    keyStatusMap[keyAlias(k)] ?? { hits: 0, rateLimitedUntil: null, quotaExhaustedAt: null };
+
+  const isBlocked = (k: string): boolean => {
+    const s = statusFor(k);
+    if (s.quotaExhaustedAt === today) return true;  // daily quota gone
+    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() > nowMs) return true; // still in 15-min window
+    return false;
+  };
+
+  // Order by ascending hit count; skip blocked keys (push them to end so they can still be
+  // tried as a last resort if every key is somehow blocked)
   const ordered = [...keys].sort((a, b) => {
-    const da = hitsToday[keyAlias(a)] ?? 0;
-    const db2 = hitsToday[keyAlias(b)] ?? 0;
+    const ba = isBlocked(a) ? 1 : 0;
+    const bb = isBlocked(b) ? 1 : 0;
+    if (ba !== bb) return ba - bb; // unblocked first
+    const da = statusFor(a).hits;
+    const db2 = statusFor(b).hits;
     return da !== db2 ? da - db2 : Math.random() - 0.5;
   });
   if (ordered.length === 0) ordered.push("");
 
   let lastError = "";
+  let skippedDueToBlock = 0;
+
   for (const key of ordered) {
+    // Hard-skip keys we know are blocked (don't even make the HTTP call)
+    if (key && isBlocked(key)) {
+      const s = statusFor(key);
+      if (s.quotaExhaustedAt === today) {
+        lastError = `Key ${keyAlias(key)} quota exhausted for today`;
+      } else if (s.rateLimitedUntil) {
+        const resumeIn = Math.ceil((s.rateLimitedUntil.getTime() - nowMs) / 60000);
+        lastError = `Key ${keyAlias(key)} rate-limited for ~${resumeIn} more min`;
+      }
+      skippedDueToBlock++;
+      continue;
+    }
+
     const requestPath = isCricapiBase(baseUrl) ? injectKey(path, key) : path;
     const headers = buildHeaders(key);
     const response = await fetch(`${baseUrl}${requestPath}`, { headers, cache: "no-store" });
@@ -195,17 +270,22 @@ async function fetchJson(path: string) {
       continue;
     }
     const payload = await response.json();
-    // Always track the hit — even quota errors count against the CricAPI server limit.
-    // Tracking failures lets the DB reflect real usage and prevents invisible quota burn.
+
+    // Always count the hit regardless of outcome
     trackKeyHit(key);
+
     if (isQuotaError(payload)) {
-      lastError = String(payload.reason || "quota exceeded");
+      const reason = String(payload.reason || payload.message || "");
+      lastError = reason || "quota/rate-limit exceeded";
+      const blockType = classifyBlock(reason);
+      if (blockType) recordKeyBlock(key, blockType);
       continue; // try next key
     }
     return payload;
   }
 
-  throw new Error(`Cricket API error: ${lastError || "all keys failed"}`);
+  const blockedMsg = skippedDueToBlock > 0 ? ` (${skippedDueToBlock} key(s) skipped — blocked)` : "";
+  throw new Error(`Cricket API error: ${lastError || "all keys failed"}${blockedMsg}`);
 }
 
 function todayIso() {
@@ -1621,12 +1701,17 @@ async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<Squa
 }
 
 /**
- * Pull roster for the select UI: pre-match = largest squad from refresh + match_info + match_squad;
- * live/completed = playing XI from scorecard (about 11 per side, excludes super-sub merge).
+ * Pull roster for the select UI.
+ *
+ * Cost target: 1 API call for live/completed matches (scorecard has the playing XI).
+ *              2-3 calls for pre-match (scorecard fails → match_info → match_squad).
+ *
+ * We only make additional calls when the scorecard returns no usable player data.
  */
 export async function fetchMatchRoster(externalMatchId: string): Promise<{ squads: SquadTeam[]; rosterNames: string[]; nameToId: Record<string, string> }> {
   const id = encodeURIComponent(externalMatchId);
 
+  // Step 1: scorecard (1 API call).  Returns playing XI for live/completed, empty for pre-match.
   let full: ProviderRefresh | null = null;
   try {
     full = await refreshMatchFromProvider(externalMatchId);
@@ -1634,72 +1719,43 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
     full = null;
   }
 
-  const rawInner =
-    full?.raw && typeof full.raw === "object"
-      ? (((full.raw as MaybeRecord).data ?? full.raw) as MaybeRecord)
-      : null;
-  const pre =
-    (full && String(full.status || "").toUpperCase() === "SCHEDULED") ||
-    (rawInner != null && typeof rawInner === "object" && providerPayloadSaysMatchNotStarted(rawInner));
-
-  if (pre && full) {
-    const preCandidates: SquadTeam[][] = [];
-    if (squadPlayerCount(full.squads) > 0) preCandidates.push(full.squads);
-    const fromStatsPre = squadsFromProviderPlayerRows(full.players);
-    if (squadPlayerCount(fromStatsPre) > 0) preCandidates.push(fromStatsPre);
-    if (isCricapiBase(envBaseUrl())) {
-      try {
-        const payload = await fetchJson(`/v1/match_info?id=${id}`);
-        if (payload?.status !== "failure") {
-          const s = extractSquadsFromPayload(payload);
-          if (squadPlayerCount(s) > 0) preCandidates.push(s);
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-    try {
-      const s = await tryFetchSquadsFromSquadApi(externalMatchId);
-      if (squadPlayerCount(s) > 0) preCandidates.push(s);
-    } catch {
-      /* ignore */
-    }
-    if (preCandidates.length) {
-      const best = preCandidates.sort((a, b) => squadPlayerCount(b) - squadPlayerCount(a))[0]!;
-      return { squads: best, rosterNames: uniqueRosterNames(best), nameToId: buildNameToId(best) };
-    }
-  }
-
-  const candidates: SquadTeam[][] = [];
-  const absorb = (squads: SquadTeam[]) => {
-    if (squadPlayerCount(squads) > 0) candidates.push(squads);
-  };
-
-  if (full) {
-    absorb(full.squads);
-    absorb(squadsFromProviderPlayerRows(full.players));
-  }
-
+  // If we already have enough players from the scorecard, return immediately (no extra calls).
   if (full && squadPlayerCount(full.squads) >= 11) {
     return { squads: full.squads, rosterNames: full.rosterNames, nameToId: full.nameToId };
   }
 
+  // Also accept stat-derived names as a squad when squads is thin.
+  const fromStats = squadsFromProviderPlayerRows(full?.players);
+  if (full && squadPlayerCount(fromStats) >= 11) {
+    return { squads: fromStats, rosterNames: uniqueRosterNames(fromStats), nameToId: buildNameToId(fromStats) };
+  }
+
+  // Collect what we have and try cheaper endpoints only if needed.
+  const candidates: SquadTeam[][] = [];
+  if (full && squadPlayerCount(full.squads) > 0) candidates.push(full.squads);
+  if (squadPlayerCount(fromStats) > 0) candidates.push(fromStats);
+
+  // Step 2: match_info (1 API call) — works pre-match and returns full squad/teamInfo.
   if (isCricapiBase(envBaseUrl())) {
     try {
       const payload = await fetchJson(`/v1/match_info?id=${id}`);
       if (payload?.status !== "failure") {
-        absorb(extractSquadsFromPayload(payload));
+        const s = extractSquadsFromPayload(payload);
+        if (squadPlayerCount(s) > 0) candidates.push(s);
+        // If match_info gave us enough players, stop here.
+        if (squadPlayerCount(s) >= 11) {
+          const best = candidates.sort((a, b) => squadPlayerCount(b) - squadPlayerCount(a))[0]!;
+          return { squads: best, rosterNames: uniqueRosterNames(best), nameToId: buildNameToId(best) };
+        }
       }
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
   }
 
+  // Step 3: match_squad (1-2 API calls) — pre-match squad announcement.
   try {
-    absorb(await tryFetchSquadsFromSquadApi(externalMatchId));
-  } catch {
-    /* ignore */
-  }
+    const s = await tryFetchSquadsFromSquadApi(externalMatchId);
+    if (squadPlayerCount(s) > 0) candidates.push(s);
+  } catch { /* ignore */ }
 
   if (candidates.length === 0) {
     return { squads: [], rosterNames: [], nameToId: {} };
@@ -1730,54 +1786,32 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   let scorecardFailed = false;
   let lastFailReason = "";
 
-  if (isCricapiBase(envBaseUrl())) {
-    let bestPayload: MaybeRecord | null = null;
-    let bestScore = -1;
-    let lastOk: MaybeRecord | null = null;
-    for (const path of candidatePaths) {
-      try {
-        const p = await fetchJson(path);
-        if (p?.status === "failure") {
-          scorecardFailed = true;
-          const r = safeString(p.reason || p.message || p.error || "");
-          if (r) lastFailReason = r;
-          continue;
-        }
-        if (!p) continue;
-        lastOk = p as MaybeRecord;
-        const data = ((p as MaybeRecord).data ?? p) as MaybeRecord;
-        const probe: PlayerStats[] = [];
-        if (data && typeof data === "object") collectPlayerRows(data, probe);
-        const sq = extractSquadsFromPayload(p as MaybeRecord);
-        const score = probe.length + squadPlayerCount(sq) * 2;
-        if (score > bestScore) {
-          bestScore = score;
-          bestPayload = p as MaybeRecord;
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg) lastFailReason = msg;
+  // Try paths one at a time; stop as soon as we get a response with player/squad data.
+  // Only fall through to the next path when the current one has no usable content.
+  for (const path of candidatePaths) {
+    try {
+      const p = await fetchJson(path);
+      if (p?.status === "failure") {
+        scorecardFailed = true;
+        const r = safeString(p.reason || p.message || p.error || "");
+        if (r) lastFailReason = r;
+        continue;
       }
-    }
-    payload = bestPayload ?? lastOk;
-  } else {
-    for (const path of candidatePaths) {
-      try {
-        const p = await fetchJson(path);
-        if (p?.status === "failure") {
-          scorecardFailed = true;
-          const r = safeString(p.reason || p.message || p.error || "");
-          if (r) lastFailReason = r;
-          continue;
-        }
-        if (p) {
-          payload = p;
-          break;
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg) lastFailReason = msg;
+      if (!p) continue;
+      // Accept this response if it has any player rows or squad data
+      const data = ((p as MaybeRecord).data ?? p) as MaybeRecord;
+      const probe: PlayerStats[] = [];
+      if (data && typeof data === "object") collectPlayerRows(data, probe);
+      const sq = extractSquadsFromPayload(p as MaybeRecord);
+      if (probe.length > 0 || squadPlayerCount(sq) > 0) {
+        payload = p as MaybeRecord;
+        break;
       }
+      // Response is valid but empty — keep it as a fallback and try next path
+      if (!payload) payload = p as MaybeRecord;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg) lastFailReason = msg;
     }
   }
 

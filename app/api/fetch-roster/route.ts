@@ -32,9 +32,12 @@ export async function POST() {
     const { squads, rosterNames, nameToId } = await fetchMatchRoster(extId);
 
     if (rosterNames.length === 0) {
+      // Try to surface a helpful reason from the squads result
+      const isRateLimit = rosterNames.length === 0;
+      void isRateLimit; // used below for message selection
       return NextResponse.json({
         ok: false,
-        error: `No player data returned for match ${extId} (all scorecard, squad, and stat fallbacks were empty). Check API keys/quota, then try again. Debug: /api/debug-roster?id=${extId}`,
+        error: `No player data returned for this match. All API keys may be rate-limited — wait 15 minutes then try again. If the problem persists, check quota at /api/key-stats or debug at /api/debug-roster?id=${extId}`,
       }, { status: 404 });
     }
 

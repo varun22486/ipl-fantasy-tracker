@@ -57,8 +57,16 @@ create table if not exists api_key_stats (
   stat_date date not null default current_date,
   hits integer not null default 0,
   last_used_at timestamp with time zone default now(),
+  -- Temporary 15-min rate-limit block; null means not blocked
+  rate_limited_until timestamp with time zone,
+  -- Date on which this key's daily quota was exhausted; null means not exhausted
+  quota_exhausted_at date,
   primary key (key_alias, stat_date)
 );
+
+-- Add block-tracking columns to existing tables (safe to re-run)
+alter table api_key_stats add column if not exists rate_limited_until timestamp with time zone;
+alter table api_key_stats add column if not exists quota_exhausted_at date;
 
 -- Upsert function used by the backend to increment per-key counters
 create or replace function increment_key_hit(p_alias text, p_date date)
@@ -68,6 +76,28 @@ begin
   values (p_alias, p_date, 1, now())
   on conflict (key_alias, stat_date)
   do update set hits = api_key_stats.hits + 1, last_used_at = now();
+end;
+$$;
+
+-- Record a 15-min rate-limit block on a key
+create or replace function mark_key_rate_limited(p_alias text, p_until timestamp with time zone)
+returns void language plpgsql as $$
+begin
+  insert into api_key_stats (key_alias, stat_date, hits, rate_limited_until)
+  values (p_alias, current_date, 0, p_until)
+  on conflict (key_alias, stat_date)
+  do update set rate_limited_until = p_until;
+end;
+$$;
+
+-- Record that a key's daily quota is exhausted
+create or replace function mark_key_quota_exhausted(p_alias text, p_date date)
+returns void language plpgsql as $$
+begin
+  insert into api_key_stats (key_alias, stat_date, hits, quota_exhausted_at)
+  values (p_alias, p_date, 0, p_date)
+  on conflict (key_alias, stat_date)
+  do update set quota_exhausted_at = p_date;
 end;
 $$;
 
