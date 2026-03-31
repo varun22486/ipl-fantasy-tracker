@@ -196,7 +196,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     const list = activeSide === "mine" ? mine : theirs;
     const setter = activeSide === "mine" ? setMine : setTheirs;
     const next = list.findIndex((p) => !p.name.trim());
-    if (next === -1) { setMessage("All 4 slots are full. Remove a player first."); return; }
+    if (next === -1) { setApiMsg({ type: "warning", title: "All 4 slots are full", detail: "Remove a player first, then tap again." }); return; }
     const providerId = nameToId[name.toLowerCase()] || undefined;
     setter((prev) => prev.map((p, i) => i === next ? { ...p, name, providerId } : p));
     setMessage("");
@@ -249,13 +249,11 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       )}
 
       {/* ── Match control bar ─────────────────────────────────────────────── */}
-      <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, padding: "14px 20px", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+      <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, overflow: "hidden" }}>
+        <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
         <button onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit} style={btnDark}>
           {syncing ? "Loading…" : "Link IPL Match"}
         </button>
-        {message && !linkChoices && (
-          <span style={{ fontSize: 13, color: "#475569", flex: 1 }}>{message}</span>
-        )}
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
           <span style={{
             fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999,
@@ -288,6 +286,16 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             })}
           </div>
         </div>
+        </div>
+        {/* Message row — always full-width, below the buttons */}
+        {(apiMsg || message) && !linkChoices && (
+          <div style={{ padding: "0 16px 14px" }}>
+            {apiMsg
+              ? <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />
+              : <ApiMessage msg={classifyApiMsg(message)} onDismiss={() => setMessage("")} />
+            }
+          </div>
+        )}
       </div>
 
       {/* ── Match picker ──────────────────────────────────────────────────── */}
@@ -617,15 +625,6 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
           })}
         </div>
       </div>
-
-      {/* ── Status / error message ────────────────────────────────────────── */}
-      {apiMsg && linkChoices === null && (
-        <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />
-      )}
-      {/* Fallback plain text (for any old codepath that still calls setMessage) */}
-      {message && !apiMsg && linkChoices === null && (
-        <ApiMessage msg={classifyApiMsg(message)} onDismiss={() => setMessage("")} />
-      )}
 
       {/* ── Responsive override for narrow screens ───────────────────────── */}
       <style>{`

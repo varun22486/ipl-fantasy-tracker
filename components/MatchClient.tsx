@@ -116,7 +116,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
         ? (json.reason || json.message || "Scores updated!")
         : (json.error || "Refresh failed.");
       showMsg(text, json.ok ? undefined : "Sync scores");
-      if (json.ok && !json.skipped) window.setTimeout(() => window.location.reload(), 1200);
+      if (json.ok && !json.skipped) window.setTimeout(() => window.location.reload(), 2500);
     } catch { setSyncing(false); showMsg("Network error during sync.", "Sync scores"); }
   }
 
@@ -219,25 +219,26 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       </div>
 
       {/* Sync bar */}
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: "12px 16px", background: "white", border: "1px solid #e2e8f0", borderRadius: 14 }}>
-        <button onClick={() => guardedRun(1, doRefreshNow)} disabled={syncing || isAtLimit} style={btnPrimary}>
-          {syncing ? "Syncing…" : "⟳ Sync Scores Now"}
-        </button>
-        <button onClick={() => guardedRun(2, doStartLinkMatch)} disabled={syncing || isAtLimit} style={btnSecondary}>
-          {syncing ? "Loading…" : "Link Different Match"}
-        </button>
-        <span style={{ fontSize: 12, color: "#94a3b8" }}>Last synced: {lastSynced}</span>
-        {apiMsg && !linkChoices && (
-          <div style={{ flex: 1 }}>
-            <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />
+      <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden" }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", padding: "12px 16px" }}>
+          <button onClick={() => guardedRun(1, doRefreshNow)} disabled={syncing || isAtLimit} style={btnPrimary}>
+            {syncing ? "Syncing…" : "⟳ Sync Scores Now"}
+          </button>
+          <button onClick={() => guardedRun(2, doStartLinkMatch)} disabled={syncing || isAtLimit} style={btnSecondary}>
+            {syncing ? "Loading…" : "Link Different Match"}
+          </button>
+          <span style={{ fontSize: 12, color: "#94a3b8" }}>Last synced: {lastSynced}</span>
+          <span style={{ marginLeft: "auto", fontSize: 12, color: isAtLimit ? "#b91c1c" : "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
+        </div>
+        {/* Message sits in its own full-width row below the buttons */}
+        {(apiMsg || message) && !linkChoices && (
+          <div style={{ padding: "0 12px 12px" }}>
+            {apiMsg
+              ? <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />
+              : <ApiMessage msg={classifyApiMsg(message)} onDismiss={() => setMessage("")} />
+            }
           </div>
         )}
-        {message && !apiMsg && !linkChoices && (
-          <div style={{ flex: 1 }}>
-            <ApiMessage msg={classifyApiMsg(message)} onDismiss={() => setMessage("")} />
-          </div>
-        )}
-        <span style={{ marginLeft: "auto", fontSize: 12, color: isAtLimit ? "#b91c1c" : "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
       </div>
 
       {/* Quota warning */}
