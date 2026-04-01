@@ -74,6 +74,25 @@ export async function POST(req: NextRequest) {
       ? (q: any) => q.eq("match_id", matchId).is("competition_id", null)
       : (q: any) => q.eq("match_id", matchId).eq("competition_id", competitionId);
 
+    // New: save for any named participant in a multi-player competition
+    if (body.playerName) {
+      const playerName = String(body.playerName).trim();
+      const playerPicks = normalizePlayers(body.players);
+      validateSide(`${playerName}'s team`, playerPicks);
+      await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", playerName);
+      await supabaseAdmin.from("fantasy_players").insert(
+        playerPicks.map((p) => ({
+          match_id: matchId,
+          side: playerName,
+          name: p.name,
+          captain: p.captain,
+          provider_player_id: p.providerId ?? null,
+          competition_id: isDefault ? null : competitionId,
+        }))
+      );
+      return NextResponse.json({ ok: true });
+    }
+
     if (saveSide === "mine" || saveSide === "both") {
       const yourPlayers = normalizePlayers(body.yourPlayers);
       validateSide(`${side1}'s team`, yourPlayers);

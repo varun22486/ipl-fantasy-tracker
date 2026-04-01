@@ -243,6 +243,8 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           nameToId={nameToId}
           hasLinkedMatch={hasLinkedMatch}
           competitionId={competitionId ?? null}
+          compPlayers={isMultiPlayer ? (allParticipants ?? []).map(p => p.name) : undefined}
+          existingPicks={isMultiPlayer ? (allParticipants ?? []).map(p => p.players.map(fp => ({ name: fp.name, captain: fp.captain }))) : undefined}
         />
       </div>
     );

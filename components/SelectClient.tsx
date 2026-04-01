@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { formatFixture } from "@/lib/format";
 import type { CSSProperties } from "react";
 import ApiMessage from "@/components/ApiMessage";
@@ -42,6 +42,13 @@ type Props = {
   hasLinkedMatch: boolean;
   /** null = default (series_settings) competition; number = named competition */
   competitionId?: number | null;
+  /**
+   * Full participant list for multi-player competitions (3+).
+   * When provided, renders one lineup card per participant instead of mine/theirs.
+   */
+  compPlayers?: string[];
+  /** Existing picks per participant (indexed same as compPlayers) */
+  existingPicks?: Player[][];
 };
 
 function emptyPlayers() { return Array.from({ length: 4 }, () => ({ name: "", captain: false })); }
@@ -52,7 +59,68 @@ function withFallback(players: Player[]) {
   return next;
 }
 
-export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch, competitionId }: Props) {
+export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch, competitionId, compPlayers, existingPicks }: Props) {
+  // Multi-player mode: 3+ participants
+  const isMulti = (compPlayers?.length ?? 0) >= 3;
+  const multiPlayers = compPlayers ?? [];
+  // Per-participant picks array (mirrors compPlayers indices)
+  const [allPicks, setAllPicks] = React.useState<Player[][]>(() =>
+    multiPlayers.map((_, i) => withFallback(existingPicks?.[i] ?? []))
+  );
+  const [activeMultiIdx, setActiveMultiIdx] = React.useState(0);
+  const [savingIdx, setSavingIdx] = React.useState<number | null>(null);
+
+  async function saveParticipant(idx: number) {
+    const picks = allPicks[idx];
+    const name = multiPlayers[idx];
+    if (!picks.every(p => p.name.trim()) || picks.filter(p => p.captain).length !== 1) return;
+    setSavingIdx(idx); setApiMsg(null);
+    try {
+      const res = await fetch("/api/lineup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerName: name, players: picks, competitionId: competitionId ?? null }),
+      });
+      const json = await res.json();
+      setSavingIdx(null);
+      if (json.ok) {
+        setApiMsg({ type: "success", title: `${name}'s team saved!` });
+        // If all saved, reload after a moment
+        window.setTimeout(() => window.location.reload(), 900);
+      } else {
+        setApiMsg({ type: "error", title: json.error || "Could not save." });
+      }
+    } catch { setSavingIdx(null); setApiMsg({ type: "error", title: "Network error saving lineup." }); }
+  }
+
+  function updateMultiCaptain(idx: number, slotIdx: number) {
+    setAllPicks(prev => prev.map((picks, i) =>
+      i !== idx ? picks : picks.map((p, j) => ({ ...p, captain: j === slotIdx }))
+    ));
+  }
+  function clearMultiSlot(idx: number, slotIdx: number) {
+    setAllPicks(prev => prev.map((picks, i) =>
+      i !== idx ? picks : picks.map((p, j) => j !== slotIdx ? p : { name: "", captain: false })
+    ));
+    // ensure still one captain
+    setAllPicks(prev => {
+      const picks = [...prev[idx]];
+      if (!picks.some(p => p.captain && p.name.trim())) {
+        const first = picks.findIndex(p => p.name.trim());
+        if (first !== -1) picks[first] = { ...picks[first], captain: true };
+      }
+      return prev.map((p, i) => i === idx ? picks : p);
+    });
+  }
+  function applyMultiRoster(name: string) {
+    const picks = allPicks[activeMultiIdx];
+    const next = picks.findIndex(p => !p.name.trim());
+    if (next === -1) { setApiMsg({ type: "warning", title: "All 4 slots full", detail: "Remove one first." }); return; }
+    const providerId = nameToId[name.toLowerCase()] || undefined;
+    setAllPicks(prev => prev.map((p, i) =>
+      i !== activeMultiIdx ? p : p.map((slot, j) => j !== next ? slot : { ...slot, name, providerId })
+    ));
+  }
   const [saving, setSaving] = useState<"mine" | "theirs" | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
@@ -232,6 +300,162 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         return m < min ? m : min;
       }, 999)
     : null;
+
+  // ── MULTI-PLAYER UI (3+ participants) ────────────────────────────────────
+  if (isMulti) {
+    const COLORS = ["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2"];
+    const activePicks = allPicks[activeMultiIdx] ?? [];
+    const takenMulti = new Set(activePicks.filter(p => p.name.trim()).map(p => p.name.toLowerCase()));
+    const canSave = activePicks.every(p => p.name.trim()) && activePicks.filter(p => p.captain).length === 1;
+
+    return (
+      <div style={{ display: "grid", gap: 20 }}>
+        {/* All-keys blocked banner */}
+        {allBlocked && (
+          <ApiMessage msg={{ type: "error", title: "All API keys are currently blocked", detail: "Rate-limited or quota exhausted. Wait before fetching rosters.", action: "View key usage", actionHref: "/api/key-stats" }} />
+        )}
+        {apiMsg && <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />}
+
+        {/* Top bar — link match + key stats */}
+        <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, overflow: "hidden" }}>
+          <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            <button onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit} style={btnDark}>{syncing ? "Loading…" : "Link IPL Match"}</button>
+            <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999, background: "#f1f5f9", color: "#64748b", marginLeft: "auto" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
+          </div>
+        </div>
+
+        {/* Match picker */}
+        {linkChoices && linkChoices.length > 1 && (
+          <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 18, padding: 20 }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Choose a match</div>
+            <div style={{ display: "grid", gap: 10 }}>
+              {linkChoices.map((c) => {
+                const picked = pickedLinkId === c.externalMatchId;
+                return (
+                  <label key={c.externalMatchId || c.fixture} style={{ display: "flex", gap: 14, alignItems: "center", padding: "14px 16px", borderRadius: 14, cursor: "pointer", border: picked ? "2px solid #2563eb" : "1px solid #e2e8f0", background: picked ? "#eff6ff" : "white" }}>
+                    <input type="radio" name="lp" checked={picked} onChange={() => setPickedLinkId(c.externalMatchId || "")} style={{ accentColor: "#2563eb" }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>{formatFixture(c.fixture) || c.fixture}</div>
+                      <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{c.status}{c.venue ? ` · ${c.venue}` : ""}{c.match_date ? ` · ${c.match_date}` : ""}</div>
+                    </div>
+                    {picked && <span style={{ fontSize: 18 }}>✓</span>}
+                  </label>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+              <button style={btnDark} onClick={() => void (guardedRun(1, () => doSubmitSeedLink(pickedLinkId)))} disabled={syncing || !pickedLinkId}>{syncing ? "Linking…" : "Link selected"}</button>
+              <button style={btnOutline} onClick={() => { setLinkChoices(null); setApiMsg(null); }}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* Two-column: roster left, active participant card right */}
+        <div className="select-two-col" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) min(340px,100%)", gap: 20, alignItems: "start" }}>
+          {/* Roster panel */}
+          <div style={panel}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>Match Players</div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{hasRoster ? "Tap to add to the active participant" : "Fetch the XI once announced"}</div>
+              </div>
+              {hasRoster && <button type="button" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing} style={btnSm}>{syncing ? "…" : "↺ Refresh XI"}</button>}
+            </div>
+            {/* Active participant switcher */}
+            {hasRoster && (
+              <div style={{ display: "flex", gap: 0, borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", marginBottom: 14, flexWrap: "wrap" }}>
+                {multiPlayers.map((name, i) => (
+                  <button key={name} type="button" onClick={() => setActiveMultiIdx(i)} style={{ flex: "1 1 auto", padding: "8px 12px", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 12, transition: "all 0.12s", background: activeMultiIdx === i ? COLORS[i % COLORS.length] : "white", color: activeMultiIdx === i ? "white" : "#64748b" }}>
+                    + {name}
+                  </button>
+                ))}
+              </div>
+            )}
+            {!hasLinkedMatch ? (
+              <div style={{ textAlign: "center", padding: "32px 16px" }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>🏏</div>
+                <div style={{ fontWeight: 700, marginBottom: 16 }}>No match linked</div>
+                <button style={btnDark} onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>Link IPL Match</button>
+              </div>
+            ) : !hasRoster ? (
+              <div style={{ textAlign: "center", padding: "32px 16px" }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
+                <div style={{ fontWeight: 700, marginBottom: 16 }}>Roster not loaded</div>
+                <button style={btnDark} onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>{syncing ? "Loading…" : "Load Roster"}</button>
+              </div>
+            ) : squads.length > 0 ? (
+              <div style={{ display: "grid", gap: 16 }}>
+                {squads.map(team => (
+                  <div key={team.teamName}>
+                    <div style={{ fontWeight: 700, fontSize: 12, color: "#334155", marginBottom: 8, borderBottom: "1px solid #f1f5f9", paddingBottom: 6 }}>{team.teamName}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {team.players.map(name => {
+                        const taken = takenMulti.has(name.toLowerCase());
+                        return <button key={name} type="button" disabled={taken} onClick={() => applyMultiRoster(name)} style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 500, cursor: taken ? "not-allowed" : "pointer", border: "1px solid #cbd5e1", background: taken ? "#f8fafc" : "white", color: taken ? "#94a3b8" : "#0f172a", textDecoration: taken ? "line-through" : "none", opacity: taken ? 0.5 : 1 }}>{name}</button>;
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {rosterNames.map(name => {
+                  const taken = takenMulti.has(name.toLowerCase());
+                  return <button key={name} type="button" disabled={taken} onClick={() => applyMultiRoster(name)} style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 500, cursor: taken ? "not-allowed" : "pointer", border: "1px solid #cbd5e1", background: taken ? "#f8fafc" : "white", color: taken ? "#94a3b8" : "#0f172a", opacity: taken ? 0.5 : 1 }}>{name}</button>;
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Active participant card */}
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ fontSize: 12, color: "#64748b", padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
+              💡 Each person picks their own 4. Use the tabs above to switch who you&apos;re picking for.
+            </div>
+            {multiPlayers.map((name, idx) => {
+              const picks = allPicks[idx] ?? [];
+              const filled = picks.filter(p => p.name.trim()).length;
+              const canS = picks.every(p => p.name.trim()) && picks.filter(p => p.captain).length === 1;
+              const color = COLORS[idx % COLORS.length];
+              const isActive = activeMultiIdx === idx;
+              return (
+                <div key={name} style={{ ...panel, border: isActive ? `2px solid ${color}` : "1px solid #e2e8f0", opacity: isActive ? 1 : 0.7 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: 999, background: color }} />
+                      <span style={{ fontWeight: 800, fontSize: 14 }}>{name}</span>
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{filled}/4</span>
+                    </div>
+                    {!isActive && <button type="button" onClick={() => setActiveMultiIdx(idx)} style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 8, border: `1px solid ${color}`, background: "white", color, cursor: "pointer" }}>Select</button>}
+                    {isActive && <span style={{ fontSize: 11, fontWeight: 700, color, background: `${color}20`, padding: "3px 8px", borderRadius: 999 }}>Active ✓</span>}
+                  </div>
+                  <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+                    {picks.map((player, slotIdx) => (
+                      <div key={slotIdx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, background: player.name.trim() ? (player.captain ? "#fefce8" : "#f8fafc") : "#f8fafc", border: player.name.trim() ? (player.captain ? "1px solid #fde68a" : "1px solid #e2e8f0") : "1px dashed #cbd5e1" }}>
+                        <div style={{ width: 22, height: 22, borderRadius: 999, background: player.name.trim() ? color : "#e2e8f0", color: player.name.trim() ? "white" : "#94a3b8", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{slotIdx + 1}</div>
+                        {player.name.trim() ? (
+                          <>
+                            <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{player.name}</span>
+                            <button type="button" onClick={() => updateMultiCaptain(idx, slotIdx)} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 7, cursor: "pointer", border: player.captain ? "1px solid #d97706" : "1px solid #e2e8f0", background: player.captain ? "#fef9c3" : "white", color: player.captain ? "#d97706" : "#94a3b8", fontWeight: 700 }}>★</button>
+                            <button type="button" onClick={() => clearMultiSlot(idx, slotIdx)} style={{ width: 22, height: 22, borderRadius: 999, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>✕</button>
+                          </>
+                        ) : (
+                          <span style={{ flex: 1, color: "#94a3b8", fontSize: 12, fontStyle: "italic" }}>{isActive ? "← tap roster" : "empty"}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => void saveParticipant(idx)} disabled={!canS || savingIdx !== null} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 13, cursor: canS ? "pointer" : "not-allowed", background: canS ? color : "#e2e8f0", color: canS ? "white" : "#94a3b8" }}>
+                    {savingIdx === idx ? "Saving…" : canS ? `Save ${name}'s team →` : `Pick ${4 - filled} more`}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "grid", gap: 20 }}>
