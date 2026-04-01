@@ -241,6 +241,7 @@ body { margin: 0; font-family: var(--font-sans); background: var(--bg); color: v
 /* ── Select teams two-column ─────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .select-two-col { grid-template-columns: 1fr !important; }
+  .roster-teams-side-by-side { grid-template-columns: 1fr !important; }
 }
 
 /* ── Transitions & hover ─────────────────────────────────────────────────── */

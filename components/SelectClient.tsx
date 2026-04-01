@@ -39,9 +39,17 @@ function sortRosterByFirstName(names: string[]): string[] {
   });
 }
 
+/** Player chips when there is no squad split (single combined list) */
 const rosterPlayerGrid2: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 8,
+};
+
+/** One column of players stacked under each team header */
+const rosterPlayersBelowTeam: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr)",
   gap: 8,
 };
 
@@ -451,11 +459,19 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                 <button style={btnDark} onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>{syncing ? "Loading…" : "Load Roster"}</button>
               </div>
             ) : squads.length > 0 ? (
-              <div style={{ display: "grid", gap: 20 }}>
+              <div
+                className="roster-teams-side-by-side"
+                style={{
+                  display: "grid",
+                  gap: 16,
+                  alignItems: "start",
+                  gridTemplateColumns: squads.length === 1 ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))",
+                }}
+              >
                 {squads.map(team => (
-                  <div key={team.teamName}>
+                  <div key={team.teamName} style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 12, color: "#334155", marginBottom: 10, borderBottom: "1px solid #f1f5f9", paddingBottom: 6 }}>{team.teamName}</div>
-                    <div style={rosterPlayerGrid2}>
+                    <div style={rosterPlayersBelowTeam}>
                       {sortRosterByFirstName(team.players).map((name, i) => {
                         const takenOther = takenByOthers.has(name.toLowerCase());
                         const takenSelf = takenByActive.has(name.toLowerCase());
@@ -781,19 +797,27 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
           ) : (
             <>
               {squads.length > 0 ? (
-                <div style={{ display: "grid", gap: 20 }}>
+                <div
+                  className="roster-teams-side-by-side"
+                  style={{
+                    display: "grid",
+                    gap: 16,
+                    alignItems: "start",
+                    gridTemplateColumns: squads.length === 1 ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))",
+                  }}
+                >
                   {squads.map((team) => (
-                    <div key={team.teamName}>
+                    <div key={team.teamName} style={{ minWidth: 0 }}>
                       {/* Team label */}
                       <div style={{
                         display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
-                        paddingBottom: 8, borderBottom: "1px solid #f1f5f9",
+                        paddingBottom: 8, borderBottom: "1px solid #f1f5f9", flexWrap: "wrap",
                       }}>
-                        <div style={{ width: 3, height: 18, borderRadius: 2, background: "#0f172a" }} />
+                        <div style={{ width: 3, height: 18, borderRadius: 2, background: "#0f172a", flexShrink: 0 }} />
                         <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", letterSpacing: 0.2 }}>{team.teamName}</span>
                         <span style={{ fontSize: 11, color: "#94a3b8" }}>{team.players.length} players</span>
                       </div>
-                      <div style={rosterPlayerGrid2}>
+                      <div style={rosterPlayersBelowTeam}>
                         {sortRosterByFirstName(team.players).map((name, i) => {
                           const taken = takenNames.has(name.trim().toLowerCase());
                           const isTarget = activeSide === "mine"
