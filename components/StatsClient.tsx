@@ -46,7 +46,7 @@ function shortFixture(f: string) {
 // ── Small helpers ─────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, color, accent }: { label: string; value: string | number; sub?: string; color?: string; accent?: string }) {
   return (
-    <div style={{ ...cardStyle, borderTop: accent ? `3px solid ${accent}` : undefined }}>
+    <div className="ui-card" style={{ borderTop: accent ? `3px solid ${accent}` : undefined }}>
       <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div>
       <div style={{ fontSize: 26, fontWeight: 800, marginTop: 4, color: color ?? "#0f172a" }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>{sub}</div>}
@@ -58,7 +58,7 @@ function StatCard({ label, value, sub, color, accent }: { label: string; value: 
 function ChartTooltip({ active, payload, label, formatter }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 12, padding: "10px 14px", fontSize: 13, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+    <div className="chart-tooltip">
       <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a" }}>{payload[0]?.payload?.fullName ?? label}</div>
       {payload.map((p: any, i: number) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
@@ -607,14 +607,13 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────────
-const cardStyle: CSSProperties    = { border: "1px solid #e2e8f0", borderRadius: 16, background: "white", padding: "16px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" };
-const insightCard: CSSProperties  = { border: "1px solid #e2e8f0", borderRadius: 16, background: "white", padding: "14px 16px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" };
-const insightLabel: CSSProperties = { fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 };
-const sectionStyle: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 20, background: "white", padding: 24, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" };
-const sectionTitle: CSSProperties = { margin: "0 0 4px", fontSize: 18, fontWeight: 700, color: "#0f172a" };
-const sectionSub: CSSProperties   = { margin: "0 0 20px", fontSize: 13, color: "#64748b" };
-const thStyle: CSSProperties      = { textAlign: "left", padding: "10px 12px", borderBottom: "2px solid #e2e8f0", color: "#475569", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 };
-const tdStyle: CSSProperties      = { padding: "10px 12px", borderBottom: "1px solid #f1f5f9", fontSize: 14 };
-const btnPrimary: CSSProperties    = { padding: "10px 18px", borderRadius: 12, border: "1px solid #0f172a", background: "#0f172a", color: "white", fontWeight: 600, fontSize: 14, cursor: "pointer" };
-const btnSecondary: CSSProperties  = { ...btnPrimary, background: "white", color: "#0f172a" };
+const insightCard: CSSProperties  = { border: "1px solid var(--border)", borderRadius: 16, background: "var(--surface)", padding: "14px 16px", boxShadow: "var(--shadow-xs)" };
+const insightLabel: CSSProperties = { fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1 };
+const sectionStyle: CSSProperties = { border: "1px solid var(--border)", borderRadius: 20, background: "var(--surface)", padding: 24, boxShadow: "var(--shadow-card)" };
+const sectionTitle: CSSProperties = { margin: "0 0 4px", fontSize: 18, fontWeight: 800, color: "var(--text)", letterSpacing: "-0.02em" };
+const sectionSub: CSSProperties   = { margin: "0 0 20px", fontSize: 14, color: "var(--text-muted)", lineHeight: 1.5 };
+const thStyle: CSSProperties      = { textAlign: "left", padding: "10px 12px", borderBottom: "2px solid var(--border)", color: "#475569", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 };
+const tdStyle: CSSProperties      = { padding: "10px 12px", borderBottom: "1px solid var(--border)", fontSize: 14 };
+const btnPrimary: CSSProperties    = { padding: "11px 20px", borderRadius: 14, border: "none", background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)", color: "white", fontWeight: 600, fontSize: 14, cursor: "pointer", boxShadow: "0 2px 14px rgba(37,99,235,0.35), 0 1px 2px rgba(0,0,0,0.08)" };
+const btnSecondary: CSSProperties  = { padding: "11px 20px", borderRadius: 14, border: "1px solid var(--border-strong)", background: "var(--surface)", color: "var(--text)", fontWeight: 600, fontSize: 14, cursor: "pointer", boxShadow: "var(--shadow-xs)" };
 const miniChartLabel: CSSProperties = { fontSize: 12, fontWeight: 600, color: "#64748b", textTransform: "uppercase" as const, letterSpacing: 0.8, marginBottom: 10 };

@@ -1046,9 +1046,35 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
 }
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
-const panel: CSSProperties = { background: "white", border: "1px solid #e2e8f0", borderRadius: 20, padding: 20, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" };
-const btnDark: CSSProperties = { padding: "10px 18px", borderRadius: 12, border: "1px solid #0f172a", background: "#0f172a", color: "white", cursor: "pointer", fontWeight: 700, fontSize: 14 };
-const btnOutline: CSSProperties = { ...btnDark, background: "white", color: "#0f172a" };
+const panel: CSSProperties = {
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
+  borderRadius: 20,
+  padding: 22,
+  boxShadow: "var(--shadow-card)",
+};
+const btnDark: CSSProperties = {
+  padding: "11px 20px",
+  borderRadius: 14,
+  border: "none",
+  background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+  color: "white",
+  cursor: "pointer",
+  fontWeight: 700,
+  fontSize: 14,
+  boxShadow: "0 2px 14px rgba(37,99,235,0.32)",
+};
+const btnOutline: CSSProperties = {
+  padding: "11px 20px",
+  borderRadius: 14,
+  border: "1px solid var(--border-strong)",
+  background: "var(--surface)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontWeight: 700,
+  fontSize: 14,
+  boxShadow: "var(--shadow-xs)",
+};
 const btnSm: CSSProperties = { padding: "7px 14px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", cursor: "pointer", fontWeight: 600, fontSize: 13 };
 const inputStyle: CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 10, boxSizing: "border-box", fontSize: 14, outline: "none" };
 const warnStyle: CSSProperties = { border: "2px solid #fcd34d", borderRadius: 16, background: "#fffbeb", padding: 16 };

@@ -1018,26 +1018,35 @@ const syncBarStyle: CSSProperties = {
   gap: 14,
   alignItems: "center",
   flexWrap: "wrap",
-  padding: "14px 16px",
-  background: "white",
-  border: "1px solid #e2e8f0",
-  borderRadius: 16,
+  padding: "16px 18px",
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
+  borderRadius: 18,
+  boxShadow: "var(--shadow-xs)",
 };
 
 const buttonStyle: CSSProperties = {
-  padding: "10px 16px",
-  borderRadius: 12,
-  border: "1px solid #0f172a",
-  background: "#0f172a",
+  padding: "11px 20px",
+  borderRadius: 14,
+  border: "none",
+  background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
   color: "white",
   cursor: "pointer",
   fontWeight: 600,
+  fontSize: 14,
+  boxShadow: "0 2px 14px rgba(37,99,235,0.32), 0 1px 2px rgba(0,0,0,0.06)",
 };
 
 const buttonStyleSecondary: CSSProperties = {
-  ...buttonStyle,
-  background: "white",
-  color: "#0f172a",
+  padding: "11px 20px",
+  borderRadius: 14,
+  border: "1px solid var(--border-strong)",
+  background: "var(--surface)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontWeight: 600,
+  fontSize: 14,
+  boxShadow: "var(--shadow-xs)",
 };
 
 const labelStyle: CSSProperties = {
@@ -1049,11 +1058,14 @@ const labelStyle: CSSProperties = {
 
 const inputStyle: CSSProperties = {
   width: "100%",
-  padding: "10px 12px",
-  border: "1px solid #cbd5e1",
+  padding: "11px 14px",
+  border: "1px solid var(--border-strong)",
   borderRadius: 12,
   marginBottom: 12,
   boxSizing: "border-box",
+  background: "var(--surface)",
+  fontSize: 15,
+  transition: "border-color 0.15s, box-shadow 0.15s",
 };
 
 const rowStyle: CSSProperties = {
@@ -1070,26 +1082,27 @@ const sectionTitleStyle: CSSProperties = {
 };
 
 const rosterPanelStyle: CSSProperties = {
-  border: "1px solid #e2e8f0",
+  border: "1px solid var(--border)",
   borderRadius: 20,
-  background: "#f8fafc",
-  padding: 20,
-  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+  background: "linear-gradient(180deg, var(--surface-muted) 0%, var(--surface) 100%)",
+  padding: 22,
+  boxShadow: "var(--shadow-xs)",
 };
 
 const pickerPanelStyle: CSSProperties = {
-  border: "1px solid #bfdbfe",
+  border: "1px solid rgba(59, 130, 246, 0.35)",
   borderRadius: 20,
-  background: "#f0f9ff",
-  padding: 20,
-  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+  background: "linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%)",
+  padding: 22,
+  boxShadow: "0 4px 24px rgba(37, 99, 235, 0.08), var(--shadow-xs)",
 };
 
 const quotaBarContainerStyle: CSSProperties = {
-  border: "1px solid #e2e8f0",
+  border: "1px solid var(--border)",
   borderRadius: 16,
-  background: "white",
-  padding: "12px 16px",
+  background: "var(--surface)",
+  padding: "14px 18px",
+  boxShadow: "var(--shadow-xs)",
 };
 
 const quotaWarnPanelStyle: CSSProperties = {

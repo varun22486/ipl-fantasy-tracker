@@ -273,14 +273,15 @@ const inputStyle: CSSProperties = {
 };
 const saveBtnStyle: CSSProperties = {
   flex: 1,
-  padding: "8px",
-  borderRadius: 8,
+  padding: "9px 10px",
+  borderRadius: 10,
   border: "none",
-  background: "#2563eb",
+  background: "linear-gradient(180deg, #3b82f6 0%, #2563eb 100%)",
   color: "white",
   cursor: "pointer",
   fontWeight: 700,
   fontSize: 13,
+  boxShadow: "0 2px 10px rgba(37, 99, 235, 0.35)",
 };
 const saveBtnDisabled: CSSProperties = {
   ...saveBtnStyle,

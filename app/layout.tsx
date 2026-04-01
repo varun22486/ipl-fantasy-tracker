@@ -1,9 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const fontSans = Plus_Jakarta_Sans({
+  subsets: ["latin"],
+  variable: "--font-sans-var",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "IPL Fantasy Tracker",
@@ -18,8 +22,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
-      <body className={inter.className}>
+    <html lang="en" className={fontSans.variable}>
+      <body className={fontSans.className}>
         <AppShell>{children}</AppShell>
       </body>
     </html>

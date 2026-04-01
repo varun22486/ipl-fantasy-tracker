@@ -30,7 +30,8 @@ export default function HomeHero({
           Welcome back
         </h2>
         <p className="home-hero__lead">
-          Tracking <strong style={{ color: "#93c5fd" }}>{yourName}</strong> vs <strong style={{ color: "#fca5a5" }}>{opponentName}</strong> — match-by-match results, cumulative points, and season insights.
+          Tracking <span className="home-hero__name--you">{yourName}</span> vs{" "}
+          <span className="home-hero__name--opp">{opponentName}</span> — match-by-match results, cumulative points, and season insights.
         </p>
         <div className="home-hero__stats">
           <div className="home-hero__stat">
@@ -59,24 +60,13 @@ export default function HomeHero({
           </div>
         </div>
         {nextMatch && (
-          <div className="home-hero__next" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16 }}>
+          <div className="home-hero__next">
             <span>
               <strong>Next on the calendar:</strong> {nextMatch.fixture}
               {nextMatch.date ? ` · ${nextMatch.date}` : ""}
               {nextMatch.venue ? ` · ${nextMatch.venue}` : ""}
             </span>
-            <Link
-              href="/select"
-              style={{
-                padding: "8px 16px",
-                borderRadius: 10,
-                background: "rgba(255,255,255,0.95)",
-                color: "#0f172a",
-                fontWeight: 700,
-                fontSize: 14,
-                textDecoration: "none",
-              }}
-            >
+            <Link href="/select" className="home-hero__cta">
               Pick teams
             </Link>
           </div>

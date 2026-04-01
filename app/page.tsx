@@ -20,30 +20,43 @@ function MultiPlayerHero({ participants, nextMatch }: {
       <div className="home-hero__inner">
         <p className="home-hero__eyebrow">Multi-player competition</p>
         <h2 className="home-hero__title">Series Standings</h2>
-        <div style={{ display: "grid", gap: 8, marginTop: 20 }}>
+        <div className="home-hero__standings">
           {participants.map((p, i) => {
             const pct = participants[0].totalPoints > 0 ? (p.totalPoints / participants[0].totalPoints) * 100 : 0;
+            const barColor = colors[i] ?? "#64748b";
             return (
-              <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 12, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}>
-                <span style={{ fontSize: 16, fontWeight: 800, color: "#94a3b8", width: 24, textAlign: "center" }}>#{i + 1}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: colors[i] ?? "#e2e8f0" }}>{p.name}</div>
-                  <div style={{ height: 4, borderRadius: 999, background: "rgba(255,255,255,0.1)", marginTop: 6, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${pct}%`, background: colors[i] ?? "#64748b", borderRadius: 999, transition: "width 0.6s ease" }} />
+              <div key={p.name} className="home-hero__standings-row">
+                <span className="home-hero__standings-rank">#{i + 1}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="home-hero__standings-name" style={{ color: barColor }}>
+                    {p.name}
+                  </div>
+                  <div className="home-hero__standings-bar">
+                    <div
+                      className="home-hero__standings-bar-fill"
+                      style={{ width: `${pct}%`, background: barColor }}
+                    />
                   </div>
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontWeight: 800, fontSize: 18, color: "#fff" }}>{p.totalPoints}</div>
-                  <div style={{ fontSize: 11, color: "#94a3b8" }}>{p.wins}W · {p.matches} played</div>
+                <div className="home-hero__standings-meta">
+                  <div className="home-hero__standings-pts">{p.totalPoints}</div>
+                  <div className="home-hero__standings-sub">
+                    {p.wins}W · {p.matches} played
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
         {nextMatch && (
-          <div className="home-hero__next" style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-            <span><strong>Next:</strong> {nextMatch.fixture}{nextMatch.date ? ` · ${nextMatch.date}` : ""}</span>
-            <Link href="/match" style={{ padding: "7px 14px", borderRadius: 10, background: "rgba(255,255,255,0.95)", color: "#0f172a", fontWeight: 700, fontSize: 13, textDecoration: "none" }}>Pick teams</Link>
+          <div className="home-hero__next">
+            <span>
+              <strong>Next:</strong> {nextMatch.fixture}
+              {nextMatch.date ? ` · ${nextMatch.date}` : ""}
+            </span>
+            <Link href="/match" className="home-hero__cta">
+              Pick teams
+            </Link>
           </div>
         )}
       </div>

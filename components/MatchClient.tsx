@@ -283,7 +283,21 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           <div style={{ fontSize: 14, color: "#92400e" }}>
             ⏳ <strong>{pendingPickers.join(", ")}</strong> {pendingPickers.length === 1 ? "hasn't" : "haven't"} picked {pendingPickers.length === 1 ? "their" : "their"} team yet — scores will show as 0.
           </div>
-          <button onClick={() => setTeamPickerOpen(true)} style={{ padding: "6px 14px", borderRadius: 8, background: "#0f172a", color: "white", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          <button
+            type="button"
+            onClick={() => setTeamPickerOpen(true)}
+            style={{
+              padding: "8px 16px",
+              borderRadius: 12,
+              background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+              color: "white",
+              border: "none",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+              boxShadow: "0 2px 12px rgba(37,99,235,0.3)",
+            }}
+          >
             Pick teams →
           </button>
         </div>
@@ -468,5 +482,25 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   );
 }
 
-const btnPrimary: CSSProperties = { padding: "9px 15px", borderRadius: 10, border: "1px solid #0f172a", background: "#0f172a", color: "white", cursor: "pointer", fontWeight: 600, fontSize: 14 };
-const btnSecondary: CSSProperties = { ...btnPrimary, background: "white", color: "#0f172a" };
+const btnPrimary: CSSProperties = {
+  padding: "10px 18px",
+  borderRadius: 14,
+  border: "none",
+  background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+  color: "white",
+  cursor: "pointer",
+  fontWeight: 600,
+  fontSize: 14,
+  boxShadow: "0 2px 14px rgba(37,99,235,0.32)",
+};
+const btnSecondary: CSSProperties = {
+  padding: "10px 18px",
+  borderRadius: 14,
+  border: "1px solid var(--border-strong)",
+  background: "var(--surface)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontWeight: 600,
+  fontSize: 14,
+  boxShadow: "var(--shadow-xs)",
+};

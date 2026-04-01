@@ -50,15 +50,22 @@ export default function SyncButton({ matchId, lastSyncedAt }: { matchId: number;
     <div style={{ display: "grid", gap: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <button
+          type="button"
           onClick={sync}
           disabled={status === "loading"}
           style={{
-            padding: "8px 16px", borderRadius: 10,
-            border: "1px solid #0f172a",
-            background: status === "loading" ? "#f1f5f9" : "#0f172a",
-            color: status === "loading" ? "#64748b" : "white",
+            padding: "10px 18px",
+            borderRadius: 14,
+            border: "none",
+            background:
+              status === "loading"
+                ? "var(--surface-muted)"
+                : "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+            color: status === "loading" ? "var(--text-muted)" : "white",
             cursor: status === "loading" ? "not-allowed" : "pointer",
-            fontWeight: 600, fontSize: 14,
+            fontWeight: 600,
+            fontSize: 14,
+            boxShadow: status === "loading" ? "none" : "0 2px 14px rgba(37,99,235,0.3)",
           }}
         >
           {status === "loading" ? "Syncing…" : "⟳ Sync Scores"}

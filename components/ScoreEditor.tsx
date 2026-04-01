@@ -107,9 +107,37 @@ export default function ScoreEditor({ player }: { player: FantasyPlayer }) {
 
 const editBtn: CSSProperties = { background: "none", border: "1px solid #e2e8f0", borderRadius: 7, cursor: "pointer", padding: "3px 7px", fontSize: 14, color: "#64748b" };
 const overlay: CSSProperties = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 };
-const modal: CSSProperties = { background: "white", borderRadius: 20, padding: 24, width: "100%", maxWidth: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" };
+const modal: CSSProperties = {
+  background: "var(--surface)",
+  borderRadius: 22,
+  padding: 26,
+  width: "100%",
+  maxWidth: 400,
+  boxShadow: "0 24px 64px rgba(15,23,42,0.18), var(--shadow-md)",
+  border: "1px solid var(--border)",
+};
 const closeBtn: CSSProperties = { background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#94a3b8", padding: "2px 6px", borderRadius: 6 };
 const numInput: CSSProperties = { width: 60, padding: "5px 8px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 14, textAlign: "center" };
 const nudge: CSSProperties = { width: 28, height: 28, borderRadius: 8, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontWeight: 700, fontSize: 15 };
-const saveBtn: CSSProperties = { padding: "9px 18px", borderRadius: 10, border: "1px solid #0f172a", background: "#0f172a", color: "white", cursor: "pointer", fontWeight: 700, fontSize: 14 };
-const cancelBtn: CSSProperties = { ...saveBtn, background: "white", color: "#0f172a" };
+const saveBtn: CSSProperties = {
+  padding: "10px 20px",
+  borderRadius: 14,
+  border: "none",
+  background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+  color: "white",
+  cursor: "pointer",
+  fontWeight: 700,
+  fontSize: 14,
+  boxShadow: "0 2px 12px rgba(37,99,235,0.3)",
+};
+const cancelBtn: CSSProperties = {
+  padding: "10px 20px",
+  borderRadius: 14,
+  border: "1px solid var(--border-strong)",
+  background: "var(--surface)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontWeight: 700,
+  fontSize: 14,
+  boxShadow: "var(--shadow-xs)",
+};

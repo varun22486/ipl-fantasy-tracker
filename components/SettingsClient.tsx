@@ -260,11 +260,37 @@ function CompetitionsPanel() {
   );
 }
 
-const panel: CSSProperties = { background: "white", border: "1px solid #e2e8f0", borderRadius: 20, padding: 24 };
-const sectionTitle: CSSProperties = { margin: "0 0 16px", fontSize: 17, fontWeight: 800, color: "#0f172a" };
+const panel: CSSProperties = {
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
+  borderRadius: 20,
+  padding: 26,
+  boxShadow: "var(--shadow-card)",
+};
+const sectionTitle: CSSProperties = { margin: "0 0 16px", fontSize: 18, fontWeight: 800, color: "var(--text)", letterSpacing: "-0.02em" };
 const labelStyle: CSSProperties = { display: "flex", flexDirection: "column", gap: 6 };
 const labelText: CSSProperties = { fontSize: 13, fontWeight: 600, color: "#475569" };
 const input: CSSProperties = { padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 10, fontSize: 14, width: "100%", boxSizing: "border-box" };
-const btnPrimary: CSSProperties = { padding: "11px 22px", borderRadius: 12, border: "1px solid #0f172a", background: "#0f172a", color: "white", cursor: "pointer", fontWeight: 700, fontSize: 15 };
-const btnSecondary: CSSProperties = { ...btnPrimary, background: "white", color: "#0f172a", fontSize: 13, padding: "7px 14px" };
+const btnPrimary: CSSProperties = {
+  padding: "12px 24px",
+  borderRadius: 14,
+  border: "none",
+  background: "linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%)",
+  color: "white",
+  cursor: "pointer",
+  fontWeight: 700,
+  fontSize: 15,
+  boxShadow: "0 2px 16px rgba(37,99,235,0.33)",
+};
+const btnSecondary: CSSProperties = {
+  padding: "8px 16px",
+  borderRadius: 12,
+  border: "1px solid var(--border-strong)",
+  background: "var(--surface)",
+  color: "var(--text)",
+  cursor: "pointer",
+  fontWeight: 600,
+  fontSize: 13,
+  boxShadow: "var(--shadow-xs)",
+};
 const nudgeBtn: CSSProperties = { width: 30, height: 30, borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer", fontWeight: 700, fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" };
