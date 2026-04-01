@@ -146,9 +146,25 @@ create table if not exists fantasy_players (
   five_w_bonus integer not null default 0,
   mom_bonus integer not null default 0,
   /** CricAPI player UUID — used for reliable ID-based sync matching */
-  provider_player_id text,
-  unique(match_id, name)
+  provider_player_id text
+  -- uniqueness enforced by partial indexes below
 );
+
+-- Allow same player in different competitions, but still unique within one competition.
+-- Default competition (competition_id IS NULL): one row per player per match.
+-- Named competition: one row per player per (match + competition).
+-- These replace the old unique(match_id, name) which blocked cross-competition picks.
+create unique index if not exists fp_default_unique
+  on fantasy_players (match_id, name) where competition_id is null;
+
+create unique index if not exists fp_named_unique
+  on fantasy_players (match_id, name, competition_id) where competition_id is not null;
+
+-- Migration for existing DBs: drop old constraint and create partial indexes
+-- Run in Supabase SQL editor:
+-- ALTER TABLE fantasy_players DROP CONSTRAINT IF EXISTS fantasy_players_match_id_name_key;
+-- CREATE UNIQUE INDEX IF NOT EXISTS fp_default_unique ON fantasy_players (match_id, name) WHERE competition_id IS NULL;
+-- CREATE UNIQUE INDEX IF NOT EXISTS fp_named_unique ON fantasy_players (match_id, name, competition_id) WHERE competition_id IS NOT NULL;
 alter table fantasy_players add column if not exists provider_player_id text;
 
 -- Remove the hardcoded 'Rahul' constraint so any opponent name works

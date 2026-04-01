@@ -74,13 +74,19 @@ export async function POST(req: NextRequest) {
       ? (q: any) => q.eq("match_id", matchId).is("competition_id", null)
       : (q: any) => q.eq("match_id", matchId).eq("competition_id", competitionId);
 
+    // Helper: insert rows and throw on error (previously errors were silently swallowed)
+    async function insertPlayers(rows: object[]) {
+      const { error } = await supabaseAdmin.from("fantasy_players").insert(rows);
+      if (error) throw new Error(`Save failed: ${error.message}`);
+    }
+
     // New: save for any named participant in a multi-player competition
     if (body.playerName) {
       const playerName = String(body.playerName).trim();
       const playerPicks = normalizePlayers(body.players);
       validateSide(`${playerName}'s team`, playerPicks);
       await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", playerName);
-      await supabaseAdmin.from("fantasy_players").insert(
+      await insertPlayers(
         playerPicks.map((p) => ({
           match_id: matchId,
           side: playerName,
@@ -97,7 +103,7 @@ export async function POST(req: NextRequest) {
       const yourPlayers = normalizePlayers(body.yourPlayers);
       validateSide(`${side1}'s team`, yourPlayers);
       await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", side1);
-      await supabaseAdmin.from("fantasy_players").insert(
+      await insertPlayers(
         yourPlayers.map((p) => ({
           match_id: matchId,
           side: side1,
@@ -113,7 +119,7 @@ export async function POST(req: NextRequest) {
       const opponentPlayers = normalizePlayers(body.opponentPlayers);
       validateSide(`${side2}'s team`, opponentPlayers);
       await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", side2);
-      await supabaseAdmin.from("fantasy_players").insert(
+      await insertPlayers(
         opponentPlayers.map((p) => ({
           match_id: matchId,
           side: side2,
