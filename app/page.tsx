@@ -5,6 +5,7 @@ export const revalidate = 0;
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
+import { pickNextUnplayedMatch } from "@/lib/next-match";
 import StatsClient from "@/components/StatsClient";
 import HomeHero from "@/components/HomeHero";
 import MultiStatsClient from "@/components/MultiStatsClient";
@@ -217,12 +218,14 @@ async function getData(competitionId: number | null) {
       }).sort((a, b) => b.totalPoints - a.totalPoints)
     : [];
 
-  // Next unplayed match — first match with no data and a future-or-today date
-  const today = new Date().toISOString().slice(0, 10);
-  const nextMatch = (matches ?? []).find((m: any) => {
-    const hasPlayers = (playersByMatch[m.id] ?? []).length > 0;
-    return !hasPlayers && (m.match_date ?? "") >= today;
-  }) ?? null;
+  const matchIdsWithPlayers = new Set<number>();
+  for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
+    const mid = (p as any).match_id as number;
+    if (typeof mid === "number" && mid >= 1) matchIdsWithPlayers.add(mid);
+  }
+
+  const nextMatchRow = pickNextUnplayedMatch(matches ?? [], matchIdsWithPlayers);
+  const nextMatch = nextMatchRow ?? null;
 
   return {
     yourName,
@@ -234,7 +237,11 @@ async function getData(competitionId: number | null) {
     participantTotals,
     participantMatchStats,
     nextMatch: nextMatch
-      ? { fixture: formatFixture(nextMatch.fixture) || nextMatch.fixture || "TBD", date: nextMatch.match_date ?? "", venue: nextMatch.venue ?? null }
+      ? {
+          fixture: formatFixture(nextMatch.fixture) || nextMatch.fixture || "TBD",
+          date: String(nextMatch.match_date ?? ""),
+          venue: nextMatch.venue ?? null,
+        }
       : null,
     summary: {
       yourWins,
