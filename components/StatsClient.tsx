@@ -106,7 +106,7 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
   const yourTrend = half > 0 ? Math.round(((played.slice(-half).reduce((s, m) => s + m.yourPoints, 0) - played.slice(0, half).reduce((s, m) => s + m.yourPoints, 0)) / half) * 10) / 10 : 0;
   const oppTrend  = half > 0 ? Math.round(((played.slice(-half).reduce((s, m) => s + m.oppPoints, 0)  - played.slice(0, half).reduce((s, m) => s + m.oppPoints, 0))  / half) * 10) / 10 : 0;
 
-  return { streak, streakSide, yourAvg: Math.round(yourAvg * 10) / 10, oppAvg: Math.round(oppAvg * 10) / 10, biggestWin, closest, topPerf, capPctYou, capPctOpp, brkd, yourTrend, oppTrend };
+  return { streak, streakSide, yourAvg: Math.round(yourAvg), oppAvg: Math.round(oppAvg), biggestWin, closest, topPerf, capPctYou, capPctOpp, brkd, yourTrend, oppTrend };
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────

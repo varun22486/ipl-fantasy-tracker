@@ -85,11 +85,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="app-sidebar__brand">
           <p className="app-sidebar__logo">Fantasy</p>
           <h1 className="app-sidebar__title">IPL Tracker</h1>
-          <div style={{ marginTop: 12 }}>
-            <Suspense fallback={null}>
-              <CompetitionSwitcher />
-            </Suspense>
-          </div>
+          <Suspense fallback={null}>
+            <CompetitionSwitcher variant="sidebar" />
+          </Suspense>
         </div>
         <Suspense fallback={null}><NavLinks variant="sidebar" /></Suspense>
         <div className="app-sidebar__footer">Private league · data in your Supabase</div>
@@ -97,15 +95,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* ── Tablet top bar (640 – 899 px) ─────────────────────────────────── */}
       <header className="mobile-header" aria-label="Main navigation">
-        <span className="mobile-header__brand">🏏 IPL Tracker</span>
+        <div className="mobile-header__row">
+          <span className="mobile-header__brand">🏏 IPL Tracker</span>
           <Suspense fallback={null}>
-            <CompetitionSwitcher />
+            <NavLinks variant="header" />
           </Suspense>
-        <Suspense fallback={null}><NavLinks variant="header" /></Suspense>
+        </div>
+        <Suspense fallback={null}>
+          <CompetitionSwitcher variant="inline" />
+        </Suspense>
       </header>
 
       {/* ── Main content ──────────────────────────────────────────────────── */}
       <div className="app-content">{children}</div>
+
+      {/* ── Mobile: competition pills above bottom tabs (< 640 px) ─────── */}
+      <div className="mobile-comp-bar" aria-label="Competitions">
+        <Suspense fallback={null}>
+          <CompetitionSwitcher variant="inline" />
+        </Suspense>
+      </div>
 
       {/* ── Mobile bottom tab bar (< 640 px) ──────────────────────────────── */}
       <nav className="mobile-nav" aria-label="Main navigation">

@@ -160,8 +160,20 @@ async function getData(competitionId: number | null) {
     ? (matches ?? []).map((m: any) => {
         const mp = playersByMatch[m.id] ?? [];
         const pts: Record<string, number> = {};
+        const runs: Record<string, number> = {};
+        const wickets: Record<string, number> = {};
+        const catches: Record<string, number> = {};
+        const captainPts: Record<string, number> = {};
+        const captainName: Record<string, string> = {};
         for (const name of compPlayers) {
-          pts[name] = mp.filter((p: any) => p.side === name).reduce((s: number, p: any) => s + playerPoints(p, rules).final, 0);
+          const sidePlayers = mp.filter((p: any) => p.side === name);
+          pts[name] = sidePlayers.reduce((s: number, p: any) => s + playerPoints(p, rules).final, 0);
+          runs[name] = sidePlayers.reduce((s: number, p: any) => s + (p.runs ?? 0), 0);
+          wickets[name] = sidePlayers.reduce((s: number, p: any) => s + (p.wickets ?? 0), 0);
+          catches[name] = sidePlayers.reduce((s: number, p: any) => s + (p.catches ?? 0), 0);
+          const cap = sidePlayers.find((p: any) => p.captain);
+          captainPts[name] = cap ? playerPoints(cap, rules).final : 0;
+          captainName[name] = cap?.name ?? "—";
         }
         const hasData = Object.values(pts).some(v => v > 0);
         const maxPts = Math.max(...Object.values(pts));
@@ -172,6 +184,11 @@ async function getData(competitionId: number | null) {
           fixture: formatFixture(m.fixture) || m.fixture || "TBD",
           date: (m.match_date ?? "") as string,
           pts,
+          runs,
+          wickets,
+          catches,
+          captainPts,
+          captainName,
           hasData,
           isCurrent: Boolean(m.is_current),
           winner,
@@ -238,6 +255,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
           participants={data.participantTotals}
           matchStats={data.participantMatchStats}
           compPlayers={data.compPlayers}
+          competitionId={competitionId}
         />
       ) : (
         <StatsClient

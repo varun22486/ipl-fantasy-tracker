@@ -9,6 +9,7 @@
   --sidebar-bg: linear-gradient(165deg, #0f172a 0%, #1e293b 45%, #0f172a 100%);
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --nav-h: 64px; /* bottom tab bar height on mobile */
+  --comp-bar-h: 52px; /* competition pill strip (collapsed) — extra scroll room in padding */
   --font-sans: var(--font-inter), system-ui, -apple-system, sans-serif;
 }
 
@@ -51,6 +52,29 @@ body { margin: 0; font-family: var(--font-sans); background: var(--bg); color: v
 .app-sidebar__link-label { font-weight: 600; font-size: 14px; }
 .app-sidebar__link-desc { font-size: 12px; opacity: .75; }
 .app-sidebar__footer { padding: 16px 22px 0; border-top: 1px solid var(--sidebar-border); font-size: 11px; color: #475569; line-height: 1.5; }
+
+/* Competition switcher (sidebar buttons + inline pills) */
+.comp-switcher__heading {
+  margin: 16px 0 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+.comp-switcher--sidebar { margin-top: 4px; }
+.comp-switcher__scroll {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+.comp-switcher__scroll::-webkit-scrollbar { height: 4px; }
+.comp-switcher__scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }
 
 /* ── Content area ────────────────────────────────────────────────────────── */
 .app-content { flex: 1; min-width: 0; }
@@ -97,19 +121,32 @@ body { margin: 0; font-family: var(--font-sans); background: var(--bg); color: v
 .mobile-nav__item--active { color: #93c5fd; }
 .mobile-nav__item-icon { font-size: 20px; line-height: 1; }
 
+/* Competition bar above bottom tabs (phone only) */
+.mobile-comp-bar {
+  display: none;
+}
+
 /* ── Top compact header (tablet 640–899 px) ─────────────────────────────── */
 .mobile-header {
   display: none;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
   background: var(--sidebar-bg);
   border-bottom: 1px solid var(--sidebar-border);
-  padding: 12px 16px;
-  align-items: center;
-  gap: 12px;
+  padding: 12px 16px 14px;
   position: sticky;
   top: 0;
   z-index: 50;
 }
-.mobile-header__brand { font-weight: 800; font-size: 15px; color: #f8fafc; flex: 1; }
+.mobile-header__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.mobile-header__brand { font-weight: 800; font-size: 15px; color: #f8fafc; flex: 1; min-width: 0; }
 .mobile-header__nav { display: flex; gap: 4px; }
 .mobile-header__link {
   display: flex; align-items: center; gap: 6px;
@@ -137,8 +174,23 @@ body { margin: 0; font-family: var(--font-sans); background: var(--bg); color: v
 @media (max-width: 639px) {
   .mobile-header { display: none; }
   .mobile-nav { display: flex; }
-  /* push content above the tab bar */
-  .app-content { padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); }
+  .mobile-comp-bar {
+    display: block;
+    position: fixed;
+    bottom: calc(var(--nav-h) + env(safe-area-inset-bottom));
+    left: 0;
+    right: 0;
+    z-index: 99;
+    max-height: min(42vh, 280px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: var(--sidebar-bg);
+    border-top: 1px solid var(--sidebar-border);
+    padding: 10px 12px;
+    box-shadow: 0 -6px 24px rgba(0,0,0,.2);
+  }
+  /* room for tab bar + competition strip */
+  .app-content { padding-bottom: calc(var(--nav-h) + var(--comp-bar-h) + env(safe-area-inset-bottom)); }
   .page-main { padding: 12px 12px 24px; }
   /* hero */
   .home-hero { border-radius: 14px; margin-bottom: 20px; }
