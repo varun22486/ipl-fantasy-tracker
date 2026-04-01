@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Suspense } from "react";
 import CompetitionSwitcher from "@/components/CompetitionSwitcher";
 
 const NAV = [
@@ -28,7 +29,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <p className="app-sidebar__logo">Fantasy</p>
           <h1 className="app-sidebar__title">IPL Tracker</h1>
           <div style={{ marginTop: 12 }}>
-            <CompetitionSwitcher />
+            <Suspense fallback={null}>
+              <CompetitionSwitcher />
+            </Suspense>
           </div>
         </div>
         <nav className="app-sidebar__nav">
@@ -50,7 +53,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Tablet top bar (640 – 899 px) ─────────────────────────────────── */}
       <header className="mobile-header" aria-label="Main navigation">
         <span className="mobile-header__brand">🏏 IPL Tracker</span>
-          <CompetitionSwitcher />
+          <Suspense fallback={null}>
+            <CompetitionSwitcher />
+          </Suspense>
         <nav className="mobile-header__nav">
           {NAV.map(({ href, label, icon }) => {
             const active = isActive(pathname, href);
