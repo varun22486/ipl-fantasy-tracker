@@ -36,7 +36,7 @@ export function classifyApiMsg(raw: string, context?: string): ApiMsg {
     return {
       type: "error",
       title: "Daily API quota exhausted",
-      detail: "All 7 keys have reached the 100-hit daily limit. Quota resets at midnight (CricAPI time). Try again tomorrow or add more keys in your .env.",
+      detail: "All 7 keys have reached the 100-hit daily limit. Quota resets at the start of the next UTC day (times in the app are shown in Eastern Time). Try again tomorrow or add more keys in your .env.",
       action: "View key usage",
       actionHref: "/api/key-stats",
     };

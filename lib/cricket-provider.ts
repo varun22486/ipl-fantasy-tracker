@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { formatUiDateTimeLong } from "@/lib/ui-time";
 
 const DEFAULT_BASE_URL = "https://api.cricapi.com";
 
@@ -12,16 +13,75 @@ function getAdminClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-async function recordKeyHit(alias: string) {
-  const db = getAdminClient();
-  if (!db) return;
-  const today = new Date().toISOString().slice(0, 10);
-  await db.rpc("increment_key_hit", { p_alias: alias, p_date: today });
+/** Cricket Data / CricAPI `info` object — source of truth for daily usage. */
+type CricApiInfo = { hitsToday?: number; hitsUsed?: number; hitsLimit?: number; credits?: number };
+
+function extractCricApiInfo(payload: any): CricApiInfo | null {
+  const info = payload?.info;
+  if (!info || typeof info !== "object") return null;
+  return {
+    hitsToday: typeof info.hitsToday === "number" ? info.hitsToday : undefined,
+    hitsUsed: typeof info.hitsUsed === "number" ? info.hitsUsed : undefined,
+    hitsLimit: typeof info.hitsLimit === "number" ? info.hitsLimit : undefined,
+    credits: typeof info.credits === "number" ? info.credits : undefined,
+  };
 }
 
-/** Non-blocking — caller must not await this. */
-function trackKeyHit(key: string) {
-  void recordKeyHit(keyAlias(key)).catch(() => { /* ignore tracking failures */ });
+function defaultHitsLimit(info: CricApiInfo | null): number {
+  const n = info?.hitsLimit;
+  return typeof n === "number" && n > 0 ? n : 100;
+}
+
+/**
+ * Merge API `info` + block flags into api_key_stats (no increment_key_hit — hits come from provider).
+ */
+async function persistKeyStatsFromCricapi(
+  key: string,
+  payload: any,
+  opts: { rateLimitBlock?: boolean }
+): Promise<void> {
+  const db = getAdminClient();
+  if (!db) return;
+  const alias = keyAlias(key);
+  const today = new Date().toISOString().slice(0, 10);
+  const info = extractCricApiInfo(payload);
+  const limit = defaultHitsLimit(info);
+  const hitsFromApi = info?.hitsToday;
+
+  const { data: existing } = await db
+    .from("api_key_stats")
+    .select("hits, rate_limited_until, quota_exhausted_at")
+    .eq("key_alias", alias)
+    .eq("stat_date", today)
+    .maybeSingle();
+
+  const hits =
+    typeof hitsFromApi === "number"
+      ? hitsFromApi
+      : (existing?.hits as number | undefined) ?? 0;
+
+  let rateLimitedUntil: string | null =
+    (existing?.rate_limited_until as string | null) ?? null;
+  if (opts.rateLimitBlock) {
+    rateLimitedUntil = new Date(Date.now() + 16 * 60 * 1000).toISOString();
+  }
+
+  let quotaExhaustedAt: string | null = (existing?.quota_exhausted_at as string | null) ?? null;
+  if (typeof hitsFromApi === "number") {
+    if (hitsFromApi >= limit) quotaExhaustedAt = today;
+    else quotaExhaustedAt = null;
+  }
+
+  const row = {
+    key_alias: alias,
+    stat_date: today,
+    hits,
+    last_used_at: new Date().toISOString(),
+    rate_limited_until: rateLimitedUntil,
+    quota_exhausted_at: quotaExhaustedAt,
+  };
+
+  await db.from("api_key_stats").upsert(row, { onConflict: "key_alias,stat_date" });
 }
 
 type KeyBlockType = "rate_limit" | "quota";
@@ -46,27 +106,6 @@ function classifyBlock(reason: string): KeyBlockType | null {
   )
     return "quota";
   return null;
-}
-
-/** Record a block on a key — fire-and-forget, always uses async/await + try-catch. */
-function recordKeyBlock(key: string, type: KeyBlockType) {
-  const alias = keyAlias(key);
-  void (async () => {
-    try {
-      const db = getAdminClient();
-      if (!db) return;
-      if (type === "rate_limit") {
-        const until = new Date(Date.now() + 16 * 60 * 1000).toISOString();
-        await db.rpc("mark_key_rate_limited", { p_alias: alias, p_until: until });
-      } else {
-        const today = new Date().toISOString().slice(0, 10);
-        await db.rpc("mark_key_quota_exhausted", { p_alias: alias, p_date: today });
-      }
-    } catch {
-      // DB functions may not exist yet (migration not run) — silently ignore.
-      // The in-memory skip still works within the same request cycle via fetchJson.
-    }
-  })();
 }
 
 type MaybeRecord = Record<string, any>;
@@ -149,11 +188,7 @@ function keyAlias(key: string): string {
   return key.slice(0, 8);
 }
 
-/**
- * Each fetchJson() advances this so back-to-back calls in one flow (e.g. multiple scorecard
- * URL fallbacks) start with a different key. Hit counts from DB can lag one request behind
- * because trackKeyHit is async; rotation avoids hammering the same key.
- */
+/** Rotate starting key each fetchJson so sequential fallbacks spread across keys. */
 let fetchKeyRotationCursor = 0;
 
 function isQuotaError(payload: any): boolean {
@@ -213,12 +248,89 @@ type KeyStatus = {
 
 /** Past unblock time, wait this long before using the key again (staggered retry). */
 const RATE_LIMIT_BUFFER_MS = 90_000;
-const KEY_LIMIT_PER_DAY = 100;
+
+function emptyKeyStatus(): KeyStatus {
+  return { hits: 0, rateLimitedUntil: null, quotaExhaustedAt: null, lastUsedAt: null };
+}
+
+function statusForKey(k: string, local: Record<string, KeyStatus>): KeyStatus {
+  return local[keyAlias(k)] ?? emptyKeyStatus();
+}
+
+/** Skip key if Cricket Data says daily cap hit (persisted) or 15‑min block (persisted) is still active. */
+function isKeyBlockedForPrefetch(k: string, local: Record<string, KeyStatus>, today: string, nowMs: number): boolean {
+  const s = statusForKey(k, local);
+  if (s.quotaExhaustedAt === today) return true;
+  if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() + RATE_LIMIT_BUFFER_MS > nowMs) return true;
+  return false;
+}
+
+function syncLocalFromPersist(
+  key: string,
+  payload: any,
+  rateLimitBlock: boolean,
+  today: string,
+  local: Record<string, KeyStatus>
+) {
+  const alias = keyAlias(key);
+  const info = extractCricApiInfo(payload);
+  const limit = defaultHitsLimit(info);
+  const prev = local[alias] ?? emptyKeyStatus();
+  const hits = typeof info?.hitsToday === "number" ? info.hitsToday : prev.hits;
+  let rateUntil = prev.rateLimitedUntil;
+  if (rateLimitBlock) rateUntil = new Date(Date.now() + 16 * 60 * 1000);
+  let quotaAt = prev.quotaExhaustedAt;
+  if (typeof info?.hitsToday === "number") {
+    quotaAt = info.hitsToday >= limit ? today : null;
+  }
+  local[alias] = {
+    hits,
+    rateLimitedUntil: rateUntil,
+    quotaExhaustedAt: quotaAt,
+    lastUsedAt: new Date(),
+  };
+}
+
+function nextUtcMidnight(): Date {
+  const d = new Date();
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0, 0));
+}
+
+function formatRetryTime(ms: number): string {
+  return formatUiDateTimeLong(ms);
+}
+
+function formatRetryHints(keys: string[], local: Record<string, KeyStatus>, today: string, nowMs: number): string {
+  let earliestRateResume: number | null = null;
+  let quotaCount = 0;
+  for (const k of keys) {
+    if (!k) continue;
+    const s = statusForKey(k, local);
+    if (s.quotaExhaustedAt === today) quotaCount++;
+    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() + RATE_LIMIT_BUFFER_MS > nowMs) {
+      const resume = s.rateLimitedUntil.getTime() + RATE_LIMIT_BUFFER_MS;
+      if (earliestRateResume == null || resume < earliestRateResume) earliestRateResume = resume;
+    }
+  }
+  const bits: string[] = [];
+  if (earliestRateResume != null) {
+    bits.push(`Earliest rate-limit retry: ${formatRetryTime(earliestRateResume)}`);
+  }
+  if (quotaCount > 0) {
+    const qReset = nextUtcMidnight().getTime();
+    bits.push(`Daily quota exhausted on ${quotaCount} key(s) — try again after ${formatRetryTime(qReset)} (next UTC day; shown in Eastern Time)`);
+  }
+  if (bits.length === 0) return "No timing hint (keys may be misconfigured).";
+  return bits.join(" · ");
+}
+
+function buildNoKeysAvailableMessage(keys: string[], local: Record<string, KeyStatus>, today: string, nowMs: number): string {
+  return `Cricket API error: all ${keys.length} key(s) unavailable. ${formatRetryHints(keys, local, today, nowMs)}`;
+}
 
 /**
- * Tries API keys in a fair order: lowest hit count first, then longest idle (last_used_at),
- * then round-robin rotation so sequential calls in one request don't all pick the same key.
- * Keys that are rate-limited (until DB time + buffer) or at daily hit cap are not called at all.
+ * Tries API keys using Cricket Data `info` as source of truth for hits/limit.
+ * DB stores last `info` + 15‑min / daily flags so we do not call blocked keys early.
  */
 async function fetchJson(path: string) {
   const baseUrl = envBaseUrl();
@@ -230,8 +342,6 @@ async function fetchJson(path: string) {
     throw new Error("Cricket API error: no CRICKET_API_KEY / CRICKET_API_KEY_2… configured");
   }
 
-  // Load hit counts + block state for all keys in one query.
-  // Gracefully falls back to hits-only if the migration hasn't been run yet.
   const keyStatusMap = await (async (): Promise<Record<string, KeyStatus>> => {
     const db = getAdminClient();
     if (!db) return {};
@@ -252,67 +362,41 @@ async function fetchJson(path: string) {
         }
         return map;
       }
-      // Migration not run yet — fall back to hits-only
       const { data: simple } = await db
         .from("api_key_stats")
-        .select("key_alias, hits")
+        .select("key_alias, hits, rate_limited_until, quota_exhausted_at, last_used_at")
         .eq("stat_date", today);
       const map: Record<string, KeyStatus> = {};
       for (const row of simple ?? []) {
         map[row.key_alias as string] = {
           hits: (row.hits as number) ?? 0,
-          rateLimitedUntil: null,
-          quotaExhaustedAt: null,
-          lastUsedAt: null,
+          rateLimitedUntil: row.rate_limited_until ? new Date(row.rate_limited_until as string) : null,
+          quotaExhaustedAt: (row.quota_exhausted_at as string) ?? null,
+          lastUsedAt: row.last_used_at ? new Date(row.last_used_at as string) : null,
         };
       }
       return map;
     } catch { return {}; }
   })();
 
-  const statusFor = (k: string): KeyStatus =>
-    keyStatusMap[keyAlias(k)] ?? { hits: 0, rateLimitedUntil: null, quotaExhaustedAt: null, lastUsedAt: null };
+  const local: Record<string, KeyStatus> = { ...keyStatusMap };
 
-  const isBlocked = (k: string): boolean => {
-    const s = statusFor(k);
-    if (s.hits >= KEY_LIMIT_PER_DAY) return true;
-    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() + RATE_LIMIT_BUFFER_MS > nowMs) return true;
-    return false;
-  };
-
-  const blockTypeFor = (k: string): "quota" | "rate_limit" | null => {
-    const s = statusFor(k);
-    if (s.hits >= KEY_LIMIT_PER_DAY) return "quota";
-    if (s.rateLimitedUntil && s.rateLimitedUntil.getTime() + RATE_LIMIT_BUFFER_MS > nowMs) return "rate_limit";
-    return null;
-  };
-
-  const unblocked = keys.filter((k) => k && !isBlocked(k));
+  const unblocked = keys.filter((k) => k && !isKeyBlockedForPrefetch(k, local, today, nowMs));
 
   let lastError = "";
   let skippedQuota = 0;
   let skippedRateLimit = 0;
 
   if (unblocked.length === 0) {
-    for (const k of keys) {
-      const bt = blockTypeFor(k);
-      if (bt === "quota") skippedQuota++;
-      else if (bt === "rate_limit") skippedRateLimit++;
-    }
-    const parts: string[] = [];
-    if (skippedQuota > 0) parts.push(`${skippedQuota} at daily quota`);
-    if (skippedRateLimit > 0) parts.push(`${skippedRateLimit} rate-limited (wait until unblock + ~90s)`);
-    throw new Error(
-      `Cricket API error: all ${keys.length} key(s) unavailable${parts.length ? ` — ${parts.join("; ")}` : ""}`
-    );
+    throw new Error(buildNoKeysAvailableMessage(keys, local, today, nowMs));
   }
 
   unblocked.sort((a, b) => {
-    const ha = statusFor(a).hits;
-    const hb = statusFor(b).hits;
+    const ha = statusForKey(a, local).hits;
+    const hb = statusForKey(b, local).hits;
     if (ha !== hb) return ha - hb;
-    const ta = statusFor(a).lastUsedAt?.getTime() ?? 0;
-    const tb = statusFor(b).lastUsedAt?.getTime() ?? 0;
+    const ta = statusForKey(a, local).lastUsedAt?.getTime() ?? 0;
+    const tb = statusForKey(b, local).lastUsedAt?.getTime() ?? 0;
     return ta - tb;
   });
 
@@ -321,6 +405,8 @@ async function fetchJson(path: string) {
   const ordered = [...unblocked.slice(rot), ...unblocked.slice(0, rot)];
 
   for (const key of ordered) {
+    if (isKeyBlockedForPrefetch(key, local, today, Date.now())) continue;
+
     const requestPath = isCricapiBase(baseUrl) ? injectKey(path, key) : path;
     const headers = buildHeaders(key);
     const response = await fetch(`${baseUrl}${requestPath}`, { headers, cache: "no-store" });
@@ -330,15 +416,13 @@ async function fetchJson(path: string) {
     }
     const payload = await response.json();
 
-    // Always count the hit regardless of outcome
-    trackKeyHit(key);
-
     if (isQuotaError(payload)) {
       const reason = String(payload.reason || payload.message || "");
       let blockType = classifyBlock(reason);
       if (blockType == null) {
         blockType = /hit|credit|daily|quota|exceeded/i.test(reason) ? "quota" : "rate_limit";
       }
+      const rateLimitBlock = blockType === "rate_limit";
       if (blockType === "quota") {
         lastError = `[QUOTA_EXHAUSTED] ${reason || "daily quota exceeded"}`;
         skippedQuota++;
@@ -346,9 +430,13 @@ async function fetchJson(path: string) {
         lastError = `[RATE_LIMITED] ${reason || "rate-limit exceeded"}`;
         skippedRateLimit++;
       }
-      recordKeyBlock(key, blockType);
-      continue; // try next key — do not reuse this key until block expires (DB + buffer)
+      await persistKeyStatsFromCricapi(key, payload, { rateLimitBlock }).catch(() => {});
+      syncLocalFromPersist(key, payload, rateLimitBlock, today, local);
+      continue;
     }
+
+    await persistKeyStatsFromCricapi(key, payload, {}).catch(() => {});
+    syncLocalFromPersist(key, payload, false, today, local);
     return payload;
   }
 
@@ -356,8 +444,10 @@ async function fetchJson(path: string) {
   const summaryParts: string[] = [];
   if (skippedQuota > 0) summaryParts.push(`${skippedQuota} quota-exhausted`);
   if (skippedRateLimit > 0) summaryParts.push(`${skippedRateLimit} rate-limited`);
-  const summary = summaryParts.length ? ` [${total} keys skipped: ${summaryParts.join(", ")}]` : "";
-  throw new Error(`Cricket API error: ${lastError || "all keys failed"}${summary}`);
+  const summary = summaryParts.length ? ` [${total} keys tried: ${summaryParts.join(", ")}]` : "";
+  const now = Date.now();
+  const retryHint = formatRetryHints(keys, local, today, now);
+  throw new Error(`Cricket API error: ${lastError || "all keys failed"}${summary}. ${retryHint}`);
 }
 
 function todayIso() {

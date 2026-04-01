@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, type CSSProperties } from "react";
 import { formatFixture } from "@/lib/format";
+import { formatUiCalendarDate, formatUiDateTime } from "@/lib/ui-time";
 import PlayerTable from "@/components/PlayerTable";
 import ManualScorePanel from "@/components/ManualScorePanel";
 import SelectClient from "@/components/SelectClient";
@@ -13,19 +14,16 @@ const QUOTA_LIMIT = 700; // 100/day × 7 API keys
 const QUOTA_WARN_AT = 560; // warn at 80% of 700
 const QUOTA_KEY = "cricapi_quota";
 
-function getIstDateStr() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-}
 function loadQuota(): number {
   try {
     const raw = localStorage.getItem(QUOTA_KEY);
     if (!raw) return 0;
     const { count, date } = JSON.parse(raw) as { count: number; date: string };
-    return date === getIstDateStr() ? (count ?? 0) : 0;
+    return date === formatUiCalendarDate() ? (count ?? 0) : 0;
   } catch { return 0; }
 }
 function saveQuota(count: number) {
-  try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: getIstDateStr() })); } catch {}
+  try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: formatUiCalendarDate() })); } catch {}
 }
 
 type MatchChoice = { externalMatchId?: string; fixture: string; status: string; venue?: string | null; match_date: string };
@@ -74,7 +72,11 @@ function DebugPanel({ info }: { info: DebugData | null }) {
           {typeof d?.updatedRows === "number" && <div><strong>Updated:</strong> {d.updatedRows}/{d.selectedCount ?? 0} players</div>}
           {d?.unmatched?.length ? <div><strong>Unmatched:</strong> {d.unmatched.join(", ")}</div> : null}
           {d?.providerPlayersSample?.length ? <div><strong>Provider names:</strong> {d.providerPlayersSample.join(", ")}</div> : null}
-          {(d?.syncedAt || d?.lastSyncedAt) && <div><strong>Synced at:</strong> {d.syncedAt || d.lastSyncedAt}</div>}
+          {(d?.syncedAt || d?.lastSyncedAt) && (
+            <div>
+              <strong>Synced at:</strong> {formatUiDateTime(String(d.syncedAt || d.lastSyncedAt))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -208,7 +210,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
 
   const fixtureName = formatFixture(currentMatch?.fixture) || currentMatch?.fixture || "No match linked";
   const lastSynced = currentMatch?.last_synced_at
-    ? new Date(currentMatch.last_synced_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+    ? formatUiDateTime(currentMatch.last_synced_at)
     : "Not yet";
 
   // ── Inline team picker (no lineup yet, or "Change Team" requested) ─────────
@@ -364,7 +366,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       {linkChoices && linkChoices.length > 1 && (
         <div style={{ border: "1px solid #bfdbfe", borderRadius: 16, background: "#f0f9ff", padding: 18 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Choose an IPL match to import</div>
-          {linkDateHint && <div style={{ color: "#64748b", fontSize: 13, marginBottom: 10 }}>Showing ±1 day (IST) · {linkDateHint}</div>}
+          {linkDateHint && <div style={{ color: "#64748b", fontSize: 13, marginBottom: 10 }}>Showing ±1 day (Eastern) · {linkDateHint}</div>}
           <div style={{ display: "grid", gap: 8 }}>
             {linkChoices.map((c) => (
               <label key={c.externalMatchId || c.fixture} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: 11, borderRadius: 10, border: pickedLinkId === c.externalMatchId ? "2px solid #2563eb" : "1px solid #e2e8f0", background: pickedLinkId === c.externalMatchId ? "#eff6ff" : "white", cursor: "pointer" }}>

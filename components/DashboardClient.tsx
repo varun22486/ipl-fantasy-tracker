@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
 import { formatFixture } from "@/lib/format";
+import { formatUiCalendarDate, formatUiDateTime } from "@/lib/ui-time";
 import ScoreCard from "@/components/ScoreCard";
 import PlayerTable from "@/components/PlayerTable";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
@@ -11,16 +12,12 @@ const QUOTA_LIMIT = 700; // 100/day × 7 API keys        // 100/day × 3 API key
 const QUOTA_WARN_AT = 560; // warn at 80% of 700
 const QUOTA_KEY = "cricapi_quota";
 
-function getIstDateStr() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-}
-
 function loadQuota(): number {
   try {
     const raw = localStorage.getItem(QUOTA_KEY);
     if (!raw) return 0;
     const { count, date } = JSON.parse(raw) as { count: number; date: string };
-    return date === getIstDateStr() ? (count ?? 0) : 0;
+    return date === formatUiCalendarDate() ? (count ?? 0) : 0;
   } catch {
     return 0;
   }
@@ -28,7 +25,7 @@ function loadQuota(): number {
 
 function saveQuota(count: number) {
   try {
-    localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: getIstDateStr() }));
+    localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: formatUiCalendarDate() }));
   } catch {}
 }
 
@@ -141,7 +138,7 @@ function DebugPanel({ info }: { info: DebugData | null }) {
           {details?.status ? <div style={debugLineStyle}><strong>Provider status:</strong> {details.status}</div> : null}
           {details?.syncedAt || details?.lastSyncedAt ? (
             <div style={debugLineStyle}>
-              <strong>Sync time:</strong> {details.syncedAt || details.lastSyncedAt}
+              <strong>Sync time:</strong> {formatUiDateTime(String(details.syncedAt || details.lastSyncedAt))}
             </div>
           ) : null}
           {details?.unmatched?.length ? (
@@ -189,7 +186,7 @@ function QuotaBar({
         <span style={{ fontSize: 13, fontWeight: 600, color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#475569" }}>
           API credits today: {apiUsed} / {QUOTA_LIMIT}
         </span>
-        <span style={{ fontSize: 12, color: "#94a3b8" }}>resets midnight IST</span>
+        <span style={{ fontSize: 12, color: "#94a3b8" }}>resets midnight Eastern (per key / provider day)</span>
       </div>
       <div style={{ height: 6, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
         <div style={{
@@ -207,7 +204,7 @@ function QuotaBar({
       )}
       {isAtLimit && (
         <div style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>
-          Quota reached. Resets at midnight India time.
+          Quota reached. Resets at next provider day (times shown in Eastern).
         </div>
       )}
       {keyStats.length > 0 && (
@@ -306,7 +303,7 @@ export default function DashboardClient({
 
   function guardedRun(cost: number, label: string, fn: () => Promise<void>) {
     if (isAtLimit) {
-      setMessage(`API quota reached (${QUOTA_LIMIT}/day). Resets at midnight India time.`);
+      setMessage(`API quota reached (${QUOTA_LIMIT}/day). Resets at next provider day (Eastern calendar for local display).`);
       return;
     }
     if (isNearLimit) {
@@ -362,7 +359,7 @@ export default function DashboardClient({
         const sample: string[] = Array.isArray(json.nonIplSample) ? json.nonIplSample : [];
         let hint = "";
         if (typeof json.totalRaw !== "number" || json.totalRaw === 0) {
-          hint = "API returned 0 matches. Both keys may be rate-limited (wait 15 min) or today's quota is used up (resets midnight UTC).";
+          hint = "API returned 0 matches. Keys may be rate-limited (wait ~15 min) or daily quota is used up (resets at next UTC day; UI times are Eastern).";
         } else {
           hint = `${json.totalRaw} matches in feed but none are IPL yet. Current feed has: ${sample.length > 0 ? sample.join(", ") : "non-IPL tournaments"}. IPL 2026 may not have started yet.`;
         }
@@ -505,7 +502,7 @@ export default function DashboardClient({
   if (view === "scores") {
     const fixtureName = formatFixture(currentMatch?.fixture) || currentMatch?.fixture || "No match linked";
     const lastSynced = currentMatch?.last_synced_at
-      ? new Date(currentMatch.last_synced_at).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+      ? formatUiDateTime(currentMatch.last_synced_at)
       : "Not yet";
 
     return (
@@ -573,7 +570,7 @@ export default function DashboardClient({
           <div style={pickerPanelStyle}>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Choose an IPL match to import</div>
             {linkDateHint ? (
-              <div style={{ color: "#64748b", fontSize: 13, marginBottom: 12 }}>Showing yesterday, today &amp; tomorrow · {linkDateHint}</div>
+              <div style={{ color: "#64748b", fontSize: 13, marginBottom: 12 }}>Showing yesterday, today &amp; tomorrow (Eastern) · {linkDateHint}</div>
             ) : null}
             <div style={{ display: "grid", gap: 10 }}>
               {linkChoices.map((c: MatchChoice) => (

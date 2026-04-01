@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { formatUiDateTime } from "@/lib/ui-time";
 
 function isManualEditHint(msg: string) {
   return /✏️|manual|paid|plan|subscri|not available/i.test(msg);
@@ -36,9 +37,7 @@ export default function SyncButton({ matchId, lastSyncedAt }: { matchId: number;
     }
   }
 
-  const lastSynced = lastSyncedAt
-    ? new Date(lastSyncedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
-    : null;
+  const lastSynced = lastSyncedAt ? formatUiDateTime(lastSyncedAt) : null;
 
   const msgColor =
     status === "error" ? "#dc2626" :

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-const KEY_LIMIT = 100; // CricAPI free plan limit per key per day
+const KEY_LIMIT = 100; // Default daily cap; `hits` in DB is synced from Cricket Data `info.hitsToday`
+
+/** Same buffer as lib/cricket-provider: do not treat key as usable until this long after stored unblock. */
+const RATE_LIMIT_BUFFER_MS = 90_000;
 
 export async function GET() {
   try {
@@ -28,19 +31,16 @@ export async function GET() {
     const stats = (data ?? []).map((row) => {
       const hits = (row.hits as number) ?? 0;
       const rateLimitedUntil = row.rate_limited_until ? new Date(row.rate_limited_until as string) : null;
-      const rateLimited = !!(rateLimitedUntil && rateLimitedUntil.getTime() > nowMs);
-      // Only trust quota_exhausted_at when hits also confirm it (DB flag can go stale)
-      const dbQuotaFlag = (row.quota_exhausted_at as string | null) === today;
+      const rateLimited = !!(rateLimitedUntil && rateLimitedUntil.getTime() + RATE_LIMIT_BUFFER_MS > nowMs);
+      const quotaFlag = (row.quota_exhausted_at as string | null) === today;
       const hitQuotaExhausted = hits >= KEY_LIMIT;
-      const quotaExhausted = hitQuotaExhausted || (dbQuotaFlag && !rateLimited);
+      const quotaExhausted = quotaFlag || hitQuotaExhausted;
       const blocked = quotaExhausted || rateLimited;
-      // If DB says quota but hits are well under the cap, the flag is stale — show as rate-limited
-      const blockReason = blocked
-        ? (quotaExhausted ? "quota_exhausted" : "rate_limited")
-        : null;
-      const resumesInMin = rateLimited && rateLimitedUntil
-        ? Math.ceil((rateLimitedUntil.getTime() - nowMs) / 60000)
-        : null;
+      const blockReason = blocked ? (quotaExhausted ? "quota_exhausted" : "rate_limited") : null;
+      const resumeAtMs =
+        rateLimited && rateLimitedUntil ? rateLimitedUntil.getTime() + RATE_LIMIT_BUFFER_MS : null;
+      const resumesInMin =
+        resumeAtMs != null ? Math.max(0, Math.ceil((resumeAtMs - nowMs) / 60000)) : null;
       return {
         alias: row.key_alias,
         hits,
@@ -49,7 +49,8 @@ export async function GET() {
         blocked,
         blockReason,
         resumesInMin,
-        staleQuotaFlag: dbQuotaFlag && !hitQuotaExhausted, // flag is set but hits don't confirm it
+        resume_after_utc: resumeAtMs != null ? new Date(resumeAtMs).toISOString() : null,
+        staleQuotaFlag: quotaFlag && !hitQuotaExhausted,
         rate_limited_until: row.rate_limited_until ?? null,
         quota_exhausted_at: row.quota_exhausted_at ?? null,
       };

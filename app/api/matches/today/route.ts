@@ -5,8 +5,8 @@ export async function GET() {
   try {
     const { choices, totalRaw, nonIplSample } = await getIplMatchChoicesForToday();
 
-    const date = new Intl.DateTimeFormat("en-IN", {
-      timeZone: "Asia/Kolkata",
+    const date = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
       weekday: "short",
       year: "numeric",
       month: "short",

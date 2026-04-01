@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { formatFixture } from "@/lib/format";
+import { formatUiCalendarDate } from "@/lib/ui-time";
 import type { CSSProperties } from "react";
 import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
@@ -11,19 +12,16 @@ const QUOTA_LIMIT = 700; // 100/day × 7 API keys
 const QUOTA_WARN_AT = 560; // warn at 80% of 700
 const QUOTA_KEY = "cricapi_quota";
 
-function getIstDateStr() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-}
 function loadQuota(): number {
   try {
     const raw = localStorage.getItem(QUOTA_KEY);
     if (!raw) return 0;
     const { count, date } = JSON.parse(raw) as { count: number; date: string };
-    return date === getIstDateStr() ? (count ?? 0) : 0;
+    return date === formatUiCalendarDate() ? (count ?? 0) : 0;
   } catch { return 0; }
 }
 function saveQuota(count: number) {
-  try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: getIstDateStr() })); } catch {}
+  try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: formatUiCalendarDate() })); } catch {}
 }
 
 /** Sort A–Z by first name (first word), then full name */
@@ -601,8 +599,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             type: "error",
             title: "All API keys are currently blocked",
             detail: minResume && minResume < 900
-              ? `Some keys are in a 15-min rate-limit window, earliest resumes in ~${minResume} min. Others may have hit the daily 100-hit cap (resets at midnight). Any API action will fail until at least one key is available.`
-              : "All keys have hit their daily 100-hit limit and won't reset until midnight. You can still manually enter player scores using the ✏️ Edit button on each player.",
+              ? `Some keys are in a 15-min rate-limit window, earliest resumes in ~${minResume} min. Others may have hit the daily 100-hit cap (resets next provider day; times in Eastern). Any API action will fail until at least one key is available.`
+              : "All keys have hit their daily 100-hit limit until the next reset (UTC day; times shown in Eastern). You can still manually enter player scores using the ✏️ Edit button on each player.",
             action: "View key usage",
             actionHref: "/api/key-stats",
           }}
@@ -664,7 +662,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
               const isRateLimited = blocked && !isQuotaDone;
               const barColor = isQuotaDone ? "#ef4444" : isRateLimited ? "#f59e0b" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
               const tip = isQuotaDone
-                ? `K${i + 1}: daily quota reached (${k.hits}/100) — resets at midnight`
+                ? `K${i + 1}: daily quota reached (${k.hits}/100) — resets next UTC day (Eastern shown in UI)`
                 : isRateLimited
                 ? `K${i + 1}: rate-limited${k.resumesInMin ? ` — ~${k.resumesInMin} min remaining` : " — ~15 min"}`
                 : `K${i + 1}: ${k.hits}/100 hits today — available`;
@@ -698,7 +696,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       {linkChoices && linkChoices.length > 1 && (
         <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 18, padding: 20 }}>
           <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Choose a match</div>
-          {linkDateHint && <div style={{ color: "#64748b", fontSize: 13, marginBottom: 14 }}>Showing ±1 day (IST) · {linkDateHint}</div>}
+          {linkDateHint && <div style={{ color: "#64748b", fontSize: 13, marginBottom: 14 }}>Showing ±1 day (Eastern) · {linkDateHint}</div>}
           <div style={{ display: "grid", gap: 10 }}>
             {linkChoices.map((c) => {
               const picked = pickedLinkId === c.externalMatchId;
