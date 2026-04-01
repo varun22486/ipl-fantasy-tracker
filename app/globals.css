@@ -75,6 +75,7 @@ body { margin: 0; font-family: var(--font-sans); background: var(--bg); color: v
 }
 .comp-switcher__scroll::-webkit-scrollbar { height: 4px; }
 .comp-switcher__scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }
+.comp-switcher__manage:hover { color: #e2e8f0; }
 
 /* ── Content area ────────────────────────────────────────────────────────── */
 .app-content { flex: 1; min-width: 0; }

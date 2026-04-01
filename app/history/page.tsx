@@ -109,7 +109,11 @@ async function getData(competitionId: number | null) {
     const yourPts = competitionId != null
       ? mp.filter((p) => p.side === yourName).reduce((s, p) => s + playerPoints(p, rules).final, 0)
       : mp.filter((p) => p.side === "You").reduce((s, p) => s + playerPoints(p, rules).final, 0);
-    const oppPts = mp.filter((p) => p.side === opponentName).reduce((s, p) => s + playerPoints(p, rules).final, 0);
+    // Default league rows use side "You" vs anything else (not necessarily === settings.opponent_name).
+    const oppPts =
+      competitionId != null
+        ? mp.filter((p) => p.side === opponentName).reduce((s, p) => s + playerPoints(p, rules).final, 0)
+        : mp.filter((p) => p.side !== "You").reduce((s, p) => s + playerPoints(p, rules).final, 0);
     const hasData = yourPts > 0 || oppPts > 0;
     const winner = !hasData ? null : yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : yourPts > 0 || oppPts > 0 ? "Tie" : null;
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import Link from "next/link";
 
 type Competition = {
   id: number;
@@ -102,17 +103,6 @@ export default function CompetitionSwitcher({ variant }: Props) {
     setNewPlayers((prev) => prev.filter((_, i) => i !== idx));
   }
 
-  async function deleteCompetition(id: number) {
-    if (!confirm("Delete this competition? This will remove all player picks for this league.")) return;
-    await fetch("/api/competitions", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    setCompetitions((prev) => prev.filter((c) => c.id !== id));
-    if (activeId === id) navigateTo(null);
-  }
-
   const selectBtn = (active: boolean, sidebar: boolean): CSSProperties => ({
     display: "flex",
     alignItems: "center",
@@ -195,20 +185,10 @@ export default function CompetitionSwitcher({ variant }: Props) {
             <span style={{ flex: 1, minWidth: 0, lineHeight: 1.35 }}>{defaultLabel}</span>
           </button>
           {competitions.map((c) => (
-            <div key={c.id} style={{ display: "flex", alignItems: "stretch", gap: 6 }}>
-              <button type="button" onClick={() => navigateTo(c.id)} style={{ ...selectBtn(activeId === c.id, true), flex: 1 }}>
-                <span style={dotStyle("#93c5fd")} />
-                <span style={{ flex: 1, minWidth: 0, lineHeight: 1.35 }}>{compLabel(c)}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void deleteCompetition(c.id)}
-                title="Delete competition"
-                style={deleteSideBtn}
-              >
-                ✕
-              </button>
-            </div>
+            <button key={c.id} type="button" onClick={() => navigateTo(c.id)} style={selectBtn(activeId === c.id, true)}>
+              <span style={dotStyle("#93c5fd")} />
+              <span style={{ flex: 1, minWidth: 0, lineHeight: 1.35 }}>{compLabel(c)}</span>
+            </button>
           ))}
         </div>
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
@@ -220,6 +200,9 @@ export default function CompetitionSwitcher({ variant }: Props) {
             addForm
           )}
         </div>
+        <Link href="/competitions" className="comp-switcher__manage" style={manageLinkStyle}>
+          Manage leagues →
+        </Link>
       </div>
     );
   }
@@ -249,6 +232,9 @@ export default function CompetitionSwitcher({ variant }: Props) {
         >
           {adding ? "Close" : "+ New"}
         </button>
+        <Link href="/competitions" style={manageLinkInlineStyle}>
+          Manage
+        </Link>
       </div>
       {adding && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.1)" }}>{addForm}</div>
@@ -318,16 +304,26 @@ const newLeagueBtn: CSSProperties = {
   fontWeight: 600,
   textAlign: "left" as const,
 };
-const deleteSideBtn: CSSProperties = {
+const manageLinkStyle: CSSProperties = {
+  display: "block",
+  marginTop: 12,
+  fontSize: 12,
+  fontWeight: 600,
+  color: "#94a3b8",
+  textDecoration: "none",
+};
+const manageLinkInlineStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "6px 11px",
+  borderRadius: 999,
+  border: "1px solid rgba(255,255,255,0.12)",
+  background: "rgba(255,255,255,0.04)",
+  color: "#94a3b8",
+  fontSize: 12,
+  fontWeight: 600,
+  textDecoration: "none",
   flexShrink: 0,
-  width: 36,
-  borderRadius: 10,
-  border: "1px solid rgba(239,68,68,0.35)",
-  background: "rgba(239,68,68,0.12)",
-  color: "#f87171",
-  cursor: "pointer",
-  fontSize: 14,
-  fontWeight: 700,
 };
 const iconDangerBtn: CSSProperties = {
   borderRadius: 8,

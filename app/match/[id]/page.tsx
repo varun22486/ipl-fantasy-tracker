@@ -144,7 +144,10 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
   }
 
   const yourPlayers = cid == null ? players.filter((p) => p.side === "You") : players.filter((p) => p.side === yourName);
-  const oppPlayers = players.filter((p) => p.side === opponentName);
+  const oppPlayers =
+    cid == null
+      ? players.filter((p) => p.side !== "You")
+      : players.filter((p) => p.side === opponentName);
   const yourTotal = yourPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
   const oppTotal = oppPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
 

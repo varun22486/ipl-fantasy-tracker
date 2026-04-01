@@ -9,11 +9,13 @@ const NAV = [
   { href: "/", label: "Home", shortLabel: "Home", icon: "◇" },
   { href: "/match", label: "Match", shortLabel: "Match", icon: "◈" },
   { href: "/history", label: "History", shortLabel: "History", icon: "◫" },
+  { href: "/competitions", label: "Leagues", shortLabel: "Leagues", icon: "◎" },
   { href: "/settings", label: "Settings", shortLabel: "Settings", icon: "○" },
 ];
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
+  if (href === "/competitions") return pathname === "/competitions";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
