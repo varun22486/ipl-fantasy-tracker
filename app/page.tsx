@@ -7,6 +7,7 @@ import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring"
 import { formatFixture } from "@/lib/format";
 import StatsClient from "@/components/StatsClient";
 import HomeHero from "@/components/HomeHero";
+import MultiStatsClient from "@/components/MultiStatsClient";
 import Link from "next/link";
 
 function MultiPlayerHero({ participants, nextMatch }: {
@@ -154,16 +155,35 @@ async function getData(competitionId: number | null) {
   const oppWins = matchStats.filter((m) => m.winner === opponentName).length;
   const ties = matchStats.filter((m) => m.winner === "Tie").length;
 
-  // Multi-player participant leaderboard (for 3+ player competitions)
+  // Multi-player: per-match points for each participant
+  const participantMatchStats = isMultiPlayer
+    ? (matches ?? []).map((m: any) => {
+        const mp = playersByMatch[m.id] ?? [];
+        const pts: Record<string, number> = {};
+        for (const name of compPlayers) {
+          pts[name] = mp.filter((p: any) => p.side === name).reduce((s: number, p: any) => s + playerPoints(p, rules).final, 0);
+        }
+        const hasData = Object.values(pts).some(v => v > 0);
+        const maxPts = Math.max(...Object.values(pts));
+        const leaders = compPlayers.filter(n => pts[n] === maxPts && maxPts > 0);
+        const winner = leaders.length === 1 ? leaders[0] : (hasData ? "Tie" : null);
+        return {
+          matchId: m.id as number,
+          fixture: formatFixture(m.fixture) || m.fixture || "TBD",
+          date: (m.match_date ?? "") as string,
+          pts,
+          hasData,
+          isCurrent: Boolean(m.is_current),
+          winner,
+        };
+      })
+    : [];
+
   const participantTotals: { name: string; totalPoints: number; wins: number; matches: number }[] = isMultiPlayer
     ? compPlayers.map(name => {
-        const pts = matchStats.reduce((s, m) => {
-          const mp = playersByMatch[m.matchId] ?? [];
-          const side = mp.filter(p => p.side === name);
-          return s + side.reduce((ss, p) => ss + playerPoints(p, rules).final, 0);
-        }, 0);
-        const wins = matchStats.filter(m => m.winner === name).length;
-        return { name, totalPoints: pts, wins, matches: matchStats.filter(m => m.hasData).length };
+        const totalPoints = participantMatchStats.reduce((s, m) => s + (m.pts[name] ?? 0), 0);
+        const wins = participantMatchStats.filter(m => m.winner === name).length;
+        return { name, totalPoints, wins, matches: participantMatchStats.filter(m => m.hasData).length };
       }).sort((a, b) => b.totalPoints - a.totalPoints)
     : [];
 
@@ -182,6 +202,7 @@ async function getData(competitionId: number | null) {
     isMultiPlayer,
     compPlayers,
     participantTotals,
+    participantMatchStats,
     nextMatch: nextMatch
       ? { fixture: formatFixture(nextMatch.fixture) || nextMatch.fixture || "TBD", date: nextMatch.match_date ?? "", venue: nextMatch.venue ?? null }
       : null,
@@ -212,13 +233,21 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
           nextMatch={data.nextMatch}
         />
       )}
-      <StatsClient
-        yourName={data.yourName}
-        opponentName={data.opponentName}
-        matchStats={data.matchStats}
-        leaderboard={data.leaderboard}
-        summary={data.summary}
-      />
+      {data.isMultiPlayer ? (
+        <MultiStatsClient
+          participants={data.participantTotals}
+          matchStats={data.participantMatchStats}
+          compPlayers={data.compPlayers}
+        />
+      ) : (
+        <StatsClient
+          yourName={data.yourName}
+          opponentName={data.opponentName}
+          matchStats={data.matchStats}
+          leaderboard={data.leaderboard}
+          summary={data.summary}
+        />
+      )}
     </main>
   );
 }
