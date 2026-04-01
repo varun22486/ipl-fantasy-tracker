@@ -10,8 +10,8 @@ import { FantasyPlayer, teamPoints } from "@/lib/scoring";
 import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 
-const QUOTA_LIMIT = 700; // 100/day × 7 API keys
-const QUOTA_WARN_AT = 560; // warn at 80% of 700
+const QUOTA_LIMIT = 800; // 100/day × 8 API keys (CRICKET_API_KEY … _8)
+const QUOTA_WARN_AT = 640; // warn at 80% of 800
 const QUOTA_KEY = "cricapi_quota";
 
 function loadQuota(): number {
