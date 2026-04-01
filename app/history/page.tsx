@@ -67,7 +67,6 @@ async function getData(competitionId: number | null) {
 
   return { matchRows, yourName, opponentName };
 }
-}
 
 export default async function HistoryPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
   const { c } = await searchParams;
