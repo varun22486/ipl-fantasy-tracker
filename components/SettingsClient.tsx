@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useState, useEffect, type CSSProperties } from "react";
 
 type Settings = {
   your_name?: string;
@@ -148,6 +148,93 @@ export default function SettingsClient({ settings }: { settings: Settings }) {
       {/* Note about scoring rules */}
       <div style={{ padding: "12px 16px", borderRadius: 12, background: "#fffbeb", border: "1px solid #fde68a", fontSize: 13, color: "#92400e" }}>
         ⚠️ <strong>Note:</strong> Changing scoring rules updates future calculations but does <em>not</em> retroactively re-sync past match stats from the API — existing raw stats (runs, wickets, catches) will be re-scored automatically with the new values.
+      </div>
+
+      {/* Competitions */}
+      <CompetitionsPanel />
+    </div>
+  );
+}
+
+type Competition = { id: number; name: string; player1_name: string; player2_name: string };
+
+function CompetitionsPanel() {
+  const [competitions, setCompetitions] = useState<Competition[]>([]);
+  const [newP1, setNewP1] = useState("");
+  const [newP2, setNewP2] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    fetch("/api/competitions").then(r => r.json()).then(j => {
+      if (j.ok) setCompetitions(j.competitions);
+    });
+  }, []);
+
+  async function add() {
+    if (!newP1.trim() || !newP2.trim()) return;
+    setSaving(true); setMsg("");
+    try {
+      const r = await fetch("/api/competitions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ player1_name: newP1.trim(), player2_name: newP2.trim() }),
+      });
+      const j = await r.json();
+      if (j.ok) { setCompetitions(prev => [...prev, j.competition]); setNewP1(""); setNewP2(""); setMsg("Added!"); }
+      else setMsg(j.error || "Failed");
+    } finally { setSaving(false); }
+  }
+
+  async function remove(id: number) {
+    if (!confirm("Delete this competition and all its player picks?")) return;
+    await fetch("/api/competitions", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    setCompetitions(prev => prev.filter(c => c.id !== id));
+  }
+
+  return (
+    <div style={panel}>
+      <h2 style={{ ...sectionTitle, marginBottom: 4 }}>🏆 Competitions (pairs)</h2>
+      <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
+        Each competition is a head-to-head pair. Switch between them using the selector at the top of the sidebar.
+        Your original {'"'}Default{'"'} competition (from Player Names above) is always available.
+      </div>
+
+      {competitions.length === 0 ? (
+        <div style={{ fontSize: 13, color: "#94a3b8", padding: "12px 0" }}>No extra competitions yet.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+          {competitions.map(c => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+              <div style={{ flex: 1 }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{c.player1_name}</span>
+                <span style={{ color: "#94a3b8", margin: "0 8px" }}>vs</span>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{c.player2_name}</span>
+              </div>
+              <span style={{ fontSize: 11, color: "#94a3b8", marginRight: 8 }}>?c={c.id}</span>
+              <button
+                onClick={() => void remove(c.id)}
+                style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 12, fontWeight: 700 }}
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "grid", gap: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>Add a new pair</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <input value={newP1} onChange={e => setNewP1(e.target.value)} placeholder="Player 1 name" style={input} />
+          <input value={newP2} onChange={e => setNewP2(e.target.value)} placeholder="Player 2 name" style={input} onKeyDown={e => e.key === "Enter" && void add()} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={() => void add()} disabled={saving || !newP1.trim() || !newP2.trim()} style={btnPrimary}>
+            {saving ? "Adding…" : "Add pair"}
+          </button>
+          {msg && <span style={{ fontSize: 13, color: msg === "Added!" ? "#16a34a" : "#dc2626" }}>{msg}</span>}
+        </div>
       </div>
     </div>
   );

@@ -53,6 +53,7 @@ type Props = {
   nameToId: Record<string, string>;
   existingYourPlayers: { name: string; captain: boolean }[];
   existingOppPlayers: { name: string; captain: boolean }[];
+  competitionId?: number | null;
 };
 
 function DebugPanel({ info }: { info: DebugData | null }) {
@@ -78,7 +79,7 @@ function DebugPanel({ info }: { info: DebugData | null }) {
   );
 }
 
-export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers }: Props) {
+export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId }: Props) {
   // Show inline team picker if no lineup exists OR if user clicked "Change Team"
   const needsSetup = !yourLineupSaved && !opponentLineupSaved;
   const [teamPickerOpen, setTeamPickerOpen] = useState(needsSetup);
@@ -234,6 +235,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           squads={squads}
           nameToId={nameToId}
           hasLinkedMatch={hasLinkedMatch}
+          competitionId={competitionId ?? null}
         />
       </div>
     );

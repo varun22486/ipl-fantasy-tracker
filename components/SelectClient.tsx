@@ -40,6 +40,8 @@ type Props = {
   /** lowercase player name → CricAPI UUID; used to save provider_player_id at lineup time */
   nameToId: Record<string, string>;
   hasLinkedMatch: boolean;
+  /** null = default (series_settings) competition; number = named competition */
+  competitionId?: number | null;
 };
 
 function emptyPlayers() { return Array.from({ length: 4 }, () => ({ name: "", captain: false })); }
@@ -50,7 +52,7 @@ function withFallback(players: Player[]) {
   return next;
 }
 
-export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch }: Props) {
+export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch, competitionId }: Props) {
   const [saving, setSaving] = useState<"mine" | "theirs" | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
@@ -178,8 +180,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     setSaving(side); setApiMsg(null);
     const payload =
       side === "mine"
-        ? { saveSide: "mine", yourPlayers: mine, opponentName: rival }
-        : { saveSide: "theirs", opponentPlayers: theirs, opponentName: rival };
+        ? { saveSide: "mine", yourPlayers: mine, opponentName: rival, competitionId: competitionId ?? null }
+        : { saveSide: "theirs", opponentPlayers: theirs, opponentName: rival, competitionId: competitionId ?? null };
     try {
       const res = await fetch("/api/lineup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const json = await res.json();

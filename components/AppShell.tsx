@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import CompetitionSwitcher from "@/components/CompetitionSwitcher";
 
 const NAV = [
   { href: "/", label: "Home", shortLabel: "Home", icon: "◇" },
@@ -26,7 +27,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <div className="app-sidebar__brand">
           <p className="app-sidebar__logo">Fantasy</p>
           <h1 className="app-sidebar__title">IPL Tracker</h1>
-          <p className="app-sidebar__tag">Head-to-head points, live sync, and season insights.</p>
+          <div style={{ marginTop: 12 }}>
+            <CompetitionSwitcher />
+          </div>
         </div>
         <nav className="app-sidebar__nav">
           {NAV.map(({ href, label, icon }) => {
@@ -47,6 +50,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Tablet top bar (640 – 899 px) ─────────────────────────────────── */}
       <header className="mobile-header" aria-label="Main navigation">
         <span className="mobile-header__brand">🏏 IPL Tracker</span>
+          <CompetitionSwitcher />
         <nav className="mobile-header__nav">
           {NAV.map(({ href, label, icon }) => {
             const active = isActive(pathname, href);

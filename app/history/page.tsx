@@ -13,15 +13,28 @@ const OPP_COLOR = "#dc2626";
 const YOU_LIGHT = "#dbeafe";
 const OPP_LIGHT = "#fee2e2";
 
-async function getData() {
-  const [{ data: matches }, { data: allPlayers }, { data: settings }] = await Promise.all([
+async function getData(competitionId: number | null) {
+  const [{ data: matches }, { data: settings }, { data: competitions }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").order("id", { ascending: false }),
-    supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
     supabaseAdmin.from("series_settings").select("*").limit(1).single(),
+    supabaseAdmin.from("competitions").select("*"),
   ]);
 
-  const opponentName = settings?.opponent_name ?? "Rahul";
-  const yourName = (settings as any)?.your_name ?? "Varun";
+  let yourName: string;
+  let opponentName: string;
+  if (competitionId != null) {
+    const comp = (competitions ?? []).find((c: any) => c.id === competitionId);
+    yourName = comp?.player1_name ?? "Player 1";
+    opponentName = comp?.player2_name ?? "Player 2";
+  } else {
+    yourName = (settings as any)?.your_name ?? "Varun";
+    opponentName = settings?.opponent_name ?? "Rahul";
+  }
+
+  const playersQuery = supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true });
+  const { data: allPlayers } = competitionId != null
+    ? await playersQuery.eq("competition_id", competitionId)
+    : await playersQuery.is("competition_id", null);
   const rules = scoringFromSettings(settings as any);
 
   const playersByMatch: Record<number, FantasyPlayer[]> = {};
@@ -33,10 +46,11 @@ async function getData() {
 
   const matchRows = (matches ?? []).map((m: any) => {
     const mp = playersByMatch[m.id] ?? [];
-    const yourPts = mp.filter((p) => p.side === "You").reduce((s, p) => s + playerPoints(p, rules).final, 0);
-    const oppPts = mp.filter((p) => p.side !== "You").reduce((s, p) => s + playerPoints(p, rules).final, 0);
+    const p1Side = competitionId != null ? yourName : "You";
+    const yourPts = mp.filter((p) => p.side === p1Side).reduce((s, p) => s + playerPoints(p, rules).final, 0);
+    const oppPts = mp.filter((p) => p.side !== p1Side).reduce((s, p) => s + playerPoints(p, rules).final, 0);
     const hasData = yourPts > 0 || oppPts > 0;
-    const winner = !hasData ? null : yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : "Tie";
+    const winner = !hasData ? null : yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : (yourPts > 0 ? "Tie" : null);
     return {
       matchId: m.id as number,
       fixture: formatFixture(m.fixture) || m.fixture || "TBD",
@@ -53,9 +67,12 @@ async function getData() {
 
   return { matchRows, yourName, opponentName };
 }
+}
 
-export default async function HistoryPage() {
-  const { matchRows, yourName, opponentName } = await getData();
+export default async function HistoryPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
+  const { c } = await searchParams;
+  const competitionId = c ? Number(c) : null;
+  const { matchRows, yourName, opponentName } = await getData(competitionId);
   const played = matchRows.filter((m) => m.hasData);
 
   return (

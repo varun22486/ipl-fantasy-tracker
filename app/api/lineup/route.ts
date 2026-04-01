@@ -29,42 +29,82 @@ async function getCurrentMatchId() {
 }
 
 /**
- * Supports three modes via `saveSide` in the request body:
- *   "mine"   – only update the "You" side (yourPlayers required)
- *   "theirs" – only update the opponent side (opponentPlayers required)
- *   "both"   – update both sides at once (default, backward compatible)
+ * Lineup save endpoint — supports both the legacy default competition
+ * (competition_id = null, side = "You" / opponentName) and named competitions
+ * (competition_id = N, side = player1_name / player2_name).
  *
- * Per-side saving lets two users submit concurrently without overwriting
- * each other's picks.
+ * Body:
+ *   saveSide: "mine" | "theirs" | "both"
+ *   competitionId?: number | null   — null = default (Varun vs Rahul from series_settings)
+ *   player1Name?: string            — required when competitionId is set
+ *   player2Name?: string            — required when competitionId is set
+ *   opponentName?: string           — used for default competition display
+ *   yourPlayers?: PlayerInput[]
+ *   opponentPlayers?: PlayerInput[]
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const saveSide: "mine" | "theirs" | "both" = body.saveSide ?? "both";
-    const opponentName = String(body.opponentName || "Rahul").trim() || "Rahul";
     const matchId = await getCurrentMatchId();
+
+    // Resolve competition context
+    const rawCompId = body.competitionId;
+    const competitionId: number | null = rawCompId != null ? Number(rawCompId) : null;
+    const isDefault = competitionId == null;
+
+    // Side labels depend on whether this is the default or a named competition
+    let side1: string;
+    let side2: string;
+
+    if (isDefault) {
+      side1 = "You";
+      side2 = String(body.opponentName || "Rahul").trim() || "Rahul";
+      // Keep series_settings.opponent_name in sync for display
+      await supabaseAdmin.from("series_settings").update({ opponent_name: side2 }).eq("id", 1);
+    } else {
+      // Fetch competition to get player names
+      const { data: comp } = await supabaseAdmin.from("competitions").select("player1_name, player2_name").eq("id", competitionId).single();
+      if (!comp) throw new Error("Competition not found.");
+      side1 = comp.player1_name;
+      side2 = comp.player2_name;
+    }
+
+    const baseFilter = isDefault
+      ? (q: any) => q.eq("match_id", matchId).is("competition_id", null)
+      : (q: any) => q.eq("match_id", matchId).eq("competition_id", competitionId);
 
     if (saveSide === "mine" || saveSide === "both") {
       const yourPlayers = normalizePlayers(body.yourPlayers);
-      validateSide("Your team", yourPlayers);
-      // Delete only your side, then re-insert
-      await supabaseAdmin.from("fantasy_players").delete().eq("match_id", matchId).eq("side", "You");
+      validateSide(`${side1}'s team`, yourPlayers);
+      await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", side1);
       await supabaseAdmin.from("fantasy_players").insert(
-        yourPlayers.map((p) => ({ match_id: matchId, side: "You", name: p.name, captain: p.captain, provider_player_id: p.providerId ?? null }))
+        yourPlayers.map((p) => ({
+          match_id: matchId,
+          side: side1,
+          name: p.name,
+          captain: p.captain,
+          provider_player_id: p.providerId ?? null,
+          competition_id: isDefault ? null : competitionId,
+        }))
       );
     }
 
     if (saveSide === "theirs" || saveSide === "both") {
       const opponentPlayers = normalizePlayers(body.opponentPlayers);
-      validateSide("Opponent team", opponentPlayers);
-      // Delete only opponent side, then re-insert
-      await supabaseAdmin.from("fantasy_players").delete().eq("match_id", matchId).eq("side", "Rahul");
+      validateSide(`${side2}'s team`, opponentPlayers);
+      await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", side2);
       await supabaseAdmin.from("fantasy_players").insert(
-        opponentPlayers.map((p) => ({ match_id: matchId, side: "Rahul", name: p.name, captain: p.captain, provider_player_id: p.providerId ?? null }))
+        opponentPlayers.map((p) => ({
+          match_id: matchId,
+          side: side2,
+          name: p.name,
+          captain: p.captain,
+          provider_player_id: p.providerId ?? null,
+          competition_id: isDefault ? null : competitionId,
+        }))
       );
     }
-
-    await supabaseAdmin.from("series_settings").update({ opponent_name: opponentName }).eq("id", 1);
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {

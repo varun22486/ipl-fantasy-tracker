@@ -101,6 +101,26 @@ begin
 end;
 $$;
 
+-- ── Competitions (multiple head-to-head pairs) ───────────────────────────────
+create table if not exists competitions (
+  id bigint generated always as identity primary key,
+  name text not null default 'Main',
+  player1_name text not null,
+  player2_name text not null,
+  created_at timestamp with time zone default now()
+);
+
+-- Add competition scope to fantasy players
+alter table fantasy_players add column if not exists competition_id bigint references competitions(id) on delete cascade;
+
+-- When you run this for the first time, create the default competition from series_settings
+-- and migrate existing player rows to it:
+-- INSERT INTO competitions (name, player1_name, player2_name)
+--   SELECT 'Main', your_name, opponent_name FROM series_settings LIMIT 1;
+-- Then: UPDATE fantasy_players SET competition_id = <id above> WHERE competition_id IS NULL;
+
+-- ── End competitions ──────────────────────────────────────────────────────────
+
 -- Rename trump → captain (safe to run multiple times; errors if already renamed are fine)
 do $$ begin
   alter table fantasy_players rename column trump to captain;

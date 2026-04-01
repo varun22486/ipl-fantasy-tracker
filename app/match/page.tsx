@@ -41,12 +41,26 @@ async function getData() {
   return { currentMatch, matchPlayers, settings };
 }
 
-export default async function MatchPage() {
+export default async function MatchPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
+  const { c } = await searchParams;
+  const competitionId = c ? Number(c) : null;
   const { currentMatch, matchPlayers, settings } = await getData();
-  const opponentName = settings?.opponent_name ?? "Rahul";
-  const yourName = (settings as any)?.your_name ?? "Varun";
-  const yourPlayers = matchPlayers.filter((p) => p.side === "You");
-  const oppPlayers = matchPlayers.filter((p) => p.side !== "You");
+
+  let yourName: string;
+  let opponentName: string;
+  if (competitionId != null) {
+    const { data: comp } = await (await import("@/lib/supabase-admin")).supabaseAdmin
+      .from("competitions").select("player1_name,player2_name").eq("id", competitionId).single();
+    yourName = comp?.player1_name ?? "Player 1";
+    opponentName = comp?.player2_name ?? "Player 2";
+  } else {
+    yourName = (settings as any)?.your_name ?? "Varun";
+    opponentName = settings?.opponent_name ?? "Rahul";
+  }
+
+  const p1Side = competitionId != null ? yourName : "You";
+  const yourPlayers = matchPlayers.filter((p) => p.side === p1Side && (competitionId != null ? (p as any).competition_id === competitionId : (p as any).competition_id == null));
+  const oppPlayers = matchPlayers.filter((p) => p.side !== p1Side && (competitionId != null ? (p as any).competition_id === competitionId : (p as any).competition_id == null));
 
   const { rosterNames, squads, nameToId } = parseRoster(currentMatch);
 
@@ -88,6 +102,7 @@ export default async function MatchPage() {
         nameToId={nameToId}
         existingYourPlayers={yourPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
         existingOppPlayers={oppPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
+        competitionId={competitionId}
       />
     </main>
   );

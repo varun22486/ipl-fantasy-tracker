@@ -7,17 +7,39 @@ import { formatFixture } from "@/lib/format";
 import StatsClient from "@/components/StatsClient";
 import HomeHero from "@/components/HomeHero";
 
-async function getData() {
-  const [{ data: matches, error: matchErr }, { data: allPlayers }, { data: settings }] = await Promise.all([
+async function getData(competitionId: number | null) {
+  const [{ data: matches, error: matchErr }, { data: settings }, { data: competitions }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").order("id", { ascending: true }),
-    supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
     supabaseAdmin.from("series_settings").select("*").limit(1).single(),
+    supabaseAdmin.from("competitions").select("*").order("id", { ascending: true }),
   ]);
 
   if (matchErr) console.error("[home] matches query error:", matchErr.message);
-  const opponentName = settings?.opponent_name ?? "Rahul";
-  const yourName = (settings as any)?.your_name ?? "Varun";
+
+  // Resolve player names for the active competition
+  let yourName: string;
+  let opponentName: string;
+  if (competitionId != null) {
+    const comp = (competitions ?? []).find((c: any) => c.id === competitionId);
+    yourName = comp?.player1_name ?? "Player 1";
+    opponentName = comp?.player2_name ?? "Player 2";
+  } else {
+    yourName = (settings as any)?.your_name ?? "Varun";
+    opponentName = settings?.opponent_name ?? "Rahul";
+  }
+
+  // Fetch only this competition's player rows
+  const playersQuery = supabaseAdmin
+    .from("fantasy_players")
+    .select("*")
+    .order("id", { ascending: true });
+  const { data: allPlayers } = competitionId != null
+    ? await playersQuery.eq("competition_id", competitionId)
+    : await playersQuery.is("competition_id", null);
   const rules = scoringFromSettings(settings as any);
+
+  // Determine which side value means "player 1 / you"
+  const player1Side = competitionId != null ? yourName : "You";
 
   const playersByMatch: Record<number, FantasyPlayer[]> = {};
   for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
@@ -37,14 +59,14 @@ async function getData() {
   let oppCumulative = 0;
   const matchStats: MatchStatRow[] = (matches ?? []).map((m: any) => {
     const mp = playersByMatch[m.id] ?? [];
-    const yourPlayers = mp.filter((p) => p.side === "You");
-    const oppPlayers = mp.filter((p) => p.side !== "You");
+    const yourPlayers = mp.filter((p) => p.side === player1Side);
+    const oppPlayers = mp.filter((p) => p.side !== player1Side);
     const yourPts = yourPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
     const oppPts = oppPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
     yourCumulative += yourPts;
     oppCumulative += oppPts;
 
-    const winner = yourPts > oppPts ? "You" : oppPts > yourPts ? opponentName : yourPts > 0 ? "Tie" : null;
+    const winner = yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : yourPts > 0 ? "Tie" : null;
     const players = mp.map((p) => ({
       name: p.name,
       side: p.side as "You" | string,
@@ -83,7 +105,7 @@ async function getData() {
   }
 
   const leaderboard = Object.values(leaderMap).sort((a, b) => b.totalPoints - a.totalPoints);
-  const yourWins = matchStats.filter((m) => m.winner === "You").length;
+  const yourWins = matchStats.filter((m) => m.winner === yourName).length;
   const oppWins = matchStats.filter((m) => m.winner === opponentName).length;
   const ties = matchStats.filter((m) => m.winner === "Tie").length;
 
@@ -113,8 +135,10 @@ async function getData() {
   };
 }
 
-export default async function Home() {
-  const data = await getData();
+export default async function Home({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
+  const { c } = await searchParams;
+  const competitionId = c ? Number(c) : null;
+  const data = await getData(competitionId);
   return (
     <main className="page-main">
       <HomeHero
