@@ -69,6 +69,15 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   );
   const [activeMultiIdx, setActiveMultiIdx] = React.useState(0);
   const [savingIdx, setSavingIdx] = React.useState<number | null>(null);
+  // Track which participants are saved in this session (without reloading between each)
+  const [savedSet, setSavedSet] = React.useState<Set<number>>(() => {
+    const s = new Set<number>();
+    // Pre-mark participants who already have picks from the DB
+    if (existingPicks) {
+      existingPicks.forEach((picks, i) => { if (picks.length > 0) s.add(i); });
+    }
+    return s;
+  });
 
   async function saveParticipant(idx: number) {
     const picks = allPicks[idx];
@@ -84,9 +93,19 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       const json = await res.json();
       setSavingIdx(null);
       if (json.ok) {
-        setApiMsg({ type: "success", title: `${name}'s team saved!` });
-        // If all saved, reload after a moment
-        window.setTimeout(() => window.location.reload(), 900);
+        const newSaved = new Set(savedSet).add(idx);
+        setSavedSet(newSaved);
+        const allDone = newSaved.size >= multiPlayers.length;
+        if (allDone) {
+          // All participants saved — go to live view
+          setApiMsg({ type: "success", title: "All teams saved! Loading match…" });
+          window.setTimeout(() => window.location.reload(), 1000);
+        } else {
+          // Mark saved, auto-advance to next unsaved participant
+          const nextUnsaved = multiPlayers.findIndex((_, i) => !newSaved.has(i));
+          setApiMsg({ type: "success", title: `${name}'s team saved! ${multiPlayers.length - newSaved.size} more to go.` });
+          if (nextUnsaved !== -1) setActiveMultiIdx(nextUnsaved);
+        }
       } else {
         setApiMsg({ type: "error", title: json.error || "Could not save." });
       }
@@ -316,11 +335,23 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         )}
         {apiMsg && <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />}
 
-        {/* Top bar — link match + key stats */}
+        {/* Top bar — link match + save progress */}
         <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, overflow: "hidden" }}>
           <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
             <button onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit} style={btnDark}>{syncing ? "Loading…" : "Link IPL Match"}</button>
-            <span style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999, background: "#f1f5f9", color: "#64748b", marginLeft: "auto" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
+            {/* Save progress pills */}
+            <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+              {multiPlayers.map((name, i) => (
+                <span key={name} style={{
+                  fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                  background: savedSet.has(i) ? "#dcfce7" : "#f1f5f9",
+                  color: savedSet.has(i) ? "#15803d" : "#94a3b8",
+                }}>
+                  {savedSet.has(i) ? `✓ ${name}` : name}
+                </span>
+              ))}
+            </div>
+            <span style={{ fontSize: 12, color: "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT}</span>
           </div>
         </div>
 
@@ -445,8 +476,20 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                       </div>
                     ))}
                   </div>
-                  <button onClick={() => void saveParticipant(idx)} disabled={!canS || savingIdx !== null} style={{ width: "100%", padding: "10px", borderRadius: 10, border: "none", fontWeight: 700, fontSize: 13, cursor: canS ? "pointer" : "not-allowed", background: canS ? color : "#e2e8f0", color: canS ? "white" : "#94a3b8" }}>
-                    {savingIdx === idx ? "Saving…" : canS ? `Save ${name}'s team →` : `Pick ${4 - filled} more`}
+                  <button
+                    onClick={() => void saveParticipant(idx)}
+                    disabled={!canS || savingIdx !== null}
+                    style={{
+                      width: "100%", padding: "10px", borderRadius: 10, border: "none",
+                      fontWeight: 700, fontSize: 13, cursor: canS && savingIdx === null ? "pointer" : "not-allowed",
+                      background: savedSet.has(idx) ? "#dcfce7" : canS ? color : "#e2e8f0",
+                      color: savedSet.has(idx) ? "#15803d" : canS ? "white" : "#94a3b8",
+                    }}
+                  >
+                    {savingIdx === idx ? "Saving…"
+                      : savedSet.has(idx) ? `✓ ${name}'s team saved — click to update`
+                      : canS ? `Save ${name}'s team →`
+                      : `Pick ${4 - filled} more`}
                   </button>
                 </div>
               );
