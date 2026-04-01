@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+import { resolveCompetitionId } from "@/lib/competition";
 export const revalidate = 0;
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
@@ -43,7 +44,7 @@ async function getData() {
 
 export default async function MatchPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
   const { c } = await searchParams;
-  const competitionId = c ? Number(c) : null;
+  const competitionId = await resolveCompetitionId(c);
   const { currentMatch, matchPlayers, settings } = await getData();
 
   let yourName: string;

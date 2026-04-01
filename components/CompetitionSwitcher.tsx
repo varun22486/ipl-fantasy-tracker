@@ -45,6 +45,14 @@ export default function CompetitionSwitcher() {
   const activeComp = activeId ? competitions.find(c => c.id === activeId) : null;
 
   function navigateTo(id: number | null) {
+    // Store in cookie so it persists across all navigation (not just same-tab URL)
+    if (typeof document !== "undefined") {
+      if (id == null) {
+        document.cookie = "active_comp=; path=/; max-age=0";
+      } else {
+        document.cookie = `active_comp=${id}; path=/; max-age=${60 * 60 * 24 * 30}`;
+      }
+    }
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     if (id == null) params.delete("c");
     else params.set("c", String(id));

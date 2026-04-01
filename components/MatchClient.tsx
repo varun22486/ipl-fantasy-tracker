@@ -83,8 +83,12 @@ function DebugPanel({ info }: { info: DebugData | null }) {
 
 export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId, allParticipants }: Props) {
   const isMultiPlayer = (allParticipants?.length ?? 0) > 2;
-  // Show inline team picker if no lineup exists OR if user clicked "Change Team"
-  const needsSetup = !yourLineupSaved && !opponentLineupSaved;
+  // Show inline team picker if ANY lineup is missing (not just both missing)
+  // This ensures e.g. Satya sees the picker even when Varun has already saved
+  const anyLineupMissing = isMultiPlayer
+    ? (allParticipants ?? []).some(p => p.players.length === 0)
+    : !yourLineupSaved || !opponentLineupSaved;
+  const needsSetup = anyLineupMissing && hasLinkedMatch;
   const [teamPickerOpen, setTeamPickerOpen] = useState(needsSetup);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
@@ -257,8 +261,28 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     );
   }
 
+  // Work out who still needs to pick (for the pending notice)
+  const pendingPickers: string[] = isMultiPlayer
+    ? (allParticipants ?? []).filter(p => p.players.length === 0).map(p => p.name)
+    : [
+        ...(!yourLineupSaved ? [yourName] : []),
+        ...(!opponentLineupSaved ? [opponentName] : []),
+      ];
+
   return (
     <div style={{ display: "grid", gap: 20 }}>
+
+      {/* Pending lineups banner */}
+      {pendingPickers.length > 0 && (
+        <div style={{ padding: "12px 16px", borderRadius: 14, background: "#fffbeb", border: "1px solid #fde68a", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ fontSize: 14, color: "#92400e" }}>
+            ⏳ <strong>{pendingPickers.join(", ")}</strong> {pendingPickers.length === 1 ? "hasn't" : "haven't"} picked {pendingPickers.length === 1 ? "their" : "their"} team yet — scores will show as 0.
+          </div>
+          <button onClick={() => setTeamPickerOpen(true)} style={{ padding: "6px 14px", borderRadius: 8, background: "#0f172a", color: "white", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            Pick teams →
+          </button>
+        </div>
+      )}
 
       {/* Match header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, padding: "18px 20px", background: "white", border: "1px solid #e2e8f0", borderRadius: 20 }}>
