@@ -26,6 +26,25 @@ function saveQuota(count: number) {
   try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: getIstDateStr() })); } catch {}
 }
 
+/** Sort A–Z by first name (first word), then full name */
+function sortRosterByFirstName(names: string[]): string[] {
+  return [...names].sort((a, b) => {
+    const ta = a.trim();
+    const tb = b.trim();
+    const fa = (ta.split(/\s+/)[0] ?? "").toLowerCase();
+    const fb = (tb.split(/\s+/)[0] ?? "").toLowerCase();
+    const c = fa.localeCompare(fb, undefined, { sensitivity: "base" });
+    if (c !== 0) return c;
+    return ta.localeCompare(tb, undefined, { sensitivity: "base" });
+  });
+}
+
+const rosterPlayerGrid2: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 8,
+};
+
 type Player = { name: string; captain: boolean; providerId?: string };
 type SquadTeam = { teamName: string; players: string[] };
 type MatchChoice = { externalMatchId?: string; fixture: string; status: string; venue?: string | null; match_date: string };
@@ -432,27 +451,63 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                 <button style={btnDark} onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>{syncing ? "Loading…" : "Load Roster"}</button>
               </div>
             ) : squads.length > 0 ? (
-              <div style={{ display: "grid", gap: 16 }}>
+              <div style={{ display: "grid", gap: 20 }}>
                 {squads.map(team => (
                   <div key={team.teamName}>
-                    <div style={{ fontWeight: 700, fontSize: 12, color: "#334155", marginBottom: 8, borderBottom: "1px solid #f1f5f9", paddingBottom: 6 }}>{team.teamName}</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {team.players.map(name => {
+                    <div style={{ fontWeight: 700, fontSize: 12, color: "#334155", marginBottom: 10, borderBottom: "1px solid #f1f5f9", paddingBottom: 6 }}>{team.teamName}</div>
+                    <div style={rosterPlayerGrid2}>
+                      {sortRosterByFirstName(team.players).map((name, i) => {
                         const takenOther = takenByOthers.has(name.toLowerCase());
-                        const takenSelf  = takenByActive.has(name.toLowerCase());
-                        const label = takenOther ? " (taken)" : "";
-                        return <button key={name} type="button" disabled={takenOther} onClick={() => applyMultiRoster(name)} style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 500, cursor: takenOther ? "not-allowed" : "pointer", border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1", background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white", color: takenOther ? "#fca5a5" : "#0f172a", textDecoration: takenOther ? "line-through" : "none", opacity: takenOther ? 0.6 : 1 }}>{name}{label}</button>;
+                        const takenSelf = takenByActive.has(name.toLowerCase());
+                        return (
+                          <button
+                            key={name}
+                            type="button"
+                            disabled={takenOther}
+                            onClick={() => applyMultiRoster(name)}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 8, textAlign: "left", padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 500,
+                              cursor: takenOther ? "not-allowed" : "pointer",
+                              border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1",
+                              background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white",
+                              color: takenOther ? "#fca5a5" : "#0f172a",
+                              textDecoration: takenOther ? "line-through" : "none",
+                              opacity: takenOther ? 0.6 : 1,
+                            }}
+                          >
+                            <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 999, background: takenSelf ? "#2563eb" : "#e2e8f0", color: takenSelf ? "white" : "#64748b", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+                            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{name}{takenOther ? " (taken)" : ""}</span>
+                          </button>
+                        );
                       })}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {rosterNames.map(name => {
+              <div style={rosterPlayerGrid2}>
+                {sortRosterByFirstName(rosterNames).map((name, i) => {
                   const takenOther = takenByOthers.has(name.toLowerCase());
-                  const takenSelf  = takenByActive.has(name.toLowerCase());
-                  return <button key={name} type="button" disabled={takenOther} onClick={() => applyMultiRoster(name)} style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 500, cursor: takenOther ? "not-allowed" : "pointer", border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1", background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white", color: takenOther ? "#fca5a5" : "#0f172a", opacity: takenOther ? 0.6 : 1 }}>{name}</button>;
+                  const takenSelf = takenByActive.has(name.toLowerCase());
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      disabled={takenOther}
+                      onClick={() => applyMultiRoster(name)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 8, textAlign: "left", padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 500,
+                        cursor: takenOther ? "not-allowed" : "pointer",
+                        border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1",
+                        background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white",
+                        color: takenOther ? "#fca5a5" : "#0f172a",
+                        opacity: takenOther ? 0.6 : 1,
+                      }}
+                    >
+                      <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 999, background: takenSelf ? "#2563eb" : "#e2e8f0", color: takenSelf ? "white" : "#64748b", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
+                      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
+                    </button>
+                  );
                 })}
               </div>
             )}
@@ -738,12 +793,14 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                         <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", letterSpacing: 0.2 }}>{team.teamName}</span>
                         <span style={{ fontSize: 11, color: "#94a3b8" }}>{team.players.length} players</span>
                       </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        {team.players.map((name) => {
+                      <div style={rosterPlayerGrid2}>
+                        {sortRosterByFirstName(team.players).map((name, i) => {
                           const taken = takenNames.has(name.trim().toLowerCase());
                           const isTarget = activeSide === "mine"
                             ? mine.some((p) => p.name === name)
                             : theirs.some((p) => p.name === name);
+                          const ac = sideColor(activeSide);
+                          const ab = sideBg(activeSide);
                           return (
                             <button
                               key={`${team.teamName}-${name}`}
@@ -751,24 +808,27 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                               disabled={taken}
                               onClick={() => applyRosterName(name)}
                               style={{
-                                padding: "7px 14px",
-                                borderRadius: 999,
-                                fontSize: 13,
-                                fontWeight: 500,
+                                display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                                padding: "9px 12px", borderRadius: 12, fontSize: 13, fontWeight: 500,
                                 cursor: taken ? "not-allowed" : "pointer",
                                 border: isTarget
-                                  ? `2px solid ${sideColor(activeSide)}`
+                                  ? `2px solid ${ac}`
                                   : taken ? "1px solid #e2e8f0" : "1px solid #cbd5e1",
-                                background: isTarget
-                                  ? sideBg(activeSide)
-                                  : taken ? "#f8fafc" : "white",
+                                background: isTarget ? ab : taken ? "#f8fafc" : "white",
                                 color: taken ? "#94a3b8" : "#0f172a",
                                 textDecoration: taken && !isTarget ? "line-through" : "none",
                                 opacity: taken && !isTarget ? 0.55 : 1,
                                 transition: "all 0.1s",
                               }}
                             >
-                              {name}
+                              <span style={{
+                                flexShrink: 0, width: 26, height: 26, borderRadius: 999,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                background: isTarget ? ac : taken ? "#e2e8f0" : "#f1f5f9",
+                                color: isTarget ? "white" : "#64748b",
+                                fontSize: 12, fontWeight: 700,
+                              }}>{i + 1}</span>
+                              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
                             </button>
                           );
                         })}
@@ -777,8 +837,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                   ))}
                 </div>
               ) : (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {rosterNames.map((name) => {
+                <div style={rosterPlayerGrid2}>
+                  {sortRosterByFirstName(rosterNames).map((name, i) => {
                     const taken = takenNames.has(name.trim().toLowerCase());
                     return (
                       <button
@@ -787,7 +847,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                         disabled={taken}
                         onClick={() => applyRosterName(name)}
                         style={{
-                          padding: "7px 14px", borderRadius: 999, fontSize: 13, fontWeight: 500,
+                          display: "flex", alignItems: "center", gap: 10, textAlign: "left",
+                          padding: "9px 12px", borderRadius: 12, fontSize: 13, fontWeight: 500,
                           cursor: taken ? "not-allowed" : "pointer",
                           border: taken ? "1px solid #e2e8f0" : "1px solid #cbd5e1",
                           background: taken ? "#f8fafc" : "white",
@@ -796,7 +857,13 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                           opacity: taken ? 0.55 : 1,
                         }}
                       >
-                        {name}
+                        <span style={{
+                          flexShrink: 0, width: 26, height: 26, borderRadius: 999,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          background: taken ? "#e2e8f0" : "#f1f5f9",
+                          color: "#64748b", fontSize: 12, fontWeight: 700,
+                        }}>{i + 1}</span>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
                       </button>
                     );
                   })}
