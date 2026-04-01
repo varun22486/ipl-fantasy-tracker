@@ -36,19 +36,18 @@ export async function GET() {
     }
   }
 
-  // Test each key with a lightweight call
-  const keyTests = await Promise.all(
-    keys.map(async (k) => {
-      const res = await fetchRaw("/v1/currentMatches?offset=0", k);
-      const count = Array.isArray(res?.data) ? res.data.length : "?";
-      return {
-        keyAlias: k.slice(0, 8) + "...",
-        status: res?.status,
-        matchCount: count,
-        reason: res?.reason,
-      };
-    })
-  );
+  // Test each key sequentially — parallel calls were tripping per-key rate limits instantly.
+  const keyTests: { keyAlias: string; status?: string; matchCount: number | string; reason?: string }[] = [];
+  for (const k of keys) {
+    const res = await fetchRaw("/v1/currentMatches?offset=0", k);
+    const count = Array.isArray(res?.data) ? res.data.length : "?";
+    keyTests.push({
+      keyAlias: k.slice(0, 8) + "...",
+      status: res?.status,
+      matchCount: count,
+      reason: res?.reason,
+    });
+  }
 
   // Current matches with first working key
   const currentRaw = await fetchRaw("/v1/currentMatches?offset=0");

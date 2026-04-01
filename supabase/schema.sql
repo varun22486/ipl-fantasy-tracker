@@ -172,3 +172,12 @@ alter table fantasy_players add column if not exists provider_player_id text;
 do $$ begin
   alter table fantasy_players drop constraint if exists fantasy_players_side_check;
 exception when others then null; end $$;
+
+-- ── Row Level Security (Data API) ─────────────────────────────────────────────
+-- The app uses only the service role on the server; it bypasses RLS. Enabling RLS
+-- stops anonymous clients from reading/writing these tables via PostgREST.
+alter table series_settings enable row level security;
+alter table matches enable row level security;
+alter table api_key_stats enable row level security;
+alter table competitions enable row level security;
+alter table fantasy_players enable row level security;
