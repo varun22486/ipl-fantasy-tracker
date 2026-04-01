@@ -11,6 +11,8 @@ import type { CSSProperties } from "react";
 
 const YOU_COLOR = "#2563eb";
 const OPP_COLOR = "#dc2626";
+const YOU_LIGHT = "#dbeafe";
+const OPP_LIGHT = "#fee2e2";
 const MULTI_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#ea580c"];
 
 type HistoryMatchRow = {
