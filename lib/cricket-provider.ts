@@ -1152,13 +1152,47 @@ function extractCatchesFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
   }
 
   function processBattingEntry(b: any) {
+    const dt = safeString(b["dismissal-text"] ?? b.dismissalText ?? "");
     const dismissal = safeString(b.dismissal ?? b.howOut ?? "").toLowerCase();
-    if (!dismissal.includes("catch") && dismissal !== "caught") {
-      const dt = safeString(b["dismissal-text"] ?? b.dismissalText ?? "");
-      if (!/^c[\s&]/i.test(dt)) return;
+    const looksCaught =
+      dismissal.includes("catch") ||
+      dismissal === "caught" ||
+      dismissal === "cb" ||
+      /^c[\s&]/i.test(dt);
+    if (!looksCaught) return;
+
+    // Priority 1: dismissal-text — CricAPI's structured `catcher` field is sometimes wrong
+    // (e.g. keeper vs slip); "c Kuldeep Yadav b …" is authoritative.
+    // Caught-and-bowled: API uses "c and b Name" (word "and") not only "c&b Name".
+    if (dt) {
+      const cnb = dt.match(/^c\s*(?:&|and)\s*b\s+(.+)/i);
+      if (cnb) {
+        const bowlerField = b.bowler;
+        const id =
+          bowlerField && typeof bowlerField === "object"
+            ? safeString(bowlerField.id) || undefined
+            : undefined;
+        addCatch(cnb[1].trim(), id);
+        return;
+      }
+      // "c Name b Bowler" — must run after c-and-b so "c and b X" is not parsed as catcher "and"
+      const caught = dt.match(/^c\s+(.+?)\s+b\s+/i);
+      if (caught) {
+        const namePart = caught[1].trim();
+        let id: string | undefined;
+        const catcherField = b.catcher;
+        if (catcherField && typeof catcherField === "object" && typeof catcherField.id === "string") {
+          const cn = safeString(catcherField?.name ?? catcherField?.playerName ?? "");
+          if (cn && cn.toLowerCase().trim() === namePart.toLowerCase()) {
+            id = catcherField.id.trim();
+          }
+        }
+        addCatch(namePart, id);
+        return;
+      }
     }
 
-    // Priority 1: explicit catcher field (also carries the player UUID)
+    // Priority 2: explicit catcher only when text didn't identify the fielder
     const catcherField = b.catcher;
     if (catcherField) {
       const name =
@@ -1169,23 +1203,8 @@ function extractCatchesFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
         catcherField && typeof catcherField === "object" && typeof catcherField.id === "string"
           ? catcherField.id.trim() || undefined
           : undefined;
-      if (name) { addCatch(name, id); return; }
+      if (name) addCatch(name, id);
     }
-
-    // Priority 2: parse from dismissal-text ("c Phil Salt b Jacob Duffy")
-    const dt = safeString(b["dismissal-text"] ?? b.dismissalText ?? "");
-    if (!dt) return;
-
-    const cnb = dt.match(/^c\s*&\s*b\s+(.+)/i);
-    if (cnb) {
-      // caught-and-bowled: catcher = bowler (use bowler field's id if available)
-      const bowlerField = b.bowler;
-      const id = bowlerField && typeof bowlerField === "object" ? safeString(bowlerField.id) || undefined : undefined;
-      addCatch(cnb[1].trim(), id); return;
-    }
-
-    const caught = dt.match(/^c\s+(.+?)\s+b\s+/i);
-    if (caught) { addCatch(caught[1].trim()); return; }
   }
 
   if (Array.isArray((data as any).scorecard)) {
