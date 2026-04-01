@@ -377,45 +377,62 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
         </div>
       )}
 
-      {/* Player tables / manual entry */}
-      {yourFantasyPlayers.length > 0 || opponentFantasyPlayers.length > 0 ? (
-        <>
-          {/* Toggle between view and manual edit */}
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <button
-              type="button"
-              onClick={() => setShowManual((v) => !v)}
-              style={{
-                padding: "6px 14px", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer",
-                border: showManual ? "1px solid #d97706" : "1px solid #e2e8f0",
-                background: showManual ? "#fef9c3" : "white",
-                color: showManual ? "#92400e" : "#64748b",
-              }}
-            >
-              {showManual ? "✕ Close editor" : "✏️ Edit scores manually"}
-            </button>
-          </div>
+      {/* Player tables — all participants for multi-player, or 2 for head-to-head */}
+      {(() => {
+        // Build the list of participant groups to display
+        const groups: { title: string; players: FantasyPlayer[] }[] = isMultiPlayer && allParticipants && allParticipants.length > 0
+          ? allParticipants
+              .map(p => ({ title: p.name, players: p.players }))
+              .sort((a, b) => teamPoints(b.players) - teamPoints(a.players))
+          : [
+              { title: `${yourName}'s Team`, players: yourFantasyPlayers },
+              { title: `${opponentName}'s Team`, players: opponentFantasyPlayers },
+            ];
 
-          {showManual ? (
-            <ManualScorePanel
-              yourName={yourName}
-              opponentName={opponentName}
-              players={[...yourFantasyPlayers, ...opponentFantasyPlayers]}
-            />
-          ) : (
-            <div style={{ display: "grid", gap: 16 }}>
-              <PlayerTable title={`${yourName}'s Team`} players={yourFantasyPlayers} />
-              <PlayerTable title={`${opponentName}'s Team`} players={opponentFantasyPlayers} />
+        const hasAnyPlayers = groups.some(g => g.players.length > 0);
+        const allPlayers = groups.flatMap(g => g.players);
+
+        if (!hasAnyPlayers) {
+          return (
+            <div style={{ textAlign: "center", padding: 32, border: "1px solid #e2e8f0", borderRadius: 16, background: "white", color: "#64748b" }}>
+              No scores yet. Each participant saves their lineup first, then click <strong>Sync Scores</strong>.
             </div>
-          )}
-        </>
-      ) : (
-        <div style={{ textAlign: "center", padding: 32, border: "1px solid #e2e8f0", borderRadius: 16, background: "white", color: "#64748b" }}>
-          No scores yet. Save your lineup first, then click <strong>Sync Scores Now</strong>.
-          <br /><br />
-          <a href="/select" style={{ ...btnPrimary, textDecoration: "none", display: "inline-block" }}>👥 Select Teams</a>
-        </div>
-      )}
+          );
+        }
+
+        return (
+          <>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => setShowManual((v) => !v)}
+                style={{
+                  padding: "6px 14px", borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                  border: showManual ? "1px solid #d97706" : "1px solid #e2e8f0",
+                  background: showManual ? "#fef9c3" : "white",
+                  color: showManual ? "#92400e" : "#64748b",
+                }}
+              >
+                {showManual ? "✕ Close editor" : "✏️ Edit scores manually"}
+              </button>
+            </div>
+
+            {showManual ? (
+              <ManualScorePanel
+                yourName={yourName}
+                opponentName={opponentName}
+                players={allPlayers}
+              />
+            ) : (
+              <div style={{ display: "grid", gap: 16 }}>
+                {groups.map(g => g.players.length > 0 && (
+                  <PlayerTable key={g.title} title={g.title} players={g.players} />
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       <DebugPanel info={debugInfo} />
     </div>
