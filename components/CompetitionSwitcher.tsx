@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import Link from "next/link";
+import { parseCompetitionId, readActiveCompetitionIdFromCookie } from "@/lib/competition-id";
 
 type Competition = {
   id: number;
@@ -27,7 +28,17 @@ export default function CompetitionSwitcher({ variant }: Props) {
   const router = useRouter();
   const pathname = usePathname() ?? "/";
   const searchParams = useSearchParams();
-  const activeId = searchParams?.get("c") ? Number(searchParams.get("c")) : null;
+  const cParam = searchParams?.get("c") ?? "";
+  const urlId = parseCompetitionId(cParam || null);
+  const [cookieId, setCookieId] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (urlId != null) {
+      setCookieId(null);
+      return;
+    }
+    setCookieId(readActiveCompetitionIdFromCookie());
+  }, [pathname, cParam, urlId]);
+  const activeId = urlId ?? cookieId ?? null;
 
   const [competitions, setCompetitions] = useState<Competition[]>([]);
   const [defaultLabel, setDefaultLabel] = useState("Varun vs Rahul");

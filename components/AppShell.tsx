@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Suspense } from "react";
+import { Suspense, useLayoutEffect, useState } from "react";
+import { readActiveCompetitionIdFromCookie } from "@/lib/competition-id";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -38,10 +39,20 @@ function isActive(pathname: string, href: string) {
 function NavLinks({ variant }: { variant: "sidebar" | "header" | "mobile" }) {
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
-  const comp = searchParams?.get("c");
+  const cParam = searchParams?.get("c") ?? "";
+  const [navC, setNavC] = useState<string | null>(() => (cParam !== "" ? cParam : null));
+
+  useLayoutEffect(() => {
+    if (cParam !== "") {
+      setNavC(cParam);
+      return;
+    }
+    const id = readActiveCompetitionIdFromCookie();
+    setNavC(id != null ? String(id) : null);
+  }, [pathname, cParam]);
 
   function navHref(base: string) {
-    return comp ? `${base}?c=${comp}` : base;
+    return navC ? `${base}?c=${navC}` : base;
   }
 
   if (variant === "sidebar") {

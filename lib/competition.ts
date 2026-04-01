@@ -1,12 +1,5 @@
 import { cookies } from "next/headers";
-
-/** Valid positive DB id only — avoids NaN / 0 breaking Supabase filters. */
-function parseCompetitionId(raw: string | undefined | null): number | null {
-  if (raw == null || raw === "") return null;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 1 || n !== Math.floor(n)) return null;
-  return n;
-}
+import { parseCompetitionId } from "@/lib/competition-id";
 
 /**
  * Resolve the active competition ID from URL search params (priority)
