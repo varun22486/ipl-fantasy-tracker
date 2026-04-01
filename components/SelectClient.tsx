@@ -324,8 +324,16 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   if (isMulti) {
     const COLORS = ["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2"];
     const activePicks = allPicks[activeMultiIdx] ?? [];
-    const takenMulti = new Set(activePicks.filter(p => p.name.trim()).map(p => p.name.toLowerCase()));
     const canSave = activePicks.every(p => p.name.trim()) && activePicks.filter(p => p.captain).length === 1;
+
+    // Players taken by OTHER participants (not the active one) — these chips are locked
+    const takenByOthers = new Set(
+      allPicks.flatMap((picks, i) =>
+        i === activeMultiIdx ? [] : picks.filter(p => p.name.trim()).map(p => p.name.toLowerCase())
+      )
+    );
+    // Players already in the ACTIVE participant's own lineup (shown highlighted, re-tappable to no effect)
+    const takenByActive = new Set(activePicks.filter(p => p.name.trim()).map(p => p.name.toLowerCase()));
 
     return (
       <div style={{ display: "grid", gap: 20 }}>
@@ -352,6 +360,15 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
               ))}
             </div>
             <span style={{ fontSize: 12, color: "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT}</span>
+            {/* Show scores button — available once any team is saved */}
+            {savedSet.size > 0 && (
+              <button
+                onClick={() => window.location.reload()}
+                style={{ padding: "7px 14px", borderRadius: 10, border: "1px solid #2563eb", background: "white", color: "#2563eb", cursor: "pointer", fontWeight: 700, fontSize: 13 }}
+              >
+                {savedSet.size >= multiPlayers.length ? "✓ View match scores →" : `View scores (${multiPlayers.length - savedSet.size} pending) →`}
+              </button>
+            )}
           </div>
         </div>
 
@@ -421,8 +438,10 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                     <div style={{ fontWeight: 700, fontSize: 12, color: "#334155", marginBottom: 8, borderBottom: "1px solid #f1f5f9", paddingBottom: 6 }}>{team.teamName}</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {team.players.map(name => {
-                        const taken = takenMulti.has(name.toLowerCase());
-                        return <button key={name} type="button" disabled={taken} onClick={() => applyMultiRoster(name)} style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 500, cursor: taken ? "not-allowed" : "pointer", border: "1px solid #cbd5e1", background: taken ? "#f8fafc" : "white", color: taken ? "#94a3b8" : "#0f172a", textDecoration: taken ? "line-through" : "none", opacity: taken ? 0.5 : 1 }}>{name}</button>;
+                        const takenOther = takenByOthers.has(name.toLowerCase());
+                        const takenSelf  = takenByActive.has(name.toLowerCase());
+                        const label = takenOther ? " (taken)" : "";
+                        return <button key={name} type="button" disabled={takenOther} onClick={() => applyMultiRoster(name)} style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 500, cursor: takenOther ? "not-allowed" : "pointer", border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1", background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white", color: takenOther ? "#fca5a5" : "#0f172a", textDecoration: takenOther ? "line-through" : "none", opacity: takenOther ? 0.6 : 1 }}>{name}{label}</button>;
                       })}
                     </div>
                   </div>
@@ -431,8 +450,9 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             ) : (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {rosterNames.map(name => {
-                  const taken = takenMulti.has(name.toLowerCase());
-                  return <button key={name} type="button" disabled={taken} onClick={() => applyMultiRoster(name)} style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 500, cursor: taken ? "not-allowed" : "pointer", border: "1px solid #cbd5e1", background: taken ? "#f8fafc" : "white", color: taken ? "#94a3b8" : "#0f172a", opacity: taken ? 0.5 : 1 }}>{name}</button>;
+                  const takenOther = takenByOthers.has(name.toLowerCase());
+                  const takenSelf  = takenByActive.has(name.toLowerCase());
+                  return <button key={name} type="button" disabled={takenOther} onClick={() => applyMultiRoster(name)} style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 500, cursor: takenOther ? "not-allowed" : "pointer", border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1", background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white", color: takenOther ? "#fca5a5" : "#0f172a", opacity: takenOther ? 0.6 : 1 }}>{name}</button>;
                 })}
               </div>
             )}

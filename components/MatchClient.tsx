@@ -83,13 +83,11 @@ function DebugPanel({ info }: { info: DebugData | null }) {
 
 export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId, allParticipants }: Props) {
   const isMultiPlayer = (allParticipants?.length ?? 0) > 2;
-  // Show inline team picker only when NO ONE has saved yet (truly fresh start)
-  // OR when the user explicitly clicks "Change teams".
-  // If at least one participant has saved, show the live view by default
-  // so people don't get stuck in a loop — the pending banner will prompt
-  // remaining participants to add their picks.
+  // Show inline team picker only when NO ONE has saved yet (truly fresh start).
+  // Once any participant has saved, show the live view — the pending banner
+  // guides remaining participants to pick via "Pick teams →".
   const nobodyHasSaved = isMultiPlayer
-    ? (allParticipants ?? []).every(p => p.players.length === 0)
+    ? (allParticipants ?? []).length === 0 || (allParticipants ?? []).every(p => p.players.length === 0)
     : !yourLineupSaved && !opponentLineupSaved;
   const needsSetup = nobodyHasSaved && hasLinkedMatch;
   const [teamPickerOpen, setTeamPickerOpen] = useState(needsSetup);
