@@ -63,6 +63,20 @@ export default function CompetitionSwitcher({ variant }: Props) {
         document.cookie = `active_comp=${id}; path=/; max-age=${60 * 60 * 24 * 30}`;
       }
     }
+
+    const prevId = activeId ?? null;
+    const nextId = id ?? null;
+    const competitionChanged = nextId !== prevId;
+
+    // Match / change-team UI keeps heavy client state; swapping ?c= on the same URL
+    // does not remount, so the old competition sticks. Send users home for the new league.
+    const onMatchRoute = pathname === "/match" || pathname.startsWith("/match/");
+    if (competitionChanged && onMatchRoute) {
+      const homeQs = nextId == null ? "" : `?c=${nextId}`;
+      router.push(`/${homeQs}`);
+      return;
+    }
+
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     if (id == null) params.delete("c");
     else params.set("c", String(id));
