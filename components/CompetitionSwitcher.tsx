@@ -15,8 +15,7 @@ export default function CompetitionSwitcher() {
   const [defaultLabel, setDefaultLabel] = useState("Varun vs Rahul");
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [newP1, setNewP1] = useState("");
-  const [newP2, setNewP2] = useState("");
+  const [newPlayers, setNewPlayers] = useState<string[]>(["", ""]);
   const [saving, setSaving] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -55,18 +54,19 @@ export default function CompetitionSwitcher() {
   }
 
   async function addCompetition() {
-    if (!newP1.trim() || !newP2.trim()) return;
+    const players = newPlayers.map(p => p.trim()).filter(Boolean);
+    if (players.length < 2) return;
     setSaving(true);
     try {
       const r = await fetch("/api/competitions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ player1_name: newP1.trim(), player2_name: newP2.trim() }),
+        body: JSON.stringify({ players }),
       });
       const j = await r.json();
       if (j.ok) {
         setCompetitions(prev => [...prev, j.competition]);
-        setNewP1(""); setNewP2(""); setAdding(false);
+        setNewPlayers(["", ""]); setAdding(false);
         navigateTo(j.competition.id);
       }
     } finally {
@@ -74,8 +74,24 @@ export default function CompetitionSwitcher() {
     }
   }
 
+  function updatePlayer(idx: number, val: string) {
+    setNewPlayers(prev => prev.map((p, i) => i === idx ? val : p));
+  }
+  function addPlayerField() {
+    setNewPlayers(prev => [...prev, ""]);
+  }
+  function removePlayerField(idx: number) {
+    if (newPlayers.length <= 2) return;
+    setNewPlayers(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  const activeCompPlayers: string[] = activeComp
+    ? (Array.isArray(activeComp.players) ? activeComp.players : [activeComp.player1_name, activeComp.player2_name])
+    : [];
   const label = activeComp
-    ? `${activeComp.player1_name} vs ${activeComp.player2_name}`
+    ? (activeCompPlayers.length > 2
+        ? `${activeCompPlayers[0]} +${activeCompPlayers.length - 1}`
+        : `${activeCompPlayers[0]} vs ${activeCompPlayers[1]}`)
     : defaultLabel;
 
   async function deleteCompetition(id: number) {
@@ -125,11 +141,15 @@ export default function CompetitionSwitcher() {
             <span style={{ flex: 1, textAlign: "left" }}>{defaultLabel}</span>
           </button>
 
-          {competitions.map(c => (
+          {competitions.map(c => {
+            const players: string[] = Array.isArray(c.players) ? c.players : [c.player1_name, c.player2_name];
+            const compLabel = players.length > 2 ? `${players[0]} + ${players.length - 1} others` : `${players[0]} vs ${players[1]}`;
+            return (
             <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <button onClick={() => navigateTo(c.id)} style={{ ...itemStyle(activeId === c.id), flex: 1 }}>
                 <span style={{ width: 8, height: 8, borderRadius: 999, background: "#93c5fd", flexShrink: 0 }} />
-                <span style={{ flex: 1, textAlign: "left" }}>{c.player1_name} vs {c.player2_name}</span>
+                <span style={{ flex: 1, textAlign: "left" }}>{compLabel}</span>
+                {players.length > 2 && <span style={{ fontSize: 10, color: "#64748b" }}>{players.length}p</span>}
               </button>
               <button
                 onClick={() => void deleteCompetition(c.id)}
@@ -144,7 +164,8 @@ export default function CompetitionSwitcher() {
                 ✕
               </button>
             </div>
-          ))}
+          );
+          })}
 
           <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: 6, paddingTop: 6 }}>
             {!adding ? (
@@ -153,25 +174,29 @@ export default function CompetitionSwitcher() {
               </button>
             ) : (
               <div style={{ padding: "4px 6px", display: "grid", gap: 6 }}>
-                <input
-                  autoFocus
-                  value={newP1}
-                  onChange={e => setNewP1(e.target.value)}
-                  placeholder="Player 1 name"
-                  style={inputStyle}
-                />
-                <input
-                  value={newP2}
-                  onChange={e => setNewP2(e.target.value)}
-                  placeholder="Player 2 name"
-                  onKeyDown={e => e.key === "Enter" && void addCompetition()}
-                  style={inputStyle}
-                />
+                {newPlayers.map((p, i) => (
+                  <div key={i} style={{ display: "flex", gap: 4 }}>
+                    <input
+                      autoFocus={i === 0}
+                      value={p}
+                      onChange={e => updatePlayer(i, e.target.value)}
+                      placeholder={`Player ${i + 1}`}
+                      onKeyDown={e => e.key === "Enter" && i === newPlayers.length - 1 && void addCompetition()}
+                      style={{ ...inputStyle, flex: 1 }}
+                    />
+                    {newPlayers.length > 2 && (
+                      <button onClick={() => removePlayerField(i)} style={{ ...cancelBtnStyle, flex: "0 0 28px", padding: 0, fontSize: 14 }}>✕</button>
+                    )}
+                  </div>
+                ))}
+                <button onClick={addPlayerField} style={{ ...addBtnStyle, fontSize: 12, padding: "5px 0" }}>
+                  + Add another player
+                </button>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => void addCompetition()} disabled={saving || !newP1.trim() || !newP2.trim()} style={saveBtnStyle}>
-                    {saving ? "…" : "Add"}
+                  <button onClick={() => void addCompetition()} disabled={saving || newPlayers.filter(p => p.trim()).length < 2} style={saveBtnStyle}>
+                    {saving ? "…" : `Create (${newPlayers.filter(p => p.trim()).length} players)`}
                   </button>
-                  <button onClick={() => { setAdding(false); setNewP1(""); setNewP2(""); }} style={cancelBtnStyle}>
+                  <button onClick={() => { setAdding(false); setNewPlayers(["", ""]); }} style={cancelBtnStyle}>
                     Cancel
                   </button>
                 </div>

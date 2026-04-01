@@ -11,15 +11,30 @@ export async function GET() {
   return NextResponse.json({ ok: true, competitions: data ?? [] });
 }
 
-/** POST /api/competitions — create a new competition */
+/** POST /api/competitions — create a new competition with 2+ players */
 export async function POST(req: NextRequest) {
   try {
-    const { name, player1_name, player2_name } = await req.json();
-    if (!player1_name?.trim() || !player2_name?.trim())
-      return NextResponse.json({ ok: false, error: "Both player names are required." }, { status: 400 });
+    const body = await req.json();
+    // Accept either {players: string[]} or legacy {player1_name, player2_name}
+    let players: string[] = [];
+    if (Array.isArray(body.players)) {
+      players = body.players.map((p: string) => String(p).trim()).filter(Boolean);
+    } else if (body.player1_name) {
+      players = [body.player1_name, body.player2_name].map((p: string) => String(p ?? "").trim()).filter(Boolean);
+    }
+    if (players.length < 2)
+      return NextResponse.json({ ok: false, error: "At least 2 players are required." }, { status: 400 });
+
+    const autoName = players.join(" · ");
+    const compName = (body.name?.trim() || autoName);
     const { data, error } = await supabaseAdmin
       .from("competitions")
-      .insert({ name: (name || `${player1_name} vs ${player2_name}`).trim(), player1_name: player1_name.trim(), player2_name: player2_name.trim() })
+      .insert({
+        name: compName,
+        player1_name: players[0],
+        player2_name: players[1],
+        players,
+      })
       .select("*")
       .single();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

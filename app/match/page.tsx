@@ -48,19 +48,32 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
 
   let yourName: string;
   let opponentName: string;
+  let compPlayers: string[] = [];
   if (competitionId != null) {
-    const { data: comp } = await (await import("@/lib/supabase-admin")).supabaseAdmin
-      .from("competitions").select("player1_name,player2_name").eq("id", competitionId).single();
-    yourName = comp?.player1_name ?? "Player 1";
-    opponentName = comp?.player2_name ?? "Player 2";
+    const { supabaseAdmin } = await import("@/lib/supabase-admin");
+    const { data: comp } = await supabaseAdmin
+      .from("competitions").select("*").eq("id", competitionId).single();
+    compPlayers = Array.isArray(comp?.players) ? comp.players : [comp?.player1_name ?? "Player 1", comp?.player2_name ?? "Player 2"];
+    yourName = compPlayers[0] ?? "Player 1";
+    opponentName = compPlayers[1] ?? "Player 2";
   } else {
     yourName = (settings as any)?.your_name ?? "Varun";
     opponentName = settings?.opponent_name ?? "Rahul";
   }
 
+  const isCompFilter = (p: FantasyPlayer) =>
+    competitionId != null
+      ? (p as any).competition_id === competitionId
+      : (p as any).competition_id == null;
+
   const p1Side = competitionId != null ? yourName : "You";
-  const yourPlayers = matchPlayers.filter((p) => p.side === p1Side && (competitionId != null ? (p as any).competition_id === competitionId : (p as any).competition_id == null));
-  const oppPlayers = matchPlayers.filter((p) => p.side !== p1Side && (competitionId != null ? (p as any).competition_id === competitionId : (p as any).competition_id == null));
+  const yourPlayers = matchPlayers.filter((p) => p.side === p1Side && isCompFilter(p));
+  const oppPlayers = matchPlayers.filter((p) => p.side !== p1Side && isCompFilter(p));
+
+  // For multi-player competitions, collect all participants' picks
+  const allParticipantPlayers = compPlayers.length > 2
+    ? compPlayers.map(name => ({ name, players: matchPlayers.filter(p => p.side === name && isCompFilter(p)) }))
+    : [];
 
   const { rosterNames, squads, nameToId } = parseRoster(currentMatch);
 
@@ -103,6 +116,7 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         existingYourPlayers={yourPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
         existingOppPlayers={oppPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
         competitionId={competitionId}
+        allParticipants={allParticipantPlayers}
       />
     </main>
   );

@@ -54,6 +54,8 @@ type Props = {
   existingYourPlayers: { name: string; captain: boolean }[];
   existingOppPlayers: { name: string; captain: boolean }[];
   competitionId?: number | null;
+  /** For 3+ player competitions — all participants and their picks */
+  allParticipants?: { name: string; players: FantasyPlayer[] }[];
 };
 
 function DebugPanel({ info }: { info: DebugData | null }) {
@@ -79,7 +81,8 @@ function DebugPanel({ info }: { info: DebugData | null }) {
   );
 }
 
-export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId }: Props) {
+export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId, allParticipants }: Props) {
+  const isMultiPlayer = (allParticipants?.length ?? 0) > 2;
   // Show inline team picker if no lineup exists OR if user clicked "Change Team"
   const needsSetup = !yourLineupSaved && !opponentLineupSaved;
   const [teamPickerOpen, setTeamPickerOpen] = useState(needsSetup);
@@ -350,6 +353,27 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
             <button style={btnPrimary} onClick={() => void doSubmitSeedLink(pickedLinkId)} disabled={syncing || !pickedLinkId}>{syncing ? "Working…" : "Link selected"}</button>
             <button style={btnSecondary} onClick={() => { setLinkChoices(null); setMessage(""); }}>Cancel</button>
           </div>
+        </div>
+      )}
+
+      {/* Multi-player scoreboard */}
+      {isMultiPlayer && allParticipants && allParticipants.some(p => p.players.length > 0) && (
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>Participant Scores</div>
+          {allParticipants
+            .map(p => ({ ...p, total: teamPoints(p.players) }))
+            .sort((a, b) => b.total - a.total)
+            .map((p, i) => (
+              <div key={p.name} style={{ padding: "12px 16px", border: "1px solid #e2e8f0", borderRadius: 14, background: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", width: 20 }}>#{i + 1}</span>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</span>
+                  {p.players.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>no lineup</span>}
+                </div>
+                <span style={{ fontSize: 22, fontWeight: 800, color: i === 0 && p.total > 0 ? "#2563eb" : "#0f172a" }}>{p.total} <span style={{ fontSize: 12, color: "#94a3b8" }}>pts</span></span>
+              </div>
+            ))
+          }
         </div>
       )}
 

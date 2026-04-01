@@ -160,8 +160,7 @@ type Competition = { id: number; name: string; player1_name: string; player2_nam
 
 function CompetitionsPanel() {
   const [competitions, setCompetitions] = useState<Competition[]>([]);
-  const [newP1, setNewP1] = useState("");
-  const [newP2, setNewP2] = useState("");
+  const [newPlayers, setNewPlayers] = useState<string[]>(["", ""]);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -171,17 +170,22 @@ function CompetitionsPanel() {
     });
   }, []);
 
+  function updatePlayer(idx: number, val: string) {
+    setNewPlayers(prev => prev.map((p, i) => i === idx ? val : p));
+  }
+
   async function add() {
-    if (!newP1.trim() || !newP2.trim()) return;
+    const players = newPlayers.map(p => p.trim()).filter(Boolean);
+    if (players.length < 2) return;
     setSaving(true); setMsg("");
     try {
       const r = await fetch("/api/competitions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ player1_name: newP1.trim(), player2_name: newP2.trim() }),
+        body: JSON.stringify({ players }),
       });
       const j = await r.json();
-      if (j.ok) { setCompetitions(prev => [...prev, j.competition]); setNewP1(""); setNewP2(""); setMsg("Added!"); }
+      if (j.ok) { setCompetitions(prev => [...prev, j.competition]); setNewPlayers(["", ""]); setMsg("Created!"); }
       else setMsg(j.error || "Failed");
     } finally { setSaving(false); }
   }
@@ -194,46 +198,62 @@ function CompetitionsPanel() {
 
   return (
     <div style={panel}>
-      <h2 style={{ ...sectionTitle, marginBottom: 4 }}>🏆 Competitions (pairs)</h2>
+      <h2 style={{ ...sectionTitle, marginBottom: 4 }}>🏆 Competitions</h2>
       <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
-        Each competition is a head-to-head pair. Switch between them using the selector at the top of the sidebar.
-        Your original {'"'}Default{'"'} competition (from Player Names above) is always available.
+        Each competition is a group of 2 or more players tracking their fantasy picks together.
+        Switch between them using the selector at the top of the sidebar.
+        Your original {'"'}Default{'"'} competition is always available.
       </div>
 
       {competitions.length === 0 ? (
         <div style={{ fontSize: 13, color: "#94a3b8", padding: "12px 0" }}>No extra competitions yet.</div>
       ) : (
         <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
-          {competitions.map(c => (
-            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-              <div style={{ flex: 1 }}>
-                <span style={{ fontWeight: 700, fontSize: 14 }}>{c.player1_name}</span>
-                <span style={{ color: "#94a3b8", margin: "0 8px" }}>vs</span>
-                <span style={{ fontWeight: 700, fontSize: 14 }}>{c.player2_name}</span>
+          {competitions.map(c => {
+            const players: string[] = Array.isArray(c.players) ? c.players : [c.player1_name, c.player2_name];
+            return (
+              <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: 12, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                <div style={{ flex: 1 }}>
+                  {players.map((p, i) => (
+                    <span key={i}>
+                      <span style={{ fontWeight: 700, fontSize: 14 }}>{p}</span>
+                      {i < players.length - 1 && <span style={{ color: "#94a3b8", margin: "0 6px" }}>·</span>}
+                    </span>
+                  ))}
+                  <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 8 }}>{players.length} players</span>
+                </div>
+                <button
+                  onClick={() => void remove(c.id)}
+                  style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 12, fontWeight: 700 }}
+                >
+                  Delete
+                </button>
               </div>
-              <span style={{ fontSize: 11, color: "#94a3b8", marginRight: 8 }}>?c={c.id}</span>
-              <button
-                onClick={() => void remove(c.id)}
-                style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 12, fontWeight: 700 }}
-              >
-                Delete
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       <div style={{ display: "grid", gap: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>Add a new pair</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          <input value={newP1} onChange={e => setNewP1(e.target.value)} placeholder="Player 1 name" style={input} />
-          <input value={newP2} onChange={e => setNewP2(e.target.value)} placeholder="Player 2 name" style={input} onKeyDown={e => e.key === "Enter" && void add()} />
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#475569" }}>Create new competition</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          {newPlayers.map((p, i) => (
+            <div key={i} style={{ display: "flex", gap: 8 }}>
+              <input value={p} onChange={e => updatePlayer(i, e.target.value)} placeholder={`Player ${i + 1} name`} style={{ ...input, flex: 1 }} />
+              {newPlayers.length > 2 && (
+                <button onClick={() => setNewPlayers(prev => prev.filter((_, j) => j !== i))} style={{ padding: "0 10px", border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", borderRadius: 10, cursor: "pointer", fontWeight: 700 }}>✕</button>
+              )}
+            </div>
+          ))}
+          <button onClick={() => setNewPlayers(prev => [...prev, ""])} style={{ ...btnSecondary, justifySelf: "start", fontSize: 13 }}>
+            + Add another player
+          </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={() => void add()} disabled={saving || !newP1.trim() || !newP2.trim()} style={btnPrimary}>
-            {saving ? "Adding…" : "Add pair"}
+          <button onClick={() => void add()} disabled={saving || newPlayers.filter(p => p.trim()).length < 2} style={btnPrimary}>
+            {saving ? "Creating…" : `Create competition (${newPlayers.filter(p => p.trim()).length} players)`}
           </button>
-          {msg && <span style={{ fontSize: 13, color: msg === "Added!" ? "#16a34a" : "#dc2626" }}>{msg}</span>}
+          {msg && <span style={{ fontSize: 13, color: msg === "Created!" ? "#16a34a" : "#dc2626" }}>{msg}</span>}
         </div>
       </div>
     </div>

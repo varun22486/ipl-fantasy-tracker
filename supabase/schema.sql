@@ -105,10 +105,15 @@ $$;
 create table if not exists competitions (
   id bigint generated always as identity primary key,
   name text not null default 'Main',
-  player1_name text not null,
-  player2_name text not null,
+  player1_name text not null,  -- kept for backward compat, = players[0]
+  player2_name text not null,  -- kept for backward compat, = players[1]
+  players jsonb,               -- ["Alice","Bob","Charlie",...] — full participant list
   created_at timestamp with time zone default now()
 );
+
+-- Migrate existing 2-player competitions to have a players array
+alter table competitions add column if not exists players jsonb;
+update competitions set players = jsonb_build_array(player1_name, player2_name) where players is null;
 
 -- Add competition scope to fantasy players
 alter table fantasy_players add column if not exists competition_id bigint references competitions(id) on delete cascade;
