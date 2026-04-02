@@ -65,7 +65,7 @@ type Props = {
   /** lowercase player name → CricAPI UUID; used to save provider_player_id at lineup time */
   nameToId: Record<string, string>;
   hasLinkedMatch: boolean;
-  /** DB match row — scopes "Refresh XI" / roster fetch to this fixture */
+  /** DB match row — scopes roster fetch to this fixture */
   matchId?: number | null;
   /** null = default (series_settings) competition; number = named competition */
   competitionId?: number | null;
@@ -436,9 +436,9 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 15 }}>Match Players</div>
-                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{hasRoster ? "Tap to add to the active participant" : "Fetch the XI once announced"}</div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{hasRoster ? "Tap to add to the active participant" : "Load the full squad roster"}</div>
               </div>
-              {hasRoster && <button type="button" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing} style={btnSm}>{syncing ? "…" : "↺ Refresh XI"}</button>}
+              {hasRoster && <button type="button" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing} style={btnSm}>{syncing ? "…" : "↺ Refresh roster"}</button>}
             </div>
             {/* Active participant switcher */}
             {hasRoster && (
@@ -747,13 +747,13 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
                 {hasRoster
                   ? "Tap a name to add to the selected team"
-                  : hasLinkedMatch ? "Fetch the playing XI once the teams are announced" : "Link a match first"}
+                  : hasLinkedMatch ? "Load the full squad roster from the API" : "Link a match first"}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {hasRoster && (
                 <button type="button" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing} style={btnSm}>
-                  {syncing ? "…" : "↺ Refresh XI"}
+                  {syncing ? "…" : "↺ Refresh roster"}
                 </button>
               )}
               {!hasLinkedMatch && (

@@ -1503,437 +1503,26 @@ function resolveFieldingTeamName(battingTeam: string, inningsBattingSides: strin
   return null;
 }
 
-function scorecardInningsHasBatting(inn: unknown): boolean {
-  return scorecardInningsBattingRows(inn).length > 0;
-}
-
-/** True once at least one innings has a batting card (toss done / match underway). */
-function scorecardMatchHasBegun(scorecard: unknown[]): boolean {
-  if (!Array.isArray(scorecard)) return false;
-  return scorecard.some(scorecardInningsHasBatting);
-}
-
-function rowLooksLikeSubstituteOrImpact(row: unknown): boolean {
-  if (!row || typeof row !== "object") return false;
-  const r = row as MaybeRecord;
-  if (r.substitute === true || r.isSubstitute === true || r.impactSubstitute === true || r.impactPlayer === true || r.isImpactPlayer === true)
-    return true;
-  const pr = safeString(r.playingRole as string).toLowerCase();
-  if (pr.includes("substitute") || pr.includes("impact")) return true;
-  const b = (r as any).batsman;
-  const nm = typeof b === "object" && b ? safeString((b as MaybeRecord).name) : safeString(b);
-  if (/\(impact/i.test(nm) || /\bsub(stitute)?\b/i.test(nm)) return true;
-  return false;
-}
-
-/** Loose key so "Angkrish Raghuvanshi †" matches squad "Angkrish Raghuvanshi". */
-function rosterDedupeKey(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize("NFKC")
-    .replace(/\u2020|\u2021|†/g, "")
-    .replace(/\([^)]*\)/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function squadMemberDisplayName(p: unknown): string {
-  if (typeof p === "string") return p.trim();
-  if (!p || typeof p !== "object") return "";
-  const o = p as MaybeRecord;
-  return safeString(o.name || o.playerName || o.fullName || o.batsman);
-}
-
-/**
- * CricAPI squad objects often include impact / bench players. `match_squad` list order is not toss XI order,
- * so merge must not treat "first N names" as the playing 11.
- */
-/** When the API marks at least one `inPlayingXI: true`, only those rows count as playing XI. */
-type SquadXiFlagMode = "none" | "strict_marked_playing";
-
-function squadXiFlagMode(players: unknown[]): SquadXiFlagMode {
-  if (!Array.isArray(players)) return "none";
-  const anyPlaying = players.some(
-    (p) => p && typeof p === "object" && (p as MaybeRecord).inPlayingXI === true
-  );
-  return anyPlaying ? "strict_marked_playing" : "none";
-}
-
-function playingXiEligibleFromSquadMember(p: unknown, xiMode: SquadXiFlagMode): boolean {
-  if (p == null) return xiMode !== "strict_marked_playing";
-  if (typeof p === "string") {
-    const n = p.trim();
-    if (!n) return false;
-    if (/\(impact/i.test(n) || /\bsub(stitute)?\b/i.test(n)) return false;
-    return xiMode !== "strict_marked_playing";
-  }
-  if (typeof p !== "object") return xiMode !== "strict_marked_playing";
-  const o = p as MaybeRecord;
-  if (xiMode === "strict_marked_playing") return o.inPlayingXI === true;
-
-  if (
-    o.substitute === true ||
-    o.isSubstitute === true ||
-    o.impactSubstitute === true ||
-    o.impactPlayer === true ||
-    o.isImpactPlayer === true ||
-    o.onBench === true ||
-    o.isBenched === true
-  )
-    return false;
-  if (typeof o.inPlayingXI === "boolean" && o.inPlayingXI === false) return false;
-
-  const po = (o as any).playingOrder ?? (o as any).playingPosition ?? (o as any).squadPosition;
-  if (typeof po === "number" && Number.isFinite(po) && po > 11) return false;
-
-  const role = safeString((o.role as string) || (o.playingRole as string) || (o.type as string)).toLowerCase();
-  if (
-    role.includes("impact") ||
-    role.includes("substitute") ||
-    role.includes("super sub") ||
-    role.includes("bench") ||
-    role.includes("reserve")
-  )
-    return false;
-
-  const nm = squadMemberDisplayName(p);
-  if (/\(impact/i.test(nm) || /\bsub(stitute)?\b/i.test(nm)) return false;
-  return true;
-}
-
-/** Order fill candidates: WK / batters before bowlers so sparse bowling rows + fill ≈ real XI mix. */
-function squadMemberRoleRank(p: unknown): number {
-  if (!p || typeof p !== "object") return 50;
-  const role = safeString((p as any).role || (p as any).playingRole || (p as any).type || "").toLowerCase();
-  if (/impact|substitute|bench|reserve/.test(role)) return 200;
-  const po = (p as any).playingOrder ?? (p as any).playingPosition ?? (p as any).squadPosition;
-  if (typeof po === "number" && Number.isFinite(po) && po >= 1 && po <= 11) return po;
-  if (/wicket|wk\b|keeper/.test(role)) return 0;
-  if (/all.?round/.test(role)) return 20;
-  if (/\bbat|^batter|top.?order|middle.?order|opening/i.test(role) && !/\bbowl/i.test(role)) return 10;
-  if (/\bbowl/.test(role)) return 40;
-  return 30;
-}
-
-function orderedEligibleFillNames(rawPlayers: any[], seenRosterKeys: Set<string>): string[] {
-  const xiMode = squadXiFlagMode(rawPlayers);
-  const entries = rawPlayers
-    .map((p, idx) => ({ p, idx }))
-    .filter(({ p }) => playingXiEligibleFromSquadMember(p, xiMode))
-    .map(({ p, idx }) => {
-      const name = squadMemberDisplayName(p);
-      return { name, idx, rank: squadMemberRoleRank(p), key: name ? rosterDedupeKey(name) : "" };
-    })
-    .filter((e) => e.name && e.key);
-
-  entries.sort((a, b) => {
-    if (a.rank !== b.rank) return a.rank - b.rank;
-    return a.idx - b.idx;
+/** Prefer the candidate with the most total players (full squad over thin scorecard-derived lists). */
+function pickPreferredRosterSquads(candidates: SquadTeam[][]): SquadTeam[] {
+  const nonempty = candidates.filter((c) => c.length > 0 && squadPlayerCount(c) > 0);
+  if (!nonempty.length) return [];
+  const twoTeam = nonempty.filter((c) => c.length >= 2);
+  const pool = twoTeam.length ? twoTeam : nonempty;
+  const ranked = pool.slice();
+  ranked.sort((a, b) => {
+    const ma = a.length >= 2 ? 0 : 1;
+    const mb = b.length >= 2 ? 0 : 1;
+    if (ma !== mb) return ma - mb;
+    return squadPlayerCount(b) - squadPlayerCount(a);
   });
-
-  const out: string[] = [];
-  const used = new Set(seenRosterKeys);
-  for (const e of entries) {
-    if (used.has(e.key)) continue;
-    used.add(e.key);
-    out.push(e.name);
-  }
-  return out;
-}
-
-function battingNamesOrderedExcludingSubs(inn: unknown): string[] {
-  const names: string[] = [];
-  for (const row of scorecardInningsBattingRows(inn)) {
-    if (rowLooksLikeSubstituteOrImpact(row)) continue;
-    const b = (row as any).batsman;
-    const n = typeof b === "object" && b ? safeString((b as MaybeRecord).name) : safeString(b);
-    if (!n || n.toLowerCase() === "extras") continue;
-    names.push(n);
-  }
-  return names;
-}
-
-function bowlingNamesOrdered(inn: unknown): string[] {
-  const names: string[] = [];
-  for (const row of scorecardInningsBowlingRows(inn)) {
-    const b = (row as any).bowler;
-    const n = typeof b === "object" && b ? safeString((b as MaybeRecord).name) : safeString(b);
-    if (!n || n.toLowerCase() === "extras") continue;
-    names.push(n);
-  }
-  return names;
-}
-
-function findBattingInningForTeam(scorecard: any[], team: string): any | null {
-  for (const inn of scorecard) {
-    if (teamsLooselySame(parseInningBattingSideName(inn), team)) return inn;
-  }
-  return null;
-}
-
-/**
- * Live scorecards often only list batters who have faced balls + bowlers who have bowled.
- * Fill toward 11 from `teams` / `teamInfo` / `data.players` using the same eligibility + role ordering
- * as match_squad merge (not raw API list order).
- */
-function supplementPlayingXIFromTeamLists(data: MaybeRecord, teamLabel: string, existing: string[]): string[] {
-  const cap = 11;
-  const out = [...existing];
-  const seen = new Set(out.map((n) => rosterDedupeKey(n)));
-
-  function addFromPlayerList(pl: unknown[]) {
-    if (!Array.isArray(pl) || pl.length === 0 || out.length >= cap) return;
-    for (const n of orderedEligibleFillNames(pl as any[], seen)) {
-      if (out.length >= cap) return;
-      if (!n || n.toLowerCase() === "extras") continue;
-      const k = rosterDedupeKey(n);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(n);
-    }
-  }
-
-  const teams = data.teams;
-  if (Array.isArray(teams)) {
-    for (const t of teams) {
-      const tn = safeString((t as any).name || (t as any).teamName || (t as any).team);
-      if (!tn || !teamsLooselySame(tn, teamLabel)) continue;
-      const pl = (t as any).players;
-      if (Array.isArray(pl)) addFromPlayerList(pl);
-      break;
-    }
-  }
-
-  const teamInfo = data.teamInfo;
-  if (out.length < cap && Array.isArray(teamInfo)) {
-    for (const t of teamInfo) {
-      const tn = safeString((t as any).name || (t as any).teamName);
-      if (!tn || !teamsLooselySame(tn, teamLabel)) continue;
-      const pl = (t as any).players;
-      if (Array.isArray(pl)) addFromPlayerList(pl);
-      break;
-    }
-  }
-
-  const playersByTeam = data.players;
-  if (out.length < cap && playersByTeam && typeof playersByTeam === "object" && !Array.isArray(playersByTeam)) {
-    for (const [teamName, players] of Object.entries(playersByTeam)) {
-      if (!teamsLooselySame(teamName, teamLabel)) continue;
-      if (Array.isArray(players)) addFromPlayerList(players as unknown[]);
-      break;
-    }
-  }
-
-  return out.slice(0, cap);
-}
-
-function findFieldingInningForTeam(scorecard: any[], fieldingTeam: string, data: MaybeRecord): any | null {
-  const sides = scorecard.map((i) => parseInningBattingSideName(i)).filter(Boolean);
-  for (const inn of scorecard) {
-    const bt = parseInningBattingSideName(inn);
-    if (!bt) continue;
-    const fld = resolveFieldingTeamName(bt, sides, data);
-    if (fld && teamsLooselySame(fld, fieldingTeam)) return inn;
-  }
-  return null;
-}
-
-function fillPlayerIdsFromScorecard(names: string[], scorecard: any[]): Record<string, string> {
-  const need = new Set(names.map((n) => n.toLowerCase()));
-  const idMap: Record<string, string> = {};
-  for (const inn of scorecard) {
-    for (const row of scorecardInningsBattingRows(inn)) {
-      const b = (row as any).batsman;
-      const n = typeof b === "object" && b ? safeString((b as MaybeRecord).name) : safeString(b);
-      const id = typeof b === "object" && b ? safeString((b as MaybeRecord).id || "") : "";
-      const k = n.toLowerCase();
-      if (n && id && need.has(k) && !idMap[k]) idMap[k] = id;
-    }
-    for (const row of scorecardInningsBowlingRows(inn)) {
-      const b = (row as any).bowler;
-      const n = typeof b === "object" && b ? safeString((b as MaybeRecord).name) : safeString(b);
-      const id = typeof b === "object" && b ? safeString((b as MaybeRecord).id || "") : "";
-      const k = n.toLowerCase();
-      if (n && id && need.has(k) && !idMap[k]) idMap[k] = id;
-    }
-  }
-  return idMap;
-}
-
-/**
- * Announced / starting XI for fantasy: each team's own batting card (order, max 11),
- * excluding obvious impact/super-sub rows, then fill toward 11 with bowlers from the
- * innings where that team fielded (covers non-batters who never get a batting row).
- */
-function extractPlayingElevenSquadsFromScorecard(data: MaybeRecord, scorecard: any[]): SquadTeam[] {
-  const sides = [...new Set(scorecard.map((i) => parseInningBattingSideName(i)).filter(Boolean))];
-  if (sides.length < 2) return [];
-
-  const playingXIForTeam = (team: string): string[] => {
-    const batInn = findBattingInningForTeam(scorecard, team);
-    let names = batInn ? battingNamesOrderedExcludingSubs(batInn) : [];
-    if (names.length > 11) names = names.slice(0, 11);
-
-    if (names.length < 11) {
-      const fldInn = findFieldingInningForTeam(scorecard, team, data);
-      const bowl = fldInn ? bowlingNamesOrdered(fldInn) : [];
-      const seen = new Set(names.map((n) => rosterDedupeKey(n)));
-      for (const b of bowl) {
-        if (names.length >= 11) break;
-        const k = rosterDedupeKey(b);
-        if (!seen.has(k)) {
-          seen.add(k);
-          names.push(b);
-        }
-      }
-    }
-    if (names.length < 11) {
-      names = supplementPlayingXIFromTeamLists(data, team, names);
-    }
-    if (names.length > 11) names = names.slice(0, 11);
-    return names;
-  };
-
-  const fixtureOrder = teamNamesFromMatchData(data);
-  const out: SquadTeam[] = [];
-  const used = new Set<string>();
-
-  if (fixtureOrder.length === 2) {
-    for (const hint of fixtureOrder) {
-      const tSide = sides.find((s) => teamsLooselySame(s, hint));
-      if (!tSide || used.has(tSide)) continue;
-      used.add(tSide);
-      const names = playingXIForTeam(tSide);
-      if (names.length) out.push(withIdMap(tSide, names, fillPlayerIdsFromScorecard(names, scorecard)));
-    }
-  }
-  for (const tSide of sides) {
-    if (used.has(tSide)) continue;
-    const names = playingXIForTeam(tSide);
-    if (names.length) out.push(withIdMap(tSide, names, fillPlayerIdsFromScorecard(names, scorecard)));
-  }
-  return out;
-}
-
-/** Legacy: union of batters + bowlers per innings (includes super-subs who later appear). */
-function extractMergedSquadsFromScorecard(data: MaybeRecord, scorecard: any[]): SquadTeam[] {
-  const dataRec = data;
-  const inningsSides = scorecard.map((inn) => parseInningBattingSideName(inn)).filter(Boolean);
-  const byTeam = new Map<string, Set<string>>();
-  const byTeamIds = new Map<string, Record<string, string>>();
-  const ensure = (name: string) => {
-    if (!byTeam.has(name)) {
-      byTeam.set(name, new Set<string>());
-      byTeamIds.set(name, {});
-    }
-  };
-  for (const inn of scorecard) {
-    const battingTeam = parseInningBattingSideName(inn);
-    if (!battingTeam) continue;
-    const bowlingTeam = resolveFieldingTeamName(battingTeam, inningsSides, dataRec);
-    ensure(battingTeam);
-    const batSet = byTeam.get(battingTeam)!;
-    const batIds = byTeamIds.get(battingTeam)!;
-    for (const row of scorecardInningsBattingRows(inn)) {
-      const b = row as any;
-      const n = typeof b.batsman === "object" ? safeString(b.batsman?.name) : safeString(b.batsman);
-      const id = typeof b.batsman === "object" ? safeString(b.batsman?.id || "") : "";
-      if (n && n.toLowerCase() !== "extras") {
-        batSet.add(n);
-        if (id) batIds[n.toLowerCase()] = id;
-      }
-    }
-    if (bowlingTeam) {
-      ensure(bowlingTeam);
-      const bowlSet = byTeam.get(bowlingTeam)!;
-      const bowlIds = byTeamIds.get(bowlingTeam)!;
-      for (const row of scorecardInningsBowlingRows(inn)) {
-        const b = row as any;
-        const n = typeof b.bowler === "object" ? safeString(b.bowler?.name) : safeString(b.bowler);
-        const id = typeof b.bowler === "object" ? safeString(b.bowler?.id || "") : "";
-        if (n && n.toLowerCase() !== "extras") {
-          bowlSet.add(n);
-          if (id) bowlIds[n.toLowerCase()] = id;
-        }
-      }
-    }
-  }
-  const order = [...new Set(inningsSides)];
-  const out: SquadTeam[] = [];
-  for (const [teamName, names] of byTeam) {
-    if (names.size) out.push(withIdMap(teamName, [...names], byTeamIds.get(teamName) ?? {}));
-  }
-  out.sort((a, b) => {
-    const ia = order.indexOf(a.teamName);
-    const ib = order.indexOf(b.teamName);
-    const sa = ia === -1 ? 999 : ia;
-    const sb = ib === -1 ? 999 : ib;
-    return sa - sb;
-  });
-  return out;
-}
-
-function providerPayloadSaysMatchNotStarted(data: MaybeRecord): boolean {
-  if (data.matchStarted === false) return true;
-  if (data.matchEnded === true) return false;
-  const st = safeString(data.status || data.state || data.matchState || "").toLowerCase();
-  if (st.includes("not started") || st.includes("scheduled") || st.includes("upcoming") || st.includes("fixture")) return true;
-  if (st.includes("live") || st.includes("innings") || st.includes("complete") || st.includes("won")) return false;
-  return false;
-}
-
-/**
- * Roster policy: **before** the match is underway, use full squads from `teams` / squad APIs.
- * **After** it has started (batting card and/or live/completed status), use playing XI from the scorecard.
- */
-function usePlayingElevenFromScorecard(dataRec: MaybeRecord, scorecard: unknown[]): boolean {
-  if (scorecardMatchHasBegun(scorecard)) return true;
-  if (providerPayloadSaysMatchNotStarted(dataRec)) return false;
-  if (dataRec.matchStarted === true) return true;
-  if (dataRec.matchEnded === true) return true;
-  const st = safeString(dataRec.status || dataRec.state || dataRec.matchState || "").toLowerCase();
-  if (st.includes("live") || st.includes("complete") || st.includes("won") || st.includes("tie") || st.includes("draw"))
-    return true;
-  if (st.includes("innings") || /\d+(?:st|nd|rd|th)\s+innings/.test(st)) return true;
-  return false;
-}
-
-/**
- * Playing XI from scorecard once the match has started. Returns null pre-match so callers use full roster
- * (`teams`, `squad`, match_squad, etc.). For live payloads that include both, this runs before those branches.
- */
-function squadsFromScorecardIfApplicable(dataRec: MaybeRecord): SquadTeam[] | null {
-  const scorecard = normalizeScorecardInningsArray(dataRec);
-  if (scorecard.length === 0) return null;
-  if (!usePlayingElevenFromScorecard(dataRec, scorecard)) return null;
-
-  const eleven = extractPlayingElevenSquadsFromScorecard(dataRec, scorecard);
-  const n = eleven.reduce((a, t) => a + t.players.length, 0);
-  if (eleven.length >= 2 && eleven.every((t) => t.players.length >= 11)) return eleven;
-  const merged = extractMergedSquadsFromScorecard(dataRec, scorecard);
-  const mergedMax = merged.reduce((m, t) => Math.max(m, t.players.length), 0);
-  const mergedTotal = merged.reduce((a, t) => a + t.players.length, 0);
-  if (merged.length && mergedMax <= 13 && mergedTotal <= 26) {
-    const filled = merged.map((t) => {
-      const names = supplementPlayingXIFromTeamLists(dataRec, t.teamName, [...t.players]);
-      const top = names.slice(0, 11);
-      return withIdMap(t.teamName, top, fillPlayerIdsFromScorecard(top, scorecard));
-    });
-    return filled;
-  }
-  if (eleven.length >= 2 && n >= 6 && n <= 20) return eleven;
-  return null;
+  return ranked[0]!;
 }
 
 function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTeam[] {
   if (!root || typeof root !== "object") return [];
   const data = (root as MaybeRecord).data ?? root;
   if (!data || typeof data !== "object") return [];
-
-  if (!Array.isArray(data)) {
-    const fromScorecard = squadsFromScorecardIfApplicable(data as MaybeRecord);
-    if (fromScorecard?.length) return fromScorecard;
-  }
 
   // CricAPI match_squad returns data as a direct array of team objects
   if (Array.isArray(data)) {
@@ -2085,107 +1674,6 @@ function squadPlayerCount(squads: SquadTeam[]) {
   return squads.reduce((n, t) => n + t.players.length, 0);
 }
 
-function maxSquadTeamSize(squads: SquadTeam[]): number {
-  return squads.reduce((m, t) => Math.max(m, t.players.length), 0);
-}
-
-function minSquadTeamSize(squads: SquadTeam[]): number {
-  if (!squads.length) return 0;
-  return Math.min(...squads.map((t) => t.players.length));
-}
-
-/**
- * CricAPI often returns scorecard `teams` as string[] (no `players`). One innings yields sparse bat/bowl rows.
- * Fill to 11 using `match_squad` members, excluding impact/bench when the API marks them, and ordering fill by
- * role (WK/batters before bowlers) — raw array order is not toss XI order.
- */
-function mergeSparseSquadsWithFullRoster(
-  sparse: SquadTeam[],
-  full: SquadTeam[],
-  rawTeams?: { teamName: string; players: any[] }[]
-): SquadTeam[] {
-  const cap = 11;
-  const out: SquadTeam[] = [];
-  for (const s of sparse) {
-    const match = full.find((ft) => teamsLooselySame(ft.teamName, s.teamName));
-    const raw = rawTeams?.find((rt) => teamsLooselySame(rt.teamName, s.teamName));
-    const seenKeys = new Set<string>();
-    const names: string[] = [];
-    for (const n of s.players) {
-      const k = rosterDedupeKey(n);
-      if (seenKeys.has(k)) continue;
-      seenKeys.add(k);
-      names.push(n);
-    }
-    if (raw?.players?.length) {
-      for (const n of orderedEligibleFillNames(raw.players, seenKeys)) {
-        if (names.length >= cap) break;
-        const k = rosterDedupeKey(n);
-        if (seenKeys.has(k)) continue;
-        seenKeys.add(k);
-        names.push(n);
-      }
-    } else if (match) {
-      const xiMode = squadXiFlagMode(match.players as any);
-      for (const n of match.players) {
-        if (names.length >= cap) break;
-        const k = rosterDedupeKey(n);
-        if (seenKeys.has(k)) continue;
-        if (!playingXiEligibleFromSquadMember(n, xiMode)) continue;
-        seenKeys.add(k);
-        names.push(n);
-      }
-    }
-    const finalNames = names.slice(0, cap);
-    const idM: Record<string, string> = {};
-    for (const n of finalNames) {
-      const k = n.toLowerCase();
-      const id = s.playerIdMap?.[k] || match?.playerIdMap?.[k];
-      if (id) idM[k] = id;
-    }
-    out.push(withIdMap(s.teamName, finalNames, idM));
-  }
-  return out;
-}
-
-/** Prefer ~11-per-team squads over full 15–25 player lists when merging scorecard + match_info + squad APIs. */
-function pickPreferredRosterSquads(candidates: SquadTeam[][]): SquadTeam[] {
-  const nonempty = candidates.filter((c) => c.length > 0 && squadPlayerCount(c) > 0);
-  if (!nonempty.length) return [];
-  const xiLike = nonempty.filter(
-    (c) =>
-      maxSquadTeamSize(c) <= 13 &&
-      squadPlayerCount(c) >= 18 &&
-      c.length >= 2 &&
-      minSquadTeamSize(c) >= 8
-  );
-  const pool = xiLike.length ? xiLike : nonempty;
-  const twoTeam = pool.filter((c) => c.length >= 2);
-  const ranked = (twoTeam.length ? twoTeam : pool).slice();
-  ranked.sort((a, b) => {
-    const ma = a.length >= 2 ? 0 : 1;
-    const mb = b.length >= 2 ? 0 : 1;
-    if (ma !== mb) return ma - mb;
-    const minA = minSquadTeamSize(a);
-    const minB = minSquadTeamSize(b);
-    if (minA !== minB) return minB - minA;
-    const da = Math.abs(22 - squadPlayerCount(a));
-    const db = Math.abs(22 - squadPlayerCount(b));
-    if (da !== db) return da - db;
-    return squadPlayerCount(b) - squadPlayerCount(a);
-  });
-  return ranked[0]!;
-}
-
-/** Re-split a flat roster using scorecard innings when the UI needs two columns. */
-function twoTeamSquadsFromRawPayload(raw: MaybeRecord | null | undefined): SquadTeam[] | null {
-  if (!raw || typeof raw !== "object") return null;
-  const dataRec = ((raw as MaybeRecord).data ?? raw) as MaybeRecord;
-  const xi = squadsFromScorecardIfApplicable(dataRec);
-  if (xi && xi.length >= 2 && squadPlayerCount(xi) >= 11) return xi;
-  return null;
-}
-
 /** When structured squad endpoints parse to nothing, use any names we already extracted for stats sync. */
 function squadsFromProviderPlayerRows(players: PlayerStats[] | undefined | null): SquadTeam[] {
   if (!Array.isArray(players) || players.length === 0) return [];
@@ -2206,10 +1694,8 @@ function squadsFromProviderPlayerRows(players: PlayerStats[] | undefined | null)
   return [withIdMap("Players (from match feed)", names, idMap)];
 }
 
-async function tryFetchSquadsFromSquadApi(
-  externalMatchId: string
-): Promise<{ squads: SquadTeam[]; rawTeams: { teamName: string; players: any[] }[] }> {
-  if (!isCricapiBase(envBaseUrl())) return { squads: [], rawTeams: [] };
+async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<SquadTeam[]> {
+  if (!isCricapiBase(envBaseUrl())) return [];
   const paths = [
     `/v1/match_squad?id=${encodeURIComponent(externalMatchId)}`,
     `/v1/squads?id=${encodeURIComponent(externalMatchId)}`,
@@ -2217,37 +1703,24 @@ async function tryFetchSquadsFromSquadApi(
   for (const path of paths) {
     try {
       const payload = await fetchJson(path);
-      const data = (payload as MaybeRecord)?.data;
-      let rawTeams: { teamName: string; players: any[] }[] = [];
-      if (Array.isArray(data)) {
-        rawTeams = data
-          .map((t: any) => ({
-            teamName: safeString(t?.name || t?.teamName),
-            players: Array.isArray(t?.players) ? t.players : [],
-          }))
-          .filter((x) => x.teamName && x.players.length > 0);
-      }
       const squads = extractSquadsFromPayload(payload);
-      if (squadPlayerCount(squads) > 0) return { squads, rawTeams };
+      if (squadPlayerCount(squads) > 0) return squads;
     } catch {
       // try next path
     }
   }
-  return { squads: [], rawTeams: [] };
+  return [];
 }
 
 /**
  * Pull roster for the select UI.
  *
- * Cost target: 1 API call for live/completed matches (scorecard has the playing XI).
- *              2-3 calls for pre-match (scorecard fails → match_info → match_squad).
- *
- * We only make additional calls when the scorecard returns no usable player data.
+ * Cost target: 1 refresh call (scorecard / match_info paths) plus match_squad when needed for full squads.
  */
 export async function fetchMatchRoster(externalMatchId: string): Promise<{ squads: SquadTeam[]; rosterNames: string[]; nameToId: Record<string, string> }> {
   const id = encodeURIComponent(externalMatchId);
 
-  // Step 1: scorecard (1 API call).  Returns playing XI for live/completed, empty for pre-match.
+  // Step 1: refresh (scorecard / match_info + match_squad when fuller).
   let full: ProviderRefresh | null = null;
   try {
     full = await refreshMatchFromProvider(externalMatchId);
@@ -2255,33 +1728,12 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
     full = null;
   }
 
-  // If we already have full playing XIs, return immediately (no extra calls).
-  if (full && squadPlayerCount(full.squads) >= 11) {
-    const split = twoTeamSquadsFromRawPayload(full.raw as MaybeRecord | undefined);
-    if (full.squads.length >= 2 && full.squads.every((t) => t.players.length >= 11)) {
-      return { squads: full.squads, rosterNames: full.rosterNames, nameToId: full.nameToId };
-    }
-    if (split && split.length >= 2 && split.every((t) => t.players.length >= 11)) {
-      return { squads: split, rosterNames: uniqueRosterNames(split), nameToId: buildNameToId(split) };
-    }
-    if (full.squads.length === 1) {
-      if (split && split.length >= 2) {
-        return { squads: split, rosterNames: uniqueRosterNames(split), nameToId: buildNameToId(split) };
-      }
-      return { squads: full.squads, rosterNames: full.rosterNames, nameToId: full.nameToId };
-    }
-    // Two team names but sparse rows (e.g. 6+6) — fall through to match_info / squad merge
+  if (full && full.squads.length >= 2 && squadPlayerCount(full.squads) >= 16) {
+    return { squads: full.squads, rosterNames: full.rosterNames, nameToId: full.nameToId };
   }
 
-  // Also accept stat-derived names as a squad when squads is thin.
   const fromStats = squadsFromProviderPlayerRows(full?.players);
   if (full && squadPlayerCount(fromStats) >= 11) {
-    if (fromStats.length === 1) {
-      const split = twoTeamSquadsFromRawPayload(full.raw as MaybeRecord | undefined);
-      if (split) {
-        return { squads: split, rosterNames: uniqueRosterNames(split), nameToId: buildNameToId(split) };
-      }
-    }
     return { squads: fromStats, rosterNames: uniqueRosterNames(fromStats), nameToId: buildNameToId(fromStats) };
   }
 
@@ -2290,25 +1742,20 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
   if (full && squadPlayerCount(full.squads) > 0) candidates.push(full.squads);
   if (squadPlayerCount(fromStats) > 0) candidates.push(fromStats);
 
-  // Step 2: match_info (1 API call) — works pre-match and returns full squad/teamInfo.
+  // Step 2: match_info — full squad / teamInfo (merge with other candidates below).
   if (isCricapiBase(envBaseUrl())) {
     try {
       const payload = await fetchJson(`/v1/match_info?id=${id}`);
       if (payload?.status !== "failure") {
         const s = extractSquadsFromPayload(payload);
         if (squadPlayerCount(s) > 0) candidates.push(s);
-        // If match_info gave us enough players, stop here.
-        if (squadPlayerCount(s) >= 11) {
-          const best = pickPreferredRosterSquads(candidates);
-          return { squads: best, rosterNames: uniqueRosterNames(best), nameToId: buildNameToId(best) };
-        }
       }
     } catch { /* ignore */ }
   }
 
-  // Step 3: match_squad (1-2 API calls) — pre-match squad announcement.
+  // Step 3: match_squad — full squad list per team.
   try {
-    const { squads: s } = await tryFetchSquadsFromSquadApi(externalMatchId);
+    const s = await tryFetchSquadsFromSquadApi(externalMatchId);
     if (squadPlayerCount(s) > 0) candidates.push(s);
   } catch { /* ignore */ }
 
@@ -2430,15 +1877,6 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   const dataRec = data as MaybeRecord;
   let squads = extractSquadsFromPayload(payload);
   let count = squadPlayerCount(squads);
-  const xiOverride = squadsFromScorecardIfApplicable(dataRec);
-  if (
-    xiOverride?.length &&
-    maxSquadTeamSize(squads) > 12 &&
-    maxSquadTeamSize(xiOverride) <= 13
-  ) {
-    squads = xiOverride;
-    count = squadPlayerCount(squads);
-  }
   if (count < 8) {
     const fromBatting = extractSquadsFromBatting(dataRec);
     if (squadPlayerCount(fromBatting) > count) {
@@ -2447,62 +1885,23 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
     }
   }
 
-  const scorecardInns = normalizeScorecardInningsArray(dataRec);
-  const liveForXi = usePlayingElevenFromScorecard(dataRec, scorecardInns);
-
-  let squadApiCache: { squads: SquadTeam[]; rawTeams: { teamName: string; players: any[] }[] } | null = null;
-  const loadSquadApiOnce = async () => {
-    if (squadApiCache) return squadApiCache;
-    if (!isCricapiBase(envBaseUrl())) {
-      squadApiCache = { squads: [], rawTeams: [] };
-      return squadApiCache;
-    }
+  /** Prefer `match_squad` when it lists more players than the scorecard payload (skip extra API if we already have ~full squads). */
+  if (isCricapiBase(envBaseUrl()) && count < 44) {
     try {
-      squadApiCache = await tryFetchSquadsFromSquadApi(externalMatchId);
-    } catch {
-      squadApiCache = { squads: [], rawTeams: [] };
-    }
-    return squadApiCache;
-  };
-
-  /**
-   * Live IPL scorecards often yield merged bat/bowl sets that get topped up to 11 using teamInfo **array order**
-   * (wrong XI). Rebuild from sparse scorecard rows + match_squad with role / playingOrder ordering whenever possible.
-   */
-  if (liveForXi && scorecardInns.length > 0 && isCricapiBase(envBaseUrl())) {
-    const { squads: extra, rawTeams } = await loadSquadApiOnce();
-    if (extra.length >= 2 && rawTeams.length >= 2 && squadPlayerCount(extra) >= 16) {
-      const mergedSparse = extractMergedSquadsFromScorecard(dataRec, scorecardInns);
-      if (mergedSparse.length >= 2 && squadPlayerCount(mergedSparse) >= 4) {
-        const grown = mergeSparseSquadsWithFullRoster(mergedSparse, extra, rawTeams);
-        if (grown.length >= 2 && minSquadTeamSize(grown) >= 11) {
-          squads = grown;
-          count = squadPlayerCount(squads);
-        }
+      const extra = await tryFetchSquadsFromSquadApi(externalMatchId);
+      if (extra.length >= 2 && squadPlayerCount(extra) > count) {
+        squads = extra;
+        count = squadPlayerCount(squads);
       }
-    }
-  }
-
-  if (count < 8 && isCricapiBase(envBaseUrl())) {
-    const { squads: extra } = await loadSquadApiOnce();
-    if (
-      squadPlayerCount(extra) > count &&
-      (count < 4 || maxSquadTeamSize(extra) <= 13)
-    ) {
-      squads = extra;
+    } catch {
+      /* ignore */
     }
   }
 
   let rosterNames = uniqueRosterNames(squads);
   if (rosterNames.length === 0 && simpleFallback.length) {
-    const split = squadsFromScorecardIfApplicable(dataRec);
-    if (split && split.length >= 2 && squadPlayerCount(split) >= 11) {
-      squads = split;
-      rosterNames = uniqueRosterNames(squads);
-    } else {
-      rosterNames = [...new Set(simpleFallback.map((p) => p.name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-      squads = rosterNames.length ? [{ teamName: "From live scorecard", players: rosterNames }] : [];
-    }
+    rosterNames = [...new Set(simpleFallback.map((p) => p.name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    squads = rosterNames.length ? [{ teamName: "From live scorecard", players: rosterNames }] : [];
   }
 
   return {
