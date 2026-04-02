@@ -37,18 +37,49 @@ IPL_MARKERS = [
 IPL_CODES = ["csk", "mi", "kkr", "rcb", "rr", "dc", "srh", "pbks", "gt", "lsg"]
 
 
-def load_api_key() -> str:
+def load_cricket_keys() -> list[tuple[str, str]]:
+    """CRICKET_API_KEY … CRICKET_API_KEY_8 in order."""
     if not ENV_LOCAL.is_file():
         print("FAIL: .env.local not found (need CRICKET_API_KEY)")
         sys.exit(1)
-    for line in ENV_LOCAL.read_text().splitlines():
-        line = line.strip()
-        if line.startswith("CRICKET_API_KEY=") and not line.startswith("#"):
-            v = line.split("=", 1)[1].strip().strip('"').strip("'")
-            if v:
-                return v
-    print("FAIL: CRICKET_API_KEY missing in .env.local")
-    sys.exit(1)
+    names = ["CRICKET_API_KEY"] + [f"CRICKET_API_KEY_{i}" for i in range(2, 9)]
+    text = ENV_LOCAL.read_text().splitlines()
+    out: list[tuple[str, str]] = []
+    for name in names:
+        prefix = f"{name}="
+        for line in text:
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            if s.startswith(prefix):
+                v = s.split("=", 1)[1].strip().strip('"').strip("'")
+                if v:
+                    out.append((name, v))
+                break
+    if not out:
+        print("FAIL: no CRICKET_API_KEY* in .env.local")
+        sys.exit(1)
+    return out
+
+
+def api_get(path: str, keys: list[tuple[str, str]], step: str) -> tuple[dict, str]:
+    base = "https://api.cricapi.com"
+    last = None
+    for name, k in keys:
+        sep = "&" if "?" in path else "?"
+        url = f"{base}{path}{sep}apikey={urllib.parse.quote(k)}"
+        try:
+            j = http_get(url)
+        except Exception as e:
+            last = ("error", str(e))
+            print(f"   [{name}] {step}: {e}")
+            continue
+        if j.get("status") == "success":
+            print(f"   [{name}] {step}: OK")
+            return j, name
+        last = (j.get("status"), j.get("reason"))
+        print(f"   [{name}] {step}: {j.get('status')!r} {j.get('reason')!r}")
+    raise RuntimeError(f"{step}: all keys failed, last={last!r}")
 
 
 def teams_blob(match: dict) -> str:
@@ -141,24 +172,20 @@ def main() -> int:
     print("0) Offline IPL filter checks …")
     test_ipl_filter_offline()
 
-    api_key = load_api_key()
-    base = "https://api.cricapi.com"
-
-    print("1) Fetching currentMatches …")
+    keys = load_cricket_keys()
+    print(f"1) Fetching currentMatches ({len(keys)} key(s) to try) …")
     try:
-        data = http_get(f"{base}/v1/currentMatches?apikey={urllib.parse.quote(api_key)}")
+        data, _ = api_get("/v1/currentMatches", keys, "currentMatches")
     except urllib.error.HTTPError as e:
         print(f"FAIL: HTTP {e.code}")
         return 1
+    except RuntimeError as e:
+        print(f"SKIP (live): {e}")
+        print("   Logic tests passed; re-run when API quota resets to validate live + scorecard.")
+        return 0
     except Exception as e:
         print(f"FAIL: {e}")
         return 1
-
-    status = data.get("status")
-    if status != "success":
-        print(f"SKIP (live): API status={status!r} reason={data.get('reason')!r}")
-        print("   Logic tests passed; re-run when API quota resets to validate live + scorecard.")
-        return 0
 
     raw_matches = data.get("data") or []
     if not isinstance(raw_matches, list):
@@ -181,31 +208,39 @@ def main() -> int:
 
     print("3) Fetching match_scorecard (roster / sync shape) …")
     try:
-        sc = http_get(f"{base}/v1/match_scorecard?id={urllib.parse.quote(str(mid))}&apikey={urllib.parse.quote(api_key)}")
+        sc, _ = api_get(f"/v1/match_scorecard?id={urllib.parse.quote(str(mid))}", keys, "match_scorecard")
+    except RuntimeError as e:
+        print(f"FAIL: scorecard {e}")
+        return 1
     except Exception as e:
         print(f"FAIL: scorecard {e}")
         return 1
 
-    if sc.get("status") != "success":
-        print(f"FAIL: scorecard status={sc.get('status')!r} reason={sc.get('reason')!r}")
-        return 1
-
     inner = sc.get("data") or {}
-    teams = inner.get("team") if isinstance(inner, dict) else None
-    batting = inner.get("batting") if isinstance(inner, dict) else None
+    teams = inner.get("teams") if isinstance(inner, dict) else None
+    scorecard = inner.get("scorecard") if isinstance(inner, dict) else None
+    batting_top = inner.get("batting") if isinstance(inner, dict) else None
     team_players = 0
-    if isinstance(teams, list):
-        for t in teams:
-            if isinstance(t, dict) and isinstance(t.get("players"), list):
-                team_players += len(t["players"])
-    print(f"   scorecard.data.team entries: {len(teams) if isinstance(teams, list) else 0}")
-    print(f"   total names under team[].players: {team_players}")
-    print(f"   batting innings blocks: {len(batting) if isinstance(batting, list) else 0}")
+    teams_shape = "missing"
+    if isinstance(teams, list) and teams:
+        if isinstance(teams[0], dict):
+            teams_shape = "objects with players"
+            for t in teams:
+                if isinstance(t, dict) and isinstance(t.get("players"), list):
+                    team_players += len(t["players"])
+        else:
+            teams_shape = f"strings only (e.g. {teams[0]!r}) — app merges match_squad for XI"
+    print(f"   scorecard.data.teams: {len(teams) if isinstance(teams, list) else 0} ({teams_shape})")
+    print(f"   total names under team[].players (objects only): {team_players}")
+    inn_n = len(scorecard) if isinstance(scorecard, list) else 0
+    print(f"   scorecard innings blocks: {inn_n}")
+    if inn_n == 1:
+        print("   NOTE: Single-innings scorecard → ~6 batters + ~6 bowlers without match_squad merge.")
 
-    if team_players < 4 and not (isinstance(batting, list) and len(batting) > 0):
+    if team_players < 4 and inn_n < 1 and not (isinstance(batting_top, list) and len(batting_top) > 0):
         print("WARN: Unexpected scorecard shape; app still has batting / squad fallbacks.")
     else:
-        print("   Roster-related fields look usable.")
+        print("   Roster-related fields look usable (mergeSparseSquadsWithFullRoster if strings-only teams).")
 
     print("PASS: IPL discovery + scorecard")
     return 0

@@ -1983,6 +1983,44 @@ function minSquadTeamSize(squads: SquadTeam[]): number {
   return Math.min(...squads.map((t) => t.players.length));
 }
 
+/**
+ * CricAPI often returns scorecard `teams` as string[] (no `players`). One innings yields ~6 batters + ~6 bowlers
+ * mislabeled as two XIs. Merge each sparse side with `match_squad` order (playing XI usually listed first).
+ */
+function mergeSparseSquadsWithFullRoster(sparse: SquadTeam[], full: SquadTeam[]): SquadTeam[] {
+  const cap = 11;
+  const out: SquadTeam[] = [];
+  for (const s of sparse) {
+    const match = full.find((ft) => teamsLooselySame(ft.teamName, s.teamName));
+    const seen = new Set<string>();
+    const names: string[] = [];
+    for (const n of s.players) {
+      const k = n.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      names.push(n);
+    }
+    if (match) {
+      for (const n of match.players) {
+        if (names.length >= cap) break;
+        const k = n.toLowerCase();
+        if (seen.has(k)) continue;
+        seen.add(k);
+        names.push(n);
+      }
+    }
+    const finalNames = names.slice(0, cap);
+    const idM: Record<string, string> = {};
+    for (const n of finalNames) {
+      const k = n.toLowerCase();
+      const id = s.playerIdMap?.[k] || match?.playerIdMap?.[k];
+      if (id) idM[k] = id;
+    }
+    out.push(withIdMap(s.teamName, finalNames, idM));
+  }
+  return out;
+}
+
 /** Prefer ~11-per-team squads over full 15–25 player lists when merging scorecard + match_info + squad APIs. */
 function pickPreferredRosterSquads(candidates: SquadTeam[][]): SquadTeam[] {
   const nonempty = candidates.filter((c) => c.length > 0 && squadPlayerCount(c) > 0);
@@ -2001,6 +2039,9 @@ function pickPreferredRosterSquads(candidates: SquadTeam[][]): SquadTeam[] {
     const ma = a.length >= 2 ? 0 : 1;
     const mb = b.length >= 2 ? 0 : 1;
     if (ma !== mb) return ma - mb;
+    const minA = minSquadTeamSize(a);
+    const minB = minSquadTeamSize(b);
+    if (minA !== minB) return minB - minA;
     const da = Math.abs(22 - squadPlayerCount(a));
     const db = Math.abs(22 - squadPlayerCount(b));
     if (da !== db) return da - db;
@@ -2266,6 +2307,29 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
       count = squadPlayerCount(squads);
     }
   }
+
+  const scorecardInns = normalizeScorecardInningsArray(dataRec);
+  const liveForXi = usePlayingElevenFromScorecard(dataRec, scorecardInns);
+  if (
+    liveForXi &&
+    squads.length >= 2 &&
+    minSquadTeamSize(squads) < 11 &&
+    isCricapiBase(envBaseUrl())
+  ) {
+    try {
+      const extra = await tryFetchSquadsFromSquadApi(externalMatchId);
+      if (extra.length >= 2 && squadPlayerCount(extra) >= 16) {
+        const grown = mergeSparseSquadsWithFullRoster(squads, extra);
+        if (minSquadTeamSize(grown) > minSquadTeamSize(squads)) {
+          squads = grown;
+          count = squadPlayerCount(squads);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (count < 8 && isCricapiBase(envBaseUrl())) {
     const extra = await tryFetchSquadsFromSquadApi(externalMatchId);
     if (
