@@ -133,6 +133,8 @@ export type PlayerStats = {
   hundred_bonus: number;
   three_w_bonus: number;
   five_w_bonus: number;
+  /** Man of the Match — set from provider when announced */
+  mom_bonus?: number;
 };
 
 export type SquadTeam = {
@@ -159,6 +161,8 @@ export type ProviderRefresh = {
   /** Flat name→id map across all squads for lineup-save ID capture */
   nameToId: Record<string, string>;
   raw?: MaybeRecord;
+  /** When true, refresh should overwrite fantasy_players.mom_bonus from provider */
+  manOfTheMatchSynced?: boolean;
 };
 
 function cleanEnvText(value: string | undefined | null) {
@@ -975,10 +979,160 @@ function numberValue(value: unknown) {
 function bonusify(row: PlayerStats): PlayerStats {
   return {
     ...row,
+    mom_bonus: row.mom_bonus ?? 0,
     fifty_bonus: row.runs >= 50 ? 1 : 0,
     hundred_bonus: row.runs >= 100 ? 1 : 0,
     three_w_bonus: row.wickets >= 3 ? 1 : 0,
     five_w_bonus: row.wickets >= 5 ? 1 : 0,
+  };
+}
+
+function isPlaceholderMomName(s: string): boolean {
+  return /^(tba|tbd|n\/a|na|[-–—]|pending|not\s+announced|to\s+be\s+announced)$/i.test(safeString(s).trim());
+}
+
+function pickNameFromMomField(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const s = safeString(raw);
+    return s || null;
+  }
+  if (typeof raw === "object") {
+    const o = raw as MaybeRecord;
+    const n = safeString(o.name ?? o.playerName ?? o.fullName ?? o.shortName ?? o.shortname);
+    return n || null;
+  }
+  return null;
+}
+
+function extractMomFromFreeText(text: string): string | null {
+  const t = safeString(text);
+  if (!t) return null;
+  const patterns = [
+    /([A-Za-z][A-Za-z\s.'-]+?)\s+was\s+(?:named|awarded)\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match/i,
+    /([A-Za-z][A-Za-z\s.'-]+?)\s+was\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match/i,
+    /(?:player|man)\s+of\s+the\s+match\s*(?:is|goes\s+to|:)\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\bman\s+of\s+the\s+match\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\bplayer\s+of\s+the\s+match\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\bman\s+of\s+the\s+match\s+is\s+([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\bm\.?\s*o\.?\s*m\.?\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+  ];
+  for (const re of patterns) {
+    const m = t.match(re);
+    if (m?.[1]) {
+      const name = safeString(m[1]);
+      if (name && !isPlaceholderMomName(name)) return name;
+    }
+  }
+  return null;
+}
+
+/**
+ * CricAPI / scorecard MoM can appear under several keys, nested objects, or only in status text.
+ */
+function extractManOfTheMatchName(data: MaybeRecord, payloadRoot?: MaybeRecord): string | null {
+  const keys = [
+    "playerOfMatch",
+    "player_of_the_match",
+    "manOfTheMatch",
+    "man_of_the_match",
+    "manOfMatch",
+    "man_of_match",
+    "matchManOfTheMatch",
+    "mom",
+    "pom",
+    "man-of-the-match",
+    "player-of-the-match",
+  ];
+
+  const tryRecord = (root: MaybeRecord | null | undefined): string | null => {
+    if (!root || typeof root !== "object") return null;
+    for (const k of keys) {
+      const n = pickNameFromMomField((root as any)[k]);
+      if (n && !isPlaceholderMomName(n)) return n;
+    }
+    const mi = root.matchInfo ?? root.match_info;
+    if (mi && typeof mi === "object") {
+      for (const k of keys) {
+        const n = pickNameFromMomField((mi as any)[k]);
+        if (n && !isPlaceholderMomName(n)) return n;
+      }
+    }
+    const info = root.info;
+    if (info && typeof info === "object") {
+      for (const k of keys) {
+        const n = pickNameFromMomField((info as any)[k]);
+        if (n && !isPlaceholderMomName(n)) return n;
+      }
+    }
+    const sc = root.scorecard;
+    if (Array.isArray(sc)) {
+      for (const inn of sc) {
+        if (inn && typeof inn === "object") {
+          for (const k of keys) {
+            const n = pickNameFromMomField((inn as any)[k]);
+            if (n && !isPlaceholderMomName(n)) return n;
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const seen = new Set<MaybeRecord>();
+  const roots: MaybeRecord[] = [];
+  if (data && typeof data === "object") roots.push(data);
+  if (payloadRoot && payloadRoot !== data && typeof payloadRoot === "object") roots.push(payloadRoot);
+
+  for (const root of roots) {
+    if (seen.has(root)) continue;
+    seen.add(root);
+    const hit = tryRecord(root);
+    if (hit) return hit;
+  }
+
+  const textBlobs = [
+    safeString(data?.update),
+    safeString(data?.status),
+    safeString(data?.message),
+    safeString((data as any)?.live_summary),
+    safeString((data as any)?.liveSummary),
+    payloadRoot ? safeString((payloadRoot as any).message) : "",
+  ];
+  for (const blob of textBlobs) {
+    const fromText = extractMomFromFreeText(blob);
+    if (fromText) return fromText;
+  }
+  return null;
+}
+
+function playerMatchesMomName(playerName: string, momRaw: string): boolean {
+  const mom = safeString(momRaw).trim();
+  if (!mom || isPlaceholderMomName(mom)) return false;
+  const pv = new Set(nameVariants(playerName));
+  for (const v of nameVariants(mom)) {
+    if (pv.has(v)) return true;
+  }
+  const pn = normalizeNameForMom(playerName);
+  const mn = normalizeNameForMom(mom);
+  if (pn && mn && (pn.includes(mn) || mn.includes(pn))) return true;
+  return false;
+}
+
+function normalizeNameForMom(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function applyManOfTheMatch(players: PlayerStats[], momName: string | null): { players: PlayerStats[]; synced: boolean } {
+  if (!momName) return { players, synced: false };
+  return {
+    players: players.map((p) =>
+      bonusify({
+        ...p,
+        mom_bonus: playerMatchesMomName(p.name, momName) ? 1 : 0,
+      })
+    ),
+    synced: true,
   };
 }
 
@@ -1356,6 +1510,7 @@ function mergePlayers(rows: PlayerStats[]) {
       hundred_bonus: 0,
       three_w_bonus: 0,
       five_w_bonus: 0,
+      mom_bonus: Math.max(existing.mom_bonus ?? 0, row.mom_bonus ?? 0),
     }));
   }
 
@@ -1900,6 +2055,7 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
       rosterNames: [],
       nameToId: {},
       raw: undefined,
+      manOfTheMatchSynced: false,
     };
   }
 
@@ -1915,9 +2071,11 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   // "Philip Salt" (batting row) which would otherwise be separate keys.
   const catchRowsFromDismissals = extractCatchesFromBattingDismissals(data as MaybeRecord);
   const merged = patchCatches(mergedRaw, catchRowsFromDismissals);
-  const simpleFallback = merged.length > 0 ? merged : parseSimpleLiveScore(data);
+  const mergedOrLive = merged.length > 0 ? merged : parseSimpleLiveScore(data);
 
   const dataRec = data as MaybeRecord;
+  const momName = extractManOfTheMatchName(dataRec, payload as MaybeRecord);
+  const { players: withMom, synced: manOfTheMatchSynced } = applyManOfTheMatch(mergedOrLive, momName);
   let squads = extractSquadsFromPayload(payload);
   let count = squadPlayerCount(squads);
   if (count < 8) {
@@ -1942,8 +2100,8 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   }
 
   let rosterNames = uniqueRosterNames(squads);
-  if (rosterNames.length === 0 && simpleFallback.length) {
-    rosterNames = [...new Set(simpleFallback.map((p) => p.name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  if (rosterNames.length === 0 && withMom.length) {
+    rosterNames = [...new Set(withMom.map((p) => p.name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     squads = rosterNames.length ? [{ teamName: "From live scorecard", players: rosterNames }] : [];
   }
 
@@ -1956,10 +2114,11 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
     venue: safeString(data.venue || data.ground || "") || null,
     toss_winner: safeString(data.toss_winner || data.tossWinner || "") || null,
     source_url: safeString(data.url || data.source_url || "") || null,
-    players: simpleFallback,
+    players: withMom,
     squads,
     rosterNames,
     nameToId: buildNameToId(squads),
     raw: payload,
+    manOfTheMatchSynced: manOfTheMatchSynced,
   };
 }

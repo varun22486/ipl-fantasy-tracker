@@ -44,7 +44,20 @@ function buildVariants(name: string) {
 
 function findIncomingPlayer(
   playerName: string,
-  incomingByVariant: Map<string, { name: string; runs: number; wickets: number; catches: number; fifty_bonus: number; hundred_bonus: number; three_w_bonus: number; five_w_bonus: number }>
+  incomingByVariant: Map<
+    string,
+    {
+      name: string;
+      runs: number;
+      wickets: number;
+      catches: number;
+      fifty_bonus: number;
+      hundred_bonus: number;
+      three_w_bonus: number;
+      five_w_bonus: number;
+      mom_bonus?: number;
+    }
+  >
 ) {
   for (const variant of buildVariants(playerName)) {
     const hit = incomingByVariant.get(variant);
@@ -147,6 +160,9 @@ export async function GET() {
         three_w_bonus: hit.three_w_bonus,
         five_w_bonus: hit.five_w_bonus,
       };
+      if (payload.manOfTheMatchSynced) {
+        updatePayload.mom_bonus = hit.mom_bonus ?? 0;
+      }
       if (!player.provider_player_id && hit.id) {
         updatePayload.provider_player_id = hit.id;
       }
@@ -270,6 +286,9 @@ export async function POST(req: Request) {
         fifty_bonus: hit.fifty_bonus, hundred_bonus: hit.hundred_bonus,
         three_w_bonus: hit.three_w_bonus, five_w_bonus: hit.five_w_bonus,
       };
+      if (payload.manOfTheMatchSynced) {
+        updatePayload.mom_bonus = hit.mom_bonus ?? 0;
+      }
       if (!player.provider_player_id && hit.id) updatePayload.provider_player_id = hit.id;
       await supabaseAdmin.from("fantasy_players").update(updatePayload).eq("id", player.id);
       updatedRows += 1;
