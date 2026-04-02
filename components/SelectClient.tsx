@@ -8,7 +8,7 @@ import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 
 const KEY_LIMIT = 100;
-const QUOTA_LIMIT = 900; // 100/day × 9 API keys (CRICKET_API_KEY … _9)
+const QUOTA_LIMIT = 1000; // 100/day × 10 API keys (CRICKET_API_KEY … _10)
 const QUOTA_WARN_AT = 640; // warn at 80% of 800
 const QUOTA_KEY = "cricapi_quota";
 
