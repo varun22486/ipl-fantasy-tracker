@@ -24,7 +24,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: "/", label: "Home", shortLabel: "Home", Icon: Home },
-  { href: "/match", label: "Match", shortLabel: "Match", Icon: Activity },
+  { href: "/match", label: "Current Match", shortLabel: "Match", Icon: Activity },
   { href: "/history", label: "History", shortLabel: "History", Icon: History },
   { href: "/competitions", label: "Leagues", shortLabel: "Leagues", Icon: UsersRound },
   { href: "/settings", label: "Settings", shortLabel: "Settings", Icon: Settings },
@@ -107,7 +107,7 @@ function NavLinks({ variant }: { variant: "sidebar" | "header" | "mobile" }) {
             href={navHref(href)}
             className={`mobile-nav__item${active ? " mobile-nav__item--active" : ""}`}
           >
-            <Icon className="nav-icon nav-icon--mobile" aria-hidden size={22} strokeWidth={1.65} />
+            <Icon className="nav-icon nav-icon--mobile" aria-hidden size={24} strokeWidth={1.65} />
             {shortLabel}
           </Link>
         );

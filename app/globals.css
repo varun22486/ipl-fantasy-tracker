@@ -24,7 +24,7 @@
   --radius-lg: 20px;
   --sidebar-bg: linear-gradient(168deg, #070b14 0%, #0f172a 36%, #111f38 72%, #0a1628 100%);
   --sidebar-border: rgba(255, 255, 255, 0.09);
-  --nav-h: 64px;
+  --nav-h: 72px;
   --comp-bar-h: 52px;
   --font-sans: var(--font-sans-var), system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -221,6 +221,8 @@ body {
   display: flex;
   height: 100%;
   align-items: stretch;
+  padding: 0 4px;
+  gap: 2px;
 }
 .mobile-nav__item {
   flex: 1;
@@ -228,16 +230,24 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   text-decoration: none;
   color: #94a3b8;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: .04em;
-  padding: 8px 4px 10px;
+  letter-spacing: .03em;
+  line-height: 1.2;
+  padding: 10px 6px 10px;
+  min-height: 48px;
+  min-width: 0;
   position: relative;
-  transition: color 0.18s ease;
+  transition: color 0.18s ease, background 0.15s ease;
   -webkit-tap-highlight-color: transparent;
+  border-radius: 12px;
+  margin: 2px 0;
+}
+.mobile-nav__item:active {
+  background: rgba(255, 255, 255, 0.06);
 }
 .mobile-nav__item::before {
   content: "";
@@ -309,14 +319,28 @@ body {
   box-shadow: 0 6px 18px rgba(37, 99, 235, 0.42), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
 .mobile-header__brand-text { min-width: 0; }
-.mobile-header__nav { display: flex; gap: 4px; }
+.mobile-header__nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  row-gap: 8px;
+  max-width: 100%;
+}
 .mobile-header__link {
-  display: flex; align-items: center; gap: 6px;
-  padding: 7px 12px; border-radius: 10px;
-  text-decoration: none; color: #94a3b8;
-  font-size: 13px; font-weight: 600;
-  transition: background .12s, color .12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  min-height: 44px;
+  border-radius: 12px;
+  text-decoration: none;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.12s, color 0.12s;
   border: 1px solid transparent;
+  -webkit-tap-highlight-color: transparent;
 }
 .mobile-header__link:hover { background: rgba(255,255,255,.06); color: #e2e8f0; }
 .mobile-header__link--active {
