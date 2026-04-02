@@ -75,24 +75,11 @@ export default function CompetitionSwitcher({ variant }: Props) {
       }
     }
 
-    const prevId = activeId ?? null;
     const nextId = id ?? null;
-    const competitionChanged = nextId !== prevId;
-
-    // Match / change-team UI keeps heavy client state; swapping ?c= on the same URL
-    // does not remount, so the old competition sticks. Send users home for the new league.
-    const onMatchRoute = pathname === "/match" || pathname.startsWith("/match/");
-    if (competitionChanged && onMatchRoute) {
-      const homeQs = nextId == null ? "" : `?c=${nextId}`;
-      router.push(`/${homeQs}`);
-      return;
-    }
-
-    const params = new URLSearchParams(searchParams?.toString() ?? "");
-    if (id == null) params.delete("c");
-    else params.set("c", String(id));
-    const qs = params.toString();
-    router.push(`${pathname}${qs ? `?${qs}` : ""}`);
+    // Always land on home when switching league so Match/Select client state does not
+    // stick to the previous competition, and the dashboard is the default entry point.
+    const homeQs = nextId == null ? "" : `?c=${nextId}`;
+    router.push(`/${homeQs}`);
   }
 
   async function addCompetition() {

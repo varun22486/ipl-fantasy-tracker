@@ -3,6 +3,9 @@
  * Uses India calendar dates (IPL) and schedule order — not DB insert id alone.
  */
 
+import { parseLeagueMatchNumberFromFixture } from "@/lib/format";
+import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
+
 const IPL_TZ = "Asia/Kolkata";
 
 export function iplCalendarTodayIso(now = new Date()): string {
@@ -36,21 +39,38 @@ export function isLiveMatchStatus(status: unknown): boolean {
   return s === "live" || s.includes("live");
 }
 
-export type MatchRow = { id: number; match_date?: unknown; status?: unknown };
+export type MatchRow = { id: number; match_date?: unknown; status?: unknown; fixture?: unknown };
+
+function leagueMatchSortKey(m: MatchRow): number {
+  const n = parseLeagueMatchNumberFromFixture(typeof m.fixture === "string" ? m.fixture : "");
+  return n ?? 9999;
+}
+
+/** Prefer published league day for known 2026 match #s so bad provider/DB dates do not reorder the schedule. */
+function effectiveScheduleDateKey(m: MatchRow): string {
+  const n = parseLeagueMatchNumberFromFixture(typeof m.fixture === "string" ? m.fixture : "");
+  const canon = canonicalIstDayForIpl2026LeagueMatch(n);
+  if (canon) return canon;
+  return normalizeMatchDateKey(m.match_date);
+}
 
 /**
  * Unplayed = no fantasy_players rows for that match_id.
- * Priority: unplayed LIVE (soonest by match_date), else earliest unplayed with match_date >= today (IPL).
+ * Priority: unplayed LIVE (soonest by match_date, then league match #), else earliest unplayed
+ * with match_date >= today (IPL), tie-broken by league match # then id.
  */
 export function pickNextUnplayedMatch<T extends MatchRow>(matches: T[], matchIdsWithPlayers: Set<number>): T | null {
   const today = iplCalendarTodayIso();
   const unplayed = matches.filter((m) => !matchIdsWithPlayers.has(m.id));
 
   const bySchedule = (a: T, b: T) => {
-    const da = normalizeMatchDateKey(a.match_date);
-    const db = normalizeMatchDateKey(b.match_date);
+    const da = effectiveScheduleDateKey(a);
+    const db = effectiveScheduleDateKey(b);
     const c = da.localeCompare(db);
     if (c !== 0) return c;
+    const na = leagueMatchSortKey(a);
+    const nb = leagueMatchSortKey(b);
+    if (na !== nb) return na - nb;
     return a.id - b.id;
   };
 
@@ -58,7 +78,7 @@ export function pickNextUnplayedMatch<T extends MatchRow>(matches: T[], matchIds
   if (live.length) return [...live].sort(bySchedule)[0] ?? null;
 
   const upcoming = unplayed.filter((m) => {
-    const d = normalizeMatchDateKey(m.match_date);
+    const d = effectiveScheduleDateKey(m);
     return d !== "" && d >= today;
   });
   if (upcoming.length) return [...upcoming].sort(bySchedule)[0] ?? null;

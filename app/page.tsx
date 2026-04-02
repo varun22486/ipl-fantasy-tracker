@@ -4,8 +4,9 @@ export const revalidate = 0;
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
-import { formatFixture } from "@/lib/format";
+import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { fetchMatchSeedFromMatchInfo } from "@/lib/cricket-provider";
+import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
 import StatsClient from "@/components/StatsClient";
 import HomeHero from "@/components/HomeHero";
@@ -241,6 +242,13 @@ async function getData(competitionId: number | null) {
       /* quota / network — keep DB values */
     }
   }
+
+  const leagueNo = parseLeagueMatchNumberFromFixture(
+    String(nextFixture ?? (nextMatchRow as { fixture?: string } | null)?.fixture ?? "")
+  );
+  const canonDay = canonicalIstDayForIpl2026LeagueMatch(leagueNo);
+  if (canonDay) nextDate = canonDay;
+
   const nextMatch = nextMatchRow ?? null;
 
   return {
