@@ -146,6 +146,8 @@ export type ProviderRefresh = {
   status?: string;
   live_summary?: string | null;
   fixture?: string;
+  /** IST / provider listing day — persisted on sync so DB stays aligned with scorecard metadata */
+  match_date?: string;
   venue?: string | null;
   toss_winner?: string | null;
   source_url?: string | null;
@@ -519,6 +521,26 @@ function extractProviderMatchDate(match: MaybeRecord): string | null {
     if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
   }
 
+  return null;
+}
+
+/**
+ * One CricAPI match_info call — for home/next-match display without scanning the full feed.
+ * Uses the same matchToSeed / extractProviderMatchDate path as seeding.
+ */
+export async function fetchMatchSeedFromMatchInfo(externalMatchId: string): Promise<MatchSeed | null> {
+  const id = cleanEnvText(externalMatchId);
+  if (!id || !isCricapiBase(envBaseUrl())) return null;
+  try {
+    const payload = await fetchJson(`/v1/match_info?id=${encodeURIComponent(id)}`);
+    const m = payload?.data ?? payload;
+    if (m && typeof m === "object" && !Array.isArray(m)) {
+      const mid = safeString((m as MaybeRecord).id || (m as MaybeRecord).matchId || (m as MaybeRecord).match_id || id) || id;
+      return matchToSeed({ ...(m as MaybeRecord), id: mid });
+    }
+  } catch {
+    /* quota / network */
+  }
   return null;
 }
 
@@ -1868,6 +1890,7 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
       status: scorecardFailed ? "COMPLETED" : "LIVE",
       live_summary: liveMsg,
       fixture: undefined,
+      match_date: undefined,
       venue: null,
       toss_winner: null,
       source_url: null,
@@ -1923,10 +1946,12 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
     squads = rosterNames.length ? [{ teamName: "From live scorecard", players: rosterNames }] : [];
   }
 
+  const metaDate = extractProviderMatchDate(dataRec);
   return {
     status: parseStatus(safeString(data.update || data.status || payload.status || "LIVE")),
     live_summary: safeString(data.update || data.status || payload.message || "") || null,
     fixture: safeString(data.title || data.fixture || data.name || "") || undefined,
+    match_date: metaDate || undefined,
     venue: safeString(data.venue || data.ground || "") || null,
     toss_winner: safeString(data.toss_winner || data.tossWinner || "") || null,
     source_url: safeString(data.url || data.source_url || "") || null,

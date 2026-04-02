@@ -17,6 +17,22 @@ function teamAbbr(name: string): string {
   return TEAM_ABBR[name.trim().toLowerCase()] ?? name.trim();
 }
 
+function gatherOrdinalMatchNumbers(text: string): string[] {
+  const out: string[] = [];
+  const re = /\b(\d+)(?:st|nd|rd|th)\s+Match\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) out.push(m[1]);
+  return out;
+}
+
+function gatherPlainMatchNumbers(text: string): string[] {
+  const out: string[] = [];
+  const re = /\bMatch\s+(\d+)\b/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) out.push(m[1]);
+  return out;
+}
+
 /**
  * Shortens a full IPL fixture string for display.
  * "Royal Challengers Bengaluru vs Sunrisers Hyderabad, 1st Match, Indian Premier League 2026"
@@ -40,21 +56,18 @@ export function formatFixture(fixture: string | null | undefined): string {
   const t1 = teamAbbr(team1Raw);
   const t2 = teamAbbr(team2Raw);
 
-  // Extract match number: "7th Match", "Match 8". If several ordinals appear (e.g. series + league),
-  // use the last "Nth Match" — it usually matches the IPL league counter the board uses.
-  const ordinals: string[] = [];
-  const ordRe = /\b(\d+)(?:st|nd|rd|th)\s+Match\b/gi;
-  let om: RegExpExecArray | null;
-  while ((om = ordRe.exec(rest)) !== null) ordinals.push(om[1]);
-  if (ordinals.length > 0) {
-    return `${t1} vs ${t2}, Match ${ordinals[ordinals.length - 1]}`;
-  }
-  const plainRe = /\bMatch\s+(\d+)\b/gi;
-  const plain: string[] = [];
-  while ((om = plainRe.exec(rest)) !== null) plain.push(om[1]);
-  if (plain.length > 0) {
-    return `${t1} vs ${t2}, Match ${plain[plain.length - 1]}`;
-  }
+  // Match number: prefer ordinals in the IPL clause (after "Indian Premier League" / "Tata IPL" / "IPL 2026")
+  // so a stray earlier "Nth Match" from another competition does not win.
+  const iplIdx = rest.search(/\b(?:Indian\s+Premier\s+League|Tata\s+IPL|IPL,?\s*20\d{2})\b/i);
+  const iplTail = iplIdx >= 0 ? rest.slice(iplIdx) : "";
+  const ordIpl = gatherOrdinalMatchNumbers(iplTail);
+  const ordAll = gatherOrdinalMatchNumbers(rest);
+  const ordPick = ordIpl.length > 0 ? ordIpl[ordIpl.length - 1]! : ordAll.length > 0 ? ordAll[ordAll.length - 1]! : null;
+  if (ordPick) return `${t1} vs ${t2}, Match ${ordPick}`;
+  const plainIpl = gatherPlainMatchNumbers(iplTail);
+  const plainAll = gatherPlainMatchNumbers(rest);
+  const plainPick = plainIpl.length > 0 ? plainIpl[plainIpl.length - 1]! : plainAll.length > 0 ? plainAll[plainAll.length - 1]! : null;
+  if (plainPick) return `${t1} vs ${t2}, Match ${plainPick}`;
 
   // Strip "Indian Premier League YYYY" suffix if nothing else useful remains
   const cleaned = rest.replace(/,?\s*Indian Premier League.*$/i, "").trim();

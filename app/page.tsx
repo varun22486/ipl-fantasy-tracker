@@ -5,6 +5,7 @@ export const revalidate = 0;
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
+import { fetchMatchSeedFromMatchInfo } from "@/lib/cricket-provider";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
 import StatsClient from "@/components/StatsClient";
 import HomeHero from "@/components/HomeHero";
@@ -225,6 +226,21 @@ async function getData(competitionId: number | null) {
   }
 
   const nextMatchRow = pickNextUnplayedMatch(matches ?? [], matchIdsWithPlayers);
+  let nextFixture = nextMatchRow?.fixture as string | undefined;
+  let nextDate = nextMatchRow?.match_date as string | undefined;
+  let nextVenue = (nextMatchRow as { venue?: string | null } | null)?.venue ?? null;
+  if (nextMatchRow && (nextMatchRow as { external_match_id?: string }).external_match_id) {
+    try {
+      const fresh = await fetchMatchSeedFromMatchInfo(String((nextMatchRow as { external_match_id: string }).external_match_id));
+      if (fresh) {
+        if (fresh.fixture) nextFixture = fresh.fixture;
+        if (fresh.match_date) nextDate = fresh.match_date;
+        if (fresh.venue != null && String(fresh.venue).trim() !== "") nextVenue = fresh.venue;
+      }
+    } catch {
+      /* quota / network — keep DB values */
+    }
+  }
   const nextMatch = nextMatchRow ?? null;
 
   return {
@@ -238,9 +254,9 @@ async function getData(competitionId: number | null) {
     participantMatchStats,
     nextMatch: nextMatch
       ? {
-          fixture: formatFixture(nextMatch.fixture) || nextMatch.fixture || "TBD",
-          date: String(nextMatch.match_date ?? ""),
-          venue: nextMatch.venue ?? null,
+          fixture: formatFixture(nextFixture || nextMatch.fixture) || nextFixture || nextMatch.fixture || "TBD",
+          date: String(nextDate ?? nextMatch.match_date ?? ""),
+          venue: nextVenue ?? nextMatch.venue ?? null,
         }
       : null,
     summary: {

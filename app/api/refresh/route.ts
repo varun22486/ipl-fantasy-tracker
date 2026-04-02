@@ -166,6 +166,7 @@ export async function GET() {
       .update({
         status: payload.status || currentMatch.status,
         fixture: payload.fixture || currentMatch.fixture,
+        ...(payload.match_date ? { match_date: payload.match_date } : {}),
         venue: payload.venue ?? currentMatch.venue,
         toss_winner: payload.toss_winner ?? currentMatch.toss_winner,
         live_summary: payload.live_summary ?? currentMatch.live_summary,
@@ -278,6 +279,7 @@ export async function POST(req: Request) {
     await supabaseAdmin.from("matches").update({
       status: payload.status || currentMatch.status,
       fixture: payload.fixture || currentMatch.fixture,
+      ...(payload.match_date ? { match_date: payload.match_date } : {}),
       venue: payload.venue ?? currentMatch.venue,
       toss_winner: payload.toss_winner ?? currentMatch.toss_winner,
       live_summary: payload.live_summary ?? currentMatch.live_summary,

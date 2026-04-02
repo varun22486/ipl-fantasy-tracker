@@ -5,6 +5,7 @@ export const revalidate = 0;
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
+import { isLiveMatchStatus } from "@/lib/next-match";
 import NavBar from "@/components/NavBar";
 import Link from "next/link";
 import type { CSSProperties } from "react";
@@ -33,6 +34,24 @@ type HistoryMatchRow = {
   ptsByPlayer?: Record<string, number>;
   compPlayers?: string[];
 };
+
+function isFinishedMatchStatus(status: string): boolean {
+  const u = status.toUpperCase();
+  if (u === "COMPLETED") return true;
+  if (u === "ABANDONED") return true;
+  if (u.includes("NO RESULT")) return true;
+  const low = status.toLowerCase();
+  return low.includes("won by") || /\bbeat\b/.test(low) || low.includes("match tied") || low.includes("match drawn");
+}
+
+/** History: only live or finished — hide upcoming / SCHEDULED / DRAFT with no play data. */
+function includeInHistory(m: HistoryMatchRow): boolean {
+  if (m.isCurrent) return true;
+  if (isLiveMatchStatus(m.status)) return true;
+  if (isFinishedMatchStatus(m.status)) return true;
+  if (m.hasData) return true;
+  return false;
+}
 
 async function getData(competitionId: number | null) {
   const [{ data: matches }, { data: settings }, { data: competitions }] = await Promise.all([
@@ -148,11 +167,12 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
   const { c } = await searchParams;
   const competitionId = await resolveCompetitionId(c);
   const { matchRows, yourName, opponentName, competitionId: cid, isMulti, compPlayers } = await getData(competitionId);
-  const played = matchRows.filter((m) => m.hasData);
+  const visibleRows = matchRows.filter(includeInHistory);
+  const played = visibleRows.filter((m) => m.hasData);
 
   const subtitle = isMulti
-    ? `${compPlayers?.join(" · ")} · ${played.length} completed · ${matchRows.length - played.length} upcoming`
-    : `${played.length} completed · ${matchRows.length - played.length} upcoming`;
+    ? `${compPlayers?.join(" · ")} · ${played.length} with scores · live & finished only`
+    : `${played.length} with scores · live & finished only`;
 
   return (
     <main className="page-main">
@@ -167,9 +187,20 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
             Select Teams →
           </Link>
         </div>
+      ) : visibleRows.length === 0 ? (
+        <div style={{ textAlign: "center", padding: 60, background: "white", border: "1px solid #e2e8f0", borderRadius: 20 }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
+          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>Nothing live or finished yet</div>
+          <div style={{ color: "#64748b", marginBottom: 24 }}>
+            Upcoming fixtures stay on Select. History lists matches in progress or completed.
+          </div>
+          <Link href={cid != null ? `/select?c=${cid}` : "/select"} style={btnStyle}>
+            Select match →
+          </Link>
+        </div>
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
-          {matchRows.map((m) => {
+          {visibleRows.map((m) => {
             if (m.isMulti && m.ptsByPlayer && m.compPlayers) {
               const total = m.compPlayers.reduce((s, n) => s + (m.ptsByPlayer![n] ?? 0), 0);
               return (
@@ -343,7 +374,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
         </div>
       )}
 
-      {played.length === 0 && matchRows.length > 0 && (
+      {played.length === 0 && visibleRows.length > 0 && (
         <div style={{ marginTop: 16, textAlign: "center", fontSize: 13, color: "#94a3b8" }}>
           No scores synced yet.{" "}
           <Link href={cid != null ? `/match?c=${cid}` : "/match"} style={{ color: "#2563eb", textDecoration: "none", fontWeight: 600 }}>
