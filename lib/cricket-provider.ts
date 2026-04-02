@@ -1028,22 +1028,56 @@ function extractMomFromFreeText(text: string): string | null {
 }
 
 /**
- * CricAPI / scorecard MoM can appear under several keys, nested objects, or only in status text.
+ * Official Fantasy API field name (string; "tba" / blank if not declared yet):
+ * https://www.cricapi.com/fantasy-api/ — table lists `man-of-the-match` next to team / batting / bowling / fielding.
+ * v1 `match_scorecard` may nest the same key under `data` or deeper; walk the full JSON to find it.
  */
+const MAN_OF_THE_MATCH_JSON_KEYS = [
+  "man-of-the-match",
+  "player-of-the-match",
+  "playerOfMatch",
+  "player_of_the_match",
+  "manOfTheMatch",
+  "man_of_the_match",
+  "manOfMatch",
+  "man_of_match",
+  "matchManOfTheMatch",
+  "mom",
+  "pom",
+] as const;
+
+/** Depth-first search for documented MoM keys anywhere in the API payload. */
+function findManOfTheMatchByKeyWalk(obj: unknown, depth = 0): string | null {
+  if (depth > 18 || obj == null) return null;
+  if (typeof obj !== "object") return null;
+  if (Array.isArray(obj)) {
+    for (const x of obj) {
+      const h = findManOfTheMatchByKeyWalk(x, depth + 1);
+      if (h) return h;
+    }
+    return null;
+  }
+  const o = obj as MaybeRecord;
+  for (const k of MAN_OF_THE_MATCH_JSON_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(o, k)) {
+      const n = pickNameFromMomField(o[k]);
+      if (n && !isPlaceholderMomName(n)) return n;
+    }
+  }
+  for (const v of Object.values(o)) {
+    const h = findManOfTheMatchByKeyWalk(v, depth + 1);
+    if (h) return h;
+  }
+  return null;
+}
+
 function extractManOfTheMatchName(data: MaybeRecord, payloadRoot?: MaybeRecord): string | null {
-  const keys = [
-    "playerOfMatch",
-    "player_of_the_match",
-    "manOfTheMatch",
-    "man_of_the_match",
-    "manOfMatch",
-    "man_of_match",
-    "matchManOfTheMatch",
-    "mom",
-    "pom",
-    "man-of-the-match",
-    "player-of-the-match",
-  ];
+  const keys = [...MAN_OF_THE_MATCH_JSON_KEYS];
+
+  if (payloadRoot) {
+    const deep = findManOfTheMatchByKeyWalk(payloadRoot);
+    if (deep) return deep;
+  }
 
   const tryRecord = (root: MaybeRecord | null | undefined): string | null => {
     if (!root || typeof root !== "object") return null;
