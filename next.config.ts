@@ -9,10 +9,14 @@ const nextConfig: NextConfig = {
     // Type errors are checked in the IDE; don't block deployment
     ignoreBuildErrors: true,
   },
+  compiler: {
+    removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "2mb",
     },
+    optimizePackageImports: ["lucide-react"],
   },
 };
 

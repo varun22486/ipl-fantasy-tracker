@@ -122,6 +122,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-root">
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
       <aside className="app-sidebar" aria-label="Main navigation">
         <div className="app-sidebar__brand">
           <div className="app-sidebar__brand-row">
@@ -141,7 +144,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <NavLinks variant="sidebar" />
         </Suspense>
         <div className="app-sidebar__footer">
-          <span className="app-sidebar__footer-inner">Private league · your Supabase data</span>
+          <span className="app-sidebar__footer-inner">Private league · encrypted on your Supabase</span>
         </div>
       </aside>
 
@@ -162,7 +165,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </Suspense>
       </header>
 
-      <div className="app-content">{children}</div>
+      <div id="main-content" className="app-content" tabIndex={-1}>
+        {children}
+      </div>
 
       <div className="mobile-comp-bar" aria-label="Competitions">
         <Suspense fallback={null}>
