@@ -73,6 +73,7 @@ export default async function SelectPage() {
         squads={squads}
         nameToId={nameToId}
         hasLinkedMatch={Boolean(currentMatch)}
+        matchId={currentMatch?.id ?? null}
       />
     </main>
   );

@@ -65,6 +65,8 @@ type Props = {
   /** lowercase player name → CricAPI UUID; used to save provider_player_id at lineup time */
   nameToId: Record<string, string>;
   hasLinkedMatch: boolean;
+  /** DB match row — scopes "Refresh XI" / roster fetch to this fixture */
+  matchId?: number | null;
   /** null = default (series_settings) competition; number = named competition */
   competitionId?: number | null;
   /**
@@ -84,7 +86,7 @@ function withFallback(players: Player[]) {
   return next;
 }
 
-export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch, competitionId, compPlayers, existingPicks }: Props) {
+export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch, matchId, competitionId, compPlayers, existingPicks }: Props) {
   // Multi-player mode: 3+ participants
   const isMulti = (compPlayers?.length ?? 0) >= 3;
   const multiPlayers = compPlayers ?? [];
@@ -276,7 +278,11 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     setSyncing(true);
     setApiMsg({ type: "loading", title: "Fetching player roster…" });
     try {
-      const res = await fetch("/api/fetch-roster", { method: "POST" });
+      const res = await fetch("/api/fetch-roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(matchId != null ? { matchId } : {}),
+      });
       const json = await res.json(); addUsage(1);
       if (json.ok) {
         setApiMsg({ type: "success", title: `Roster loaded — ${json.playerCount} players. Refreshing…` });

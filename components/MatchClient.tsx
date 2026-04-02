@@ -41,6 +41,8 @@ type Props = {
   opponentName: string;
   yourFantasyPlayers: FantasyPlayer[];
   opponentFantasyPlayers: FantasyPlayer[];
+  /** DB row id for the linked fixture — sent with sync/refresh so the correct match updates */
+  matchId?: number | null;
   currentMatch: CurrentMatch | null;
   hasLinkedMatch: boolean;
   yourLineupSaved: boolean;
@@ -83,7 +85,7 @@ function DebugPanel({ info }: { info: DebugData | null }) {
   );
 }
 
-export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId, allParticipants }: Props) {
+export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, matchId, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId, allParticipants }: Props) {
   const isMultiPlayer = (allParticipants?.length ?? 0) > 2;
   // Show inline team picker only when NO ONE has saved yet (truly fresh start).
   // Once any participant has saved, show the live view — the pending banner
@@ -140,7 +142,11 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     setSyncing(true);
     setApiMsg({ type: "loading", title: "Syncing scores…" });
     try {
-      const res = await fetch("/api/refresh", { method: "POST" });
+      const res = await fetch("/api/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(matchId != null ? { matchId } : {}),
+      });
       const json = await res.json();
       setSyncing(false); setDebugInfo(json);
 
@@ -245,6 +251,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           squads={squads}
           nameToId={nameToId}
           hasLinkedMatch={hasLinkedMatch}
+          matchId={matchId ?? null}
           competitionId={competitionId ?? null}
           compPlayers={isMultiPlayer ? (allParticipants ?? []).map(p => p.name) : undefined}
           existingPicks={isMultiPlayer ? (allParticipants ?? []).map(p => p.players.map(fp => ({ name: fp.name, captain: fp.captain }))) : undefined}

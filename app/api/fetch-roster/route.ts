@@ -2,26 +2,46 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { fetchMatchRoster } from "@/lib/cricket-provider";
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    // Mirror page.tsx: prefer is_current flag, fall back to most recently inserted
-    let { data: match, error } = await supabaseAdmin
-      .from("matches")
-      .select("id, external_match_id")
-      .eq("is_current", true)
-      .limit(1)
-      .maybeSingle();
-    if (!match) {
+    let matchId: number | undefined;
+    try {
+      const body = await request.json();
+      if (body && typeof body.matchId === "number" && Number.isFinite(body.matchId)) matchId = body.matchId;
+    } catch {
+      /* no body */
+    }
+
+    let match: { id: number; external_match_id: string | null } | null = null;
+    let error: { message: string } | null = null;
+
+    if (matchId != null) {
       ({ data: match, error } = await supabaseAdmin
         .from("matches")
         .select("id, external_match_id")
-        .order("id", { ascending: false })
+        .eq("id", matchId)
+        .maybeSingle());
+      if (error || !match) {
+        return NextResponse.json({ ok: false, error: "Match not found." }, { status: 404 });
+      }
+    } else {
+      ({ data: match, error } = await supabaseAdmin
+        .from("matches")
+        .select("id, external_match_id")
+        .eq("is_current", true)
         .limit(1)
         .maybeSingle());
-    }
-
-    if (error || !match) {
-      return NextResponse.json({ ok: false, error: "No linked match found." }, { status: 400 });
+      if (!match) {
+        ({ data: match, error } = await supabaseAdmin
+          .from("matches")
+          .select("id, external_match_id")
+          .order("id", { ascending: false })
+          .limit(1)
+          .maybeSingle());
+      }
+      if (error || !match) {
+        return NextResponse.json({ ok: false, error: "No linked match found." }, { status: 400 });
+      }
     }
 
     const extId = match.external_match_id as string | null;

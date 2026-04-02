@@ -1680,10 +1680,37 @@ function providerPayloadSaysMatchNotStarted(data: MaybeRecord): boolean {
   return false;
 }
 
+/**
+ * Playing XI from scorecard when available. Must run before full teams/squad branches so
+ * match_scorecard payloads that include both do not stick on the whole squad after play starts.
+ */
+function squadsFromScorecardIfApplicable(dataRec: MaybeRecord): SquadTeam[] | null {
+  const scorecard = dataRec.scorecard;
+  if (!Array.isArray(scorecard) || scorecard.length === 0) return null;
+  const notStarted = providerPayloadSaysMatchNotStarted(dataRec);
+  if (notStarted && !scorecardMatchHasBegun(scorecard)) return null;
+  if (scorecardMatchHasBegun(scorecard)) {
+    const eleven = extractPlayingElevenSquadsFromScorecard(dataRec, scorecard);
+    const n = eleven.reduce((a, t) => a + t.players.length, 0);
+    if (eleven.length >= 2 && n >= 11) return eleven;
+    const merged = extractMergedSquadsFromScorecard(dataRec, scorecard);
+    if (merged.length) return merged;
+  } else {
+    const eleven = extractPlayingElevenSquadsFromScorecard(dataRec, scorecard);
+    if (eleven.length >= 2) return eleven;
+  }
+  return null;
+}
+
 function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTeam[] {
   if (!root || typeof root !== "object") return [];
   const data = (root as MaybeRecord).data ?? root;
   if (!data || typeof data !== "object") return [];
+
+  if (!Array.isArray(data)) {
+    const fromScorecard = squadsFromScorecardIfApplicable(data as MaybeRecord);
+    if (fromScorecard?.length) return fromScorecard;
+  }
 
   // CricAPI match_squad returns data as a direct array of team objects
   if (Array.isArray(data)) {
@@ -1739,25 +1766,6 @@ function extractSquadsFromPayload(root: MaybeRecord | null | undefined): SquadTe
       if (names.length) out.push(withIdMap(teamName || "Squad", names, extractIdMap(players)));
     }
     if (out.length) return out;
-  }
-
-  // CricAPI match_scorecard: playing XI (≤11, no super-sub) once batting exists; else fall through for full squad.
-  const scorecard = (data as MaybeRecord).scorecard;
-  if (Array.isArray(scorecard) && scorecard.length > 0) {
-    const dataRec = data as MaybeRecord;
-    const notStarted = providerPayloadSaysMatchNotStarted(dataRec);
-    if (!(notStarted && !scorecardMatchHasBegun(scorecard))) {
-      if (scorecardMatchHasBegun(scorecard)) {
-        const eleven = extractPlayingElevenSquadsFromScorecard(dataRec, scorecard);
-        const n = eleven.reduce((a, t) => a + t.players.length, 0);
-        if (eleven.length >= 2 && n >= 11) return eleven;
-        const merged = extractMergedSquadsFromScorecard(dataRec, scorecard);
-        if (merged.length) return merged;
-      } else {
-        const eleven = extractPlayingElevenSquadsFromScorecard(dataRec, scorecard);
-        if (eleven.length >= 2) return eleven;
-      }
-    }
   }
 
   // CricAPI match_scorecard: data.players = { "Team Name": [{id, name, role,...}] }

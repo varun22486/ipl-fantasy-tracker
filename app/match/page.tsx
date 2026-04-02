@@ -107,6 +107,7 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         opponentName={opponentName}
         yourFantasyPlayers={yourPlayers}
         opponentFantasyPlayers={oppPlayers}
+        matchId={currentMatch?.id ?? null}
         currentMatch={currentMatchData}
         hasLinkedMatch={Boolean(currentMatch)}
         yourLineupSaved={yourLineupSaved}
