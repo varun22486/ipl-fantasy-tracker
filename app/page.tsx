@@ -8,16 +8,16 @@ import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { fetchMatchSeedFromMatchInfo } from "@/lib/cricket-provider";
 import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic";
 import HomeHero from "@/components/HomeHero";
 import StatsSectionSkeleton from "@/components/StatsSectionSkeleton";
 import Link from "next/link";
 
-const StatsClient = dynamic(() => import("@/components/StatsClient"), {
+const StatsClient = nextDynamic(() => import("@/components/StatsClient"), {
   loading: () => <StatsSectionSkeleton variant="duo" />,
 });
 
-const MultiStatsClient = dynamic(() => import("@/components/MultiStatsClient"), {
+const MultiStatsClient = nextDynamic(() => import("@/components/MultiStatsClient"), {
   loading: () => <StatsSectionSkeleton variant="multi" />,
 });
 
