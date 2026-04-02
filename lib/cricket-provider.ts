@@ -1902,10 +1902,28 @@ function pickPreferredRosterSquads(candidates: SquadTeam[][]): SquadTeam[] {
   const nonempty = candidates.filter((c) => c.length > 0 && squadPlayerCount(c) > 0);
   if (!nonempty.length) return [];
   const xiLike = nonempty.filter((c) => maxSquadTeamSize(c) <= 13 && squadPlayerCount(c) >= 11);
-  if (xiLike.length) {
-    return xiLike.sort((a, b) => squadPlayerCount(a) - squadPlayerCount(b))[0]!;
-  }
-  return nonempty.sort((a, b) => squadPlayerCount(b) - squadPlayerCount(a))[0]!;
+  const pool = xiLike.length ? xiLike : nonempty;
+  const twoTeam = pool.filter((c) => c.length >= 2);
+  const ranked = (twoTeam.length ? twoTeam : pool).slice();
+  ranked.sort((a, b) => {
+    const ma = a.length >= 2 ? 0 : 1;
+    const mb = b.length >= 2 ? 0 : 1;
+    if (ma !== mb) return ma - mb;
+    const da = Math.abs(22 - squadPlayerCount(a));
+    const db = Math.abs(22 - squadPlayerCount(b));
+    if (da !== db) return da - db;
+    return squadPlayerCount(b) - squadPlayerCount(a);
+  });
+  return ranked[0]!;
+}
+
+/** Re-split a flat roster using scorecard innings when the UI needs two columns. */
+function twoTeamSquadsFromRawPayload(raw: MaybeRecord | null | undefined): SquadTeam[] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const dataRec = ((raw as MaybeRecord).data ?? raw) as MaybeRecord;
+  const xi = squadsFromScorecardIfApplicable(dataRec);
+  if (xi && xi.length >= 2 && squadPlayerCount(xi) >= 11) return xi;
+  return null;
 }
 
 /** When structured squad endpoints parse to nothing, use any names we already extracted for stats sync. */
@@ -1967,12 +1985,25 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
 
   // If we already have enough players from the scorecard, return immediately (no extra calls).
   if (full && squadPlayerCount(full.squads) >= 11) {
+    if (full.squads.length >= 2) {
+      return { squads: full.squads, rosterNames: full.rosterNames, nameToId: full.nameToId };
+    }
+    const split = twoTeamSquadsFromRawPayload(full.raw as MaybeRecord | undefined);
+    if (split) {
+      return { squads: split, rosterNames: uniqueRosterNames(split), nameToId: buildNameToId(split) };
+    }
     return { squads: full.squads, rosterNames: full.rosterNames, nameToId: full.nameToId };
   }
 
   // Also accept stat-derived names as a squad when squads is thin.
   const fromStats = squadsFromProviderPlayerRows(full?.players);
   if (full && squadPlayerCount(fromStats) >= 11) {
+    if (fromStats.length === 1) {
+      const split = twoTeamSquadsFromRawPayload(full.raw as MaybeRecord | undefined);
+      if (split) {
+        return { squads: split, rosterNames: uniqueRosterNames(split), nameToId: buildNameToId(split) };
+      }
+    }
     return { squads: fromStats, rosterNames: uniqueRosterNames(fromStats), nameToId: buildNameToId(fromStats) };
   }
 
@@ -2149,8 +2180,14 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
 
   let rosterNames = uniqueRosterNames(squads);
   if (rosterNames.length === 0 && simpleFallback.length) {
-    rosterNames = [...new Set(simpleFallback.map((p) => p.name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-    squads = rosterNames.length ? [{ teamName: "From live scorecard", players: rosterNames }] : [];
+    const split = squadsFromScorecardIfApplicable(dataRec);
+    if (split && split.length >= 2 && squadPlayerCount(split) >= 11) {
+      squads = split;
+      rosterNames = uniqueRosterNames(squads);
+    } else {
+      rosterNames = [...new Set(simpleFallback.map((p) => p.name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      squads = rosterNames.length ? [{ teamName: "From live scorecard", players: rosterNames }] : [];
+    }
   }
 
   return {
