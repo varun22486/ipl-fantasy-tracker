@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { formatUiDateTimeLong } from "@/lib/ui-time";
+import { buildMomWebSearchQuery, searchWebForMom } from "@/lib/web-mom-search";
 
 const DEFAULT_BASE_URL = "https://api.cricapi.com";
 
@@ -1009,13 +1010,17 @@ function extractMomFromFreeText(text: string): string | null {
   const t = safeString(text);
   if (!t) return null;
   const patterns = [
-    /([A-Za-z][A-Za-z\s.'-]+?)\s+was\s+(?:named|awarded)\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match/i,
-    /([A-Za-z][A-Za-z\s.'-]+?)\s+was\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match/i,
+    /\b([A-Z][a-z]+(?:\s+[A-Z][a-z.]+)+)\s+won\s+the\s+(?:player|man)\s+of\s+the\s+match\b/i,
+    /\b(?:player|man)\s+of\s+the\s+match(?:\s*\([^)]*\))?\s+award\s+went\s+to\s+([A-Z][a-z]+(?:\s+[A-Z][a-z.]+)*)/i,
+    /\b([A-Z][a-z]+(?:\s+[A-Z][a-z.]+)+)(?:\s*\([^)]*\))?\s+was\s+(?:named|awarded)\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match/i,
+    /([A-Za-z][A-Za-z\s.'-]+?)(?:\s*\([^)]*\))?\s+was\s+(?:named|awarded)\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match/i,
+    /([A-Za-z][A-Za-z\s.'-]+?)(?:\s*\([^)]*\))?\s+was\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match/i,
     /(?:player|man)\s+of\s+the\s+match\s*(?:is|goes\s+to|:)\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bman\s+of\s+the\s+match\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bplayer\s+of\s+the\s+match\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bman\s+of\s+the\s+match\s+is\s+([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bm\.?\s*o\.?\s*m\.?\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\bnamed\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match[:\s,]+([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
   ];
   for (const re of patterns) {
     const m = t.match(re);
@@ -2108,7 +2113,20 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   const mergedOrLive = merged.length > 0 ? merged : parseSimpleLiveScore(data);
 
   const dataRec = data as MaybeRecord;
-  const momName = extractManOfTheMatchName(dataRec, payload as MaybeRecord);
+  let momName = extractManOfTheMatchName(dataRec, payload as MaybeRecord);
+  const statusBlob = safeString(data.update || data.status || (payload as MaybeRecord).status || "");
+  const statusEarly = parseStatus(statusBlob);
+  const looksFinished =
+    statusEarly === "COMPLETED" ||
+    /\b(won by|won the match|beat |defeat(ed)?|match ended)\b/i.test(statusBlob);
+  if (!momName && looksFinished) {
+    const fixtureQ = safeString(data.title || data.fixture || data.name || "");
+    const dateQ = extractProviderMatchDate(dataRec) || "";
+    if (fixtureQ) {
+      const fromSearch = await searchWebForMom(buildMomWebSearchQuery(fixtureQ, dateQ));
+      if (fromSearch) momName = fromSearch;
+    }
+  }
   const { players: withMom, synced: manOfTheMatchSynced } = applyManOfTheMatch(mergedOrLive, momName);
   let squads = extractSquadsFromPayload(payload);
   let count = squadPlayerCount(squads);
