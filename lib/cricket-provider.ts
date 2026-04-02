@@ -1583,6 +1583,9 @@ function playingXiEligibleFromSquadMember(p: unknown, xiMode: SquadXiFlagMode): 
     return false;
   if (typeof o.inPlayingXI === "boolean" && o.inPlayingXI === false) return false;
 
+  const po = (o as any).playingOrder ?? (o as any).playingPosition ?? (o as any).squadPosition;
+  if (typeof po === "number" && Number.isFinite(po) && po > 11) return false;
+
   const role = safeString((o.role as string) || (o.playingRole as string) || (o.type as string)).toLowerCase();
   if (
     role.includes("impact") ||
@@ -1603,9 +1606,11 @@ function squadMemberRoleRank(p: unknown): number {
   if (!p || typeof p !== "object") return 50;
   const role = safeString((p as any).role || (p as any).playingRole || (p as any).type || "").toLowerCase();
   if (/impact|substitute|bench|reserve/.test(role)) return 200;
+  const po = (p as any).playingOrder ?? (p as any).playingPosition ?? (p as any).squadPosition;
+  if (typeof po === "number" && Number.isFinite(po) && po >= 1 && po <= 11) return po;
   if (/wicket|wk\b|keeper/.test(role)) return 0;
-  if (/\bbat/.test(role) && !/\bbowl/.test(role)) return 10;
   if (/all.?round/.test(role)) return 20;
+  if (/\bbat|^batter|top.?order|middle.?order|opening/i.test(role) && !/\bbowl/i.test(role)) return 10;
   if (/\bbowl/.test(role)) return 40;
   return 30;
 }
@@ -1668,7 +1673,8 @@ function findBattingInningForTeam(scorecard: any[], team: string): any | null {
 
 /**
  * Live scorecards often only list batters who have faced balls + bowlers who have bowled.
- * Fill toward 11 using the match payload's squad lists (`teams`, `teamInfo`, `players`) in API order.
+ * Fill toward 11 from `teams` / `teamInfo` / `data.players` using the same eligibility + role ordering
+ * as match_squad merge (not raw API list order).
  */
 function supplementPlayingXIFromTeamLists(data: MaybeRecord, teamLabel: string, existing: string[]): string[] {
   const cap = 11;
@@ -1676,15 +1682,9 @@ function supplementPlayingXIFromTeamLists(data: MaybeRecord, teamLabel: string, 
   const seen = new Set(out.map((n) => rosterDedupeKey(n)));
 
   function addFromPlayerList(pl: unknown[]) {
-    const xiMode = squadXiFlagMode(pl as any[]);
-    for (const p of pl) {
+    if (!Array.isArray(pl) || pl.length === 0 || out.length >= cap) return;
+    for (const n of orderedEligibleFillNames(pl as any[], seen)) {
       if (out.length >= cap) return;
-      if (!playingXiEligibleFromSquadMember(p, xiMode)) continue;
-      const n = safeString(
-        typeof p === "string"
-          ? p
-          : (p as any)?.name || (p as any)?.playerName || (p as any)?.fullName || (p as any)?.batsman
-      );
       if (!n || n.toLowerCase() === "extras") continue;
       const k = rosterDedupeKey(n);
       if (seen.has(k)) continue;
@@ -2449,28 +2449,42 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
 
   const scorecardInns = normalizeScorecardInningsArray(dataRec);
   const liveForXi = usePlayingElevenFromScorecard(dataRec, scorecardInns);
-  if (
-    liveForXi &&
-    squads.length >= 2 &&
-    minSquadTeamSize(squads) < 11 &&
-    isCricapiBase(envBaseUrl())
-  ) {
+
+  let squadApiCache: { squads: SquadTeam[]; rawTeams: { teamName: string; players: any[] }[] } | null = null;
+  const loadSquadApiOnce = async () => {
+    if (squadApiCache) return squadApiCache;
+    if (!isCricapiBase(envBaseUrl())) {
+      squadApiCache = { squads: [], rawTeams: [] };
+      return squadApiCache;
+    }
     try {
-      const { squads: extra, rawTeams } = await tryFetchSquadsFromSquadApi(externalMatchId);
-      if (extra.length >= 2 && squadPlayerCount(extra) >= 16) {
-        const grown = mergeSparseSquadsWithFullRoster(squads, extra, rawTeams);
-        if (minSquadTeamSize(grown) > minSquadTeamSize(squads)) {
+      squadApiCache = await tryFetchSquadsFromSquadApi(externalMatchId);
+    } catch {
+      squadApiCache = { squads: [], rawTeams: [] };
+    }
+    return squadApiCache;
+  };
+
+  /**
+   * Live IPL scorecards often yield merged bat/bowl sets that get topped up to 11 using teamInfo **array order**
+   * (wrong XI). Rebuild from sparse scorecard rows + match_squad with role / playingOrder ordering whenever possible.
+   */
+  if (liveForXi && scorecardInns.length > 0 && isCricapiBase(envBaseUrl())) {
+    const { squads: extra, rawTeams } = await loadSquadApiOnce();
+    if (extra.length >= 2 && rawTeams.length >= 2 && squadPlayerCount(extra) >= 16) {
+      const mergedSparse = extractMergedSquadsFromScorecard(dataRec, scorecardInns);
+      if (mergedSparse.length >= 2 && squadPlayerCount(mergedSparse) >= 4) {
+        const grown = mergeSparseSquadsWithFullRoster(mergedSparse, extra, rawTeams);
+        if (grown.length >= 2 && minSquadTeamSize(grown) >= 11) {
           squads = grown;
           count = squadPlayerCount(squads);
         }
       }
-    } catch {
-      /* ignore */
     }
   }
 
   if (count < 8 && isCricapiBase(envBaseUrl())) {
-    const { squads: extra } = await tryFetchSquadsFromSquadApi(externalMatchId);
+    const { squads: extra } = await loadSquadApiOnce();
     if (
       squadPlayerCount(extra) > count &&
       (count < 4 || maxSquadTeamSize(extra) <= 13)
