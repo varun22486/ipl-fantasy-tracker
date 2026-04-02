@@ -471,27 +471,11 @@ function todayIsoInIplTZ(): string {
   return formatDateInTimeZone(new Date(), IPL_TZ);
 }
 
+/**
+ * IPL listing day in Asia/Kolkata. Prefer epoch / full ISO instants over plain `date` — CricAPI `dateTimeGMT`
+ * must be converted to IST (slicing the UTC YYYY-MM-DD prefix is wrong around midnight IST).
+ */
 function extractProviderMatchDate(match: MaybeRecord): string | null {
-  const asIso = (raw: string) => {
-    const s = raw.trim().slice(0, 10);
-    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
-  };
-
-  const direct = asIso(safeString(match.date || match.matchDate || match.match_date));
-  if (direct) return direct;
-
-  const gmt = asIso(safeString(match.dateTimeGMT));
-  if (gmt) return gmt;
-
-  const started = asIso(safeString(match.startedAt || match.startDate));
-  if (started) return started;
-
-  const tp = match.timeAndPlace;
-  if (tp && typeof tp === "object") {
-    const d = asIso(safeString((tp as any).date));
-    if (d) return d;
-  }
-
   const ms =
     typeof match.ms === "number" && match.ms > 0
       ? match.ms
@@ -499,6 +483,41 @@ function extractProviderMatchDate(match: MaybeRecord): string | null {
         ? match.dateTime
         : NaN;
   if (Number.isFinite(ms)) return formatDateInTimeZone(new Date(ms), IPL_TZ);
+
+  const fromScheduleString = (raw: string): string | null => {
+    const s = raw.trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const t = Date.parse(s);
+    if (!Number.isNaN(t)) return formatDateInTimeZone(new Date(t), IPL_TZ);
+    const head = s.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
+    return null;
+  };
+
+  for (const s of [
+    safeString(match.dateTimeGMT),
+    safeString(match.startedAt),
+    safeString(match.startDate),
+  ]) {
+    const d = fromScheduleString(s);
+    if (d) return d;
+  }
+
+  const tp = match.timeAndPlace;
+  if (tp && typeof tp === "object") {
+    const d = fromScheduleString(safeString((tp as any).date));
+    if (d) return d;
+  }
+
+  for (const s of [
+    safeString(match.date),
+    safeString(match.matchDate),
+    safeString(match.match_date),
+  ]) {
+    const head = s.trim().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
+  }
 
   return null;
 }

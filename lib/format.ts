@@ -40,10 +40,20 @@ export function formatFixture(fixture: string | null | undefined): string {
   const t1 = teamAbbr(team1Raw);
   const t2 = teamAbbr(team2Raw);
 
-  // Extract match number: "1st Match", "2nd Match" → "Match N"
-  const numMatch = rest.match(/(\d+)(?:st|nd|rd|th)?\s*Match/i);
-  if (numMatch) {
-    return `${t1} vs ${t2}, Match ${numMatch[1]}`;
+  // Extract match number: "7th Match", "Match 8". If several ordinals appear (e.g. series + league),
+  // use the last "Nth Match" — it usually matches the IPL league counter the board uses.
+  const ordinals: string[] = [];
+  const ordRe = /\b(\d+)(?:st|nd|rd|th)\s+Match\b/gi;
+  let om: RegExpExecArray | null;
+  while ((om = ordRe.exec(rest)) !== null) ordinals.push(om[1]);
+  if (ordinals.length > 0) {
+    return `${t1} vs ${t2}, Match ${ordinals[ordinals.length - 1]}`;
+  }
+  const plainRe = /\bMatch\s+(\d+)\b/gi;
+  const plain: string[] = [];
+  while ((om = plainRe.exec(rest)) !== null) plain.push(om[1]);
+  if (plain.length > 0) {
+    return `${t1} vs ${t2}, Match ${plain[plain.length - 1]}`;
   }
 
   // Strip "Indian Premier League YYYY" suffix if nothing else useful remains
