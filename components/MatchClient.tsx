@@ -127,6 +127,43 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   const oppTotal = teamPoints(opponentFantasyPlayers);
   const leader = yourTotal === oppTotal ? "Tied" : yourTotal > oppTotal ? `You +${yourTotal - oppTotal}` : `${opponentName} +${oppTotal - yourTotal}`;
 
+  /** Per-participant totals for 3+ player comps — do not use opponentFantasyPlayers (that merges everyone except player 1). */
+  const multiScoreboard =
+    isMultiPlayer && allParticipants && allParticipants.length > 0
+      ? allParticipants
+          .map((p) => ({ name: p.name, players: p.players, total: teamPoints(p.players) }))
+          .sort((a, b) => b.total - a.total)
+      : null;
+
+  type ScoreCardRow = { label: string; value: string | number; sub?: string; color: string };
+  let scoreCardRows: ScoreCardRow[];
+  if (multiScoreboard && multiScoreboard.length > 0) {
+    let leaderStr = "—";
+    if (multiScoreboard.length >= 2) {
+      const first = multiScoreboard[0]!;
+      const second = multiScoreboard[1]!;
+      leaderStr =
+        first.total === second.total ? "Tied" : `${first.name} +${first.total - second.total}`;
+    } else if (multiScoreboard[0]!.total > 0) {
+      leaderStr = `${multiScoreboard[0]!.name} leads`;
+    }
+    scoreCardRows = [
+      ...multiScoreboard.map((r, idx) => ({
+        label: r.name,
+        value: r.total,
+        sub: "pts",
+        color: idx === 0 && r.total > 0 ? "#1d4ed8" : "#0f172a",
+      })),
+      { label: "Leader", value: leaderStr, color: "#0f172a" },
+    ];
+  } else {
+    scoreCardRows = [
+      { label: `${yourName}`, value: yourTotal, sub: "pts", color: "#1d4ed8" },
+      { label: `${opponentName}`, value: oppTotal, sub: "pts", color: "#dc2626" },
+      { label: "Leader", value: leader, color: "#0f172a" },
+    ];
+  }
+
   const showMsg = useCallback((text: string, context?: string) => {
     setApiMsg(classifyApiMsg(text, context));
     setMessage("");
@@ -332,13 +369,15 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
         </div>
       </div>
 
-      {/* Score cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-        {[
-        { label: `${yourName}`, value: yourTotal, sub: "pts", color: "#1d4ed8" },
-        { label: `${opponentName}`, value: oppTotal, sub: "pts", color: "#dc2626" },
-        { label: "Leader", value: leader, color: "#0f172a" },
-        ].map(({ label, value, sub, color }) => (
+      {/* Score cards — multi-player: one card per person + Leader (not merged "opponent" bucket) */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 140px), 1fr))",
+          gap: 12,
+        }}
+      >
+        {scoreCardRows.map(({ label, value, sub, color }) => (
           <div key={label} style={{ border: "1px solid #e2e8f0", borderRadius: 14, background: "white", padding: "12px 14px" }}>
             <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
             <div style={{ fontSize: "clamp(1.1rem, 4vw, 1.6rem)", fontWeight: 800, color }}>{value}</div>
@@ -407,23 +446,19 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       )}
 
       {/* Multi-player scoreboard */}
-      {isMultiPlayer && allParticipants && allParticipants.some(p => p.players.length > 0) && (
+      {isMultiPlayer && multiScoreboard && multiScoreboard.some((p) => p.players.length > 0) && (
         <div style={{ display: "grid", gap: 12 }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>Participant Scores</div>
-          {allParticipants
-            .map(p => ({ ...p, total: teamPoints(p.players) }))
-            .sort((a, b) => b.total - a.total)
-            .map((p, i) => (
-              <div key={p.name} style={{ padding: "12px 16px", border: "1px solid #e2e8f0", borderRadius: 14, background: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", width: 20 }}>#{i + 1}</span>
-                  <span style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</span>
-                  {p.players.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>no lineup</span>}
-                </div>
-                <span style={{ fontSize: 22, fontWeight: 800, color: i === 0 && p.total > 0 ? "#2563eb" : "#0f172a" }}>{p.total} <span style={{ fontSize: 12, color: "#94a3b8" }}>pts</span></span>
+          {multiScoreboard.map((p, i) => (
+            <div key={p.name} style={{ padding: "12px 16px", border: "1px solid #e2e8f0", borderRadius: 14, background: "white", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8", width: 20 }}>#{i + 1}</span>
+                <span style={{ fontWeight: 700, fontSize: 15 }}>{p.name}</span>
+                {p.players.length === 0 && <span style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>no lineup</span>}
               </div>
-            ))
-          }
+              <span style={{ fontSize: 22, fontWeight: 800, color: i === 0 && p.total > 0 ? "#2563eb" : "#0f172a" }}>{p.total} <span style={{ fontSize: 12, color: "#94a3b8" }}>pts</span></span>
+            </div>
+          ))}
         </div>
       )}
 
