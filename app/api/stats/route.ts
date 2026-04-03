@@ -42,6 +42,8 @@ export async function GET() {
         runs: p.runs,
         wickets: p.wickets,
         catches: p.catches,
+        runouts: p.runouts ?? 0,
+        stumpings: p.stumpings ?? 0,
       }));
 
       return {
@@ -60,15 +62,17 @@ export async function GET() {
     });
 
     // Player leaderboard across all matches
-    const leaderboard: Record<string, { name: string; side: string; totalPoints: number; matches: number; runs: number; wickets: number; catches: number }> = {};
+    const leaderboard: Record<string, { name: string; side: string; totalPoints: number; matches: number; runs: number; wickets: number; catches: number; runouts: number; stumpings: number }> = {};
     for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
       const key = `${p.side}::${p.name}`;
-      if (!leaderboard[key]) leaderboard[key] = { name: p.name, side: p.side, totalPoints: 0, matches: 0, runs: 0, wickets: 0, catches: 0 };
+      if (!leaderboard[key]) leaderboard[key] = { name: p.name, side: p.side, totalPoints: 0, matches: 0, runs: 0, wickets: 0, catches: 0, runouts: 0, stumpings: 0 };
       leaderboard[key].totalPoints += playerPoints(p).final;
       leaderboard[key].matches += 1;
       leaderboard[key].runs += p.runs;
       leaderboard[key].wickets += p.wickets;
       leaderboard[key].catches += p.catches;
+      leaderboard[key].runouts += p.runouts ?? 0;
+      leaderboard[key].stumpings += p.stumpings ?? 0;
     }
 
     const yourWins = matchStats.filter((m) => m.winner === "You").length;

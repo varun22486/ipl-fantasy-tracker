@@ -24,6 +24,8 @@ export async function POST(req: NextRequest) {
             runs: p.runs ?? 0,
             wickets: p.wickets ?? 0,
             catches: p.catches ?? 0,
+            runouts: p.runouts ?? 0,
+            stumpings: p.stumpings ?? 0,
             fifty_bonus: p.fifty_bonus ?? 0,
             hundred_bonus: p.hundred_bonus ?? 0,
             three_w_bonus: p.three_w_bonus ?? 0,

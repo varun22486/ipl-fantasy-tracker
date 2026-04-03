@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "smoke:ipl": "python3 scripts/smoke_ipl.py"
+    "smoke:ipl": "python3 scripts/smoke_ipl.py",
+    "verify:runout": "npx --yes tsx scripts/verify-runout-example.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",

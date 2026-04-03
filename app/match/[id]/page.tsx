@@ -3,7 +3,7 @@ export const revalidate = 0;
 
 import { resolveCompetitionId } from "@/lib/competition";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
+import { FantasyPlayer, formatCtRoSt, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import NavBar from "@/components/NavBar";
 import SyncButton from "@/components/SyncButton";
@@ -94,15 +94,18 @@ function PlayerRow({ p, rules, displaySide }: { p: FantasyPlayer; rules: ReturnT
       </td>
       <td style={{ ...td, color: "#475569" }}>{p.runs}</td>
       <td style={{ ...td, color: "#475569" }}>{p.wickets}</td>
-      <td style={{ ...td, color: "#475569" }}>{p.catches}</td>
+      <td style={{ ...td, color: "#475569", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{formatCtRoSt(p)}</td>
       <td style={{ ...td, color: "#64748b", fontSize: 12 }}>
+        {p.catches > 0 && <div>Ct: +{p.catches * rules.catch}</div>}
         {p.fifty_bonus > 0 && <div>50+: +{rules.fifty}</div>}
         {p.hundred_bonus > 0 && <div>100: +{rules.hundred}</div>}
         {p.three_w_bonus > 0 && <div>3W: +{rules.threeW}</div>}
         {p.five_w_bonus > 0 && <div>5W: +{rules.fiveW}</div>}
         {p.mom_bonus > 0 && <div>MOM: +{rules.mom}</div>}
+        {(p.runouts ?? 0) > 0 && <div>RO: +{(p.runouts ?? 0) * rules.runout}</div>}
+        {(p.stumpings ?? 0) > 0 && <div>ST: +{(p.stumpings ?? 0) * rules.stump}</div>}
         {p.captain && <div>Cap: ×2</div>}
-        {!p.fifty_bonus && !p.hundred_bonus && !p.three_w_bonus && !p.five_w_bonus && !p.mom_bonus && !p.captain && <span style={{ color: "#cbd5e1" }}>—</span>}
+        {!p.catches && !p.fifty_bonus && !p.hundred_bonus && !p.three_w_bonus && !p.five_w_bonus && !p.mom_bonus && !(p.runouts ?? 0) && !(p.stumpings ?? 0) && !p.captain && <span style={{ color: "#cbd5e1" }}>—</span>}
       </td>
       <td style={{ ...td, fontWeight: 800, fontSize: 18, color: "#0f172a" }}>{pts.final}</td>
       <td style={td}>
@@ -305,7 +308,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr>
-                        {["Player", "Runs", "Wkts", "Ct", "Bonuses", "Points", ""].map((h) => (
+                        {["Player", "Runs", "Wkts", "CT/RO/ST", "Bonuses", "Points", ""].map((h) => (
                           <th key={h} style={th}>
                             {h}
                           </th>
@@ -333,7 +336,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Player", "Runs", "Wkts", "Ct", "Bonuses", "Points", ""].map((h) => (
+                      {["Player", "Runs", "Wkts", "CT/RO/ST", "Bonuses", "Points", ""].map((h) => (
                         <th key={h} style={th}>
                           {h}
                         </th>
@@ -358,7 +361,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr>
-                      {["Player", "Runs", "Wkts", "Ct", "Bonuses", "Points", ""].map((h) => (
+                      {["Player", "Runs", "Wkts", "CT/RO/ST", "Bonuses", "Points", ""].map((h) => (
                         <th key={h} style={th}>
                           {h}
                         </th>

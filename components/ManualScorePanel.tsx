@@ -11,6 +11,8 @@ type Row = {
   runs: number;
   wickets: number;
   catches: number;
+  runouts: number;
+  stumpings: number;
   fifty_bonus: number;
   hundred_bonus: number;
   three_w_bonus: number;
@@ -21,7 +23,7 @@ type Row = {
 function toRow(p: FantasyPlayer): Row {
   return {
     id: p.id, name: p.name, side: p.side, captain: p.captain,
-    runs: p.runs, wickets: p.wickets, catches: p.catches,
+    runs: p.runs, wickets: p.wickets, catches: p.catches, runouts: p.runouts ?? 0, stumpings: p.stumpings ?? 0,
     fifty_bonus: p.fifty_bonus, hundred_bonus: p.hundred_bonus,
     three_w_bonus: p.three_w_bonus, five_w_bonus: p.five_w_bonus, mom_bonus: p.mom_bonus,
   };
@@ -72,7 +74,7 @@ function PlayerEditRow({ row, onChange }: { row: Row; onChange: (updated: Row) =
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           playerId: row.id,
-          runs: row.runs, wickets: row.wickets, catches: row.catches,
+          runs: row.runs, wickets: row.wickets, catches: row.catches, runouts: row.runouts, stumpings: row.stumpings,
           fifty_bonus: row.fifty_bonus, hundred_bonus: row.hundred_bonus,
           three_w_bonus: row.three_w_bonus, five_w_bonus: row.five_w_bonus,
           mom_bonus: row.mom_bonus,
@@ -119,14 +121,28 @@ function PlayerEditRow({ row, onChange }: { row: Row; onChange: (updated: Row) =
 
       {/* Main stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
-        {(["runs", "wickets", "catches"] as const).map((field) => (
+        {(["runs", "wickets"] as const).map((field) => (
           <div key={field} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>
-              {field === "runs" ? "Runs" : field === "wickets" ? "Wickets" : "Catches"}
+              {field === "runs" ? "Runs" : "Wickets"}
             </label>
             <Num value={row[field]} onChange={(v) => set(field, v)} />
           </div>
         ))}
+        <div style={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 10 }}>
+          {([
+            { k: "catches" as const, short: "CT" },
+            { k: "runouts" as const, short: "RO" },
+            { k: "stumpings" as const, short: "ST" },
+          ]).map(({ k, short }) => (
+            <div key={k} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                {short} <span style={{ fontWeight: 500, color: "#94a3b8" }}>({short === "CT" ? "catch" : short === "RO" ? "run-out" : "stump"})</span>
+              </label>
+              <Num value={row[k]} onChange={(v) => set(k, v)} />
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* Bonus flags */}

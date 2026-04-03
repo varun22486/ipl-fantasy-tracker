@@ -18,6 +18,8 @@ type MatchStat = {
   runs: Record<string, number>;
   wickets: Record<string, number>;
   catches: Record<string, number>;
+  runouts: Record<string, number>;
+  stumpings: Record<string, number>;
   captainPts: Record<string, number>;
   captainName: Record<string, string>;
   hasData: boolean;
@@ -139,7 +141,7 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
     ...Object.fromEntries(compPlayers.map((n) => [n, m.pts[n] ?? 0])),
   }));
 
-  const buildStatRows = (key: keyof Pick<MatchStat, "runs" | "wickets" | "catches" | "captainPts">) => {
+  const buildStatRows = (key: keyof Pick<MatchStat, "runs" | "wickets" | "catches" | "runouts" | "stumpings" | "captainPts">) => {
     const perMatch = played.map((m) => ({
       name: shortFix(m.fixture),
       fullName: m.fixture,
@@ -166,6 +168,8 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
   const runsCharts = buildStatRows("runs");
   const wicketsCharts = buildStatRows("wickets");
   const catchesCharts = buildStatRows("catches");
+  const runoutsCharts = buildStatRows("runouts");
+  const stumpingsCharts = buildStatRows("stumpings");
   const capCharts = buildStatRows("captainPts");
 
   const winRateData =
@@ -524,6 +528,110 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
                 ))}
               </AreaChart>
             </ResponsiveContainer>
+          </div>
+        </div>
+        <div style={{ marginTop: 24 }}>
+          <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Run-outs (fielding)</h2>
+          <p style={sectionSub}>Per-match and cumulative run-out credits per participant</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 20 }}>
+            <div>
+              <div style={miniChartLabel}>Per match</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={runoutsCharts.perMatch} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="25%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} credit${v !== 1 ? "s" : ""}`} />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  {compPlayers.map((n, i) => (
+                    <Bar key={n} dataKey={n} fill={COLORS[i % COLORS.length]} radius={[5, 5, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div>
+              <div style={miniChartLabel}>Cumulative total</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={runoutsCharts.running} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                  <defs>
+                    {compPlayers.map((n, i) => (
+                      <linearGradient key={n} id={`gRO${i}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.18} />
+                        <stop offset="95%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0} />
+                      </linearGradient>
+                    ))}
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                  <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} credit${v !== 1 ? "s" : ""}`} />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  {compPlayers.map((n, i) => (
+                    <Area
+                      key={n}
+                      type="monotone"
+                      dataKey={n}
+                      stroke={COLORS[i % COLORS.length]}
+                      strokeWidth={2.5}
+                      fill={`url(#gRO${i})`}
+                      dot={{ r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
+                    />
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+        <div style={{ marginTop: 24 }}>
+          <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Stumpings (WK)</h2>
+          <p style={sectionSub}>Per-match and cumulative stumpings per participant</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 20 }}>
+            <div>
+              <div style={miniChartLabel}>Per match</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={stumpingsCharts.perMatch} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="25%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} stump${v !== 1 ? "s" : ""}`} />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  {compPlayers.map((n, i) => (
+                    <Bar key={n} dataKey={n} fill={COLORS[i % COLORS.length]} radius={[5, 5, 0, 0]} />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div>
+              <div style={miniChartLabel}>Cumulative total</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={stumpingsCharts.running} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                  <defs>
+                    {compPlayers.map((n, i) => (
+                      <linearGradient key={n} id={`gST${i}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.18} />
+                        <stop offset="95%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0} />
+                      </linearGradient>
+                    ))}
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                  <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} stump${v !== 1 ? "s" : ""}`} />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  {compPlayers.map((n, i) => (
+                    <Area
+                      key={n}
+                      type="monotone"
+                      dataKey={n}
+                      stroke={COLORS[i % COLORS.length]}
+                      strokeWidth={2.5}
+                      fill={`url(#gST${i})`}
+                      dot={{ r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
+                    />
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
         <div style={{ marginTop: 24 }}>

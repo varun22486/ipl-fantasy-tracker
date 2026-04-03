@@ -75,11 +75,11 @@ function MultiPlayerHero({ participants, nextMatch }: {
 }
 
 const HOME_SETTINGS_COLS =
-  "your_name, opponent_name, pts_run, pts_wicket, pts_catch, pts_fifty, pts_hundred, pts_three_w, pts_five_w, pts_mom";
+  "your_name, opponent_name, pts_run, pts_wicket, pts_catch, pts_runout, pts_stump, pts_fifty, pts_hundred, pts_three_w, pts_five_w, pts_mom";
 const HOME_MATCH_COLS =
   "id, fixture, match_date, status, venue, is_current, external_match_id";
 const HOME_PLAYER_COLS =
-  "id, match_id, competition_id, side, name, captain, runs, wickets, catches, fifty_bonus, hundred_bonus, three_w_bonus, five_w_bonus, mom_bonus, provider_player_id";
+  "id, match_id, competition_id, side, name, captain, runs, wickets, catches, runouts, stumpings, fifty_bonus, hundred_bonus, three_w_bonus, five_w_bonus, mom_bonus, provider_player_id";
 
 async function getData(competitionId: number | null) {
   const playersBase = supabaseAdmin
@@ -141,7 +141,7 @@ async function getData(competitionId: number | null) {
     matchId: number; fixture: string; date: string; yourPoints: number; oppPoints: number;
     yourCumulative: number; oppCumulative: number; winner: string | null;
     pointsDiff: number; hasData: boolean; isCurrent: boolean;
-    players: { name: string; side: string; captain: boolean; points: number; runs: number; wickets: number; catches: number }[];
+    players: { name: string; side: string; captain: boolean; points: number; runs: number; wickets: number; catches: number; runouts: number; stumpings: number }[];
   };
 
   let yourCumulative = 0;
@@ -164,6 +164,8 @@ async function getData(competitionId: number | null) {
       runs: p.runs,
       wickets: p.wickets,
       catches: p.catches,
+      runouts: p.runouts ?? 0,
+      stumpings: p.stumpings ?? 0,
     }));
 
     return {
@@ -182,15 +184,17 @@ async function getData(competitionId: number | null) {
     };
   });
 
-  const leaderMap: Record<string, { name: string; side: string; totalPoints: number; matches: number; runs: number; wickets: number; catches: number }> = {};
+  const leaderMap: Record<string, { name: string; side: string; totalPoints: number; matches: number; runs: number; wickets: number; catches: number; runouts: number; stumpings: number }> = {};
   for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
     const key = `${p.side}::${p.name}`;
-    if (!leaderMap[key]) leaderMap[key] = { name: p.name, side: p.side, totalPoints: 0, matches: 0, runs: 0, wickets: 0, catches: 0 };
+    if (!leaderMap[key]) leaderMap[key] = { name: p.name, side: p.side, totalPoints: 0, matches: 0, runs: 0, wickets: 0, catches: 0, runouts: 0, stumpings: 0 };
     leaderMap[key].totalPoints += playerPoints(p, rules).final;
     leaderMap[key].matches += 1;
     leaderMap[key].runs += p.runs;
     leaderMap[key].wickets += p.wickets;
     leaderMap[key].catches += p.catches;
+    leaderMap[key].runouts += p.runouts ?? 0;
+    leaderMap[key].stumpings += p.stumpings ?? 0;
   }
 
   const leaderboard = Object.values(leaderMap).sort((a, b) => b.totalPoints - a.totalPoints);
@@ -206,6 +210,8 @@ async function getData(competitionId: number | null) {
         const runs: Record<string, number> = {};
         const wickets: Record<string, number> = {};
         const catches: Record<string, number> = {};
+        const runouts: Record<string, number> = {};
+        const stumpings: Record<string, number> = {};
         const captainPts: Record<string, number> = {};
         const captainName: Record<string, string> = {};
         for (const name of compPlayers) {
@@ -214,6 +220,8 @@ async function getData(competitionId: number | null) {
           runs[name] = sidePlayers.reduce((s: number, p: any) => s + (p.runs ?? 0), 0);
           wickets[name] = sidePlayers.reduce((s: number, p: any) => s + (p.wickets ?? 0), 0);
           catches[name] = sidePlayers.reduce((s: number, p: any) => s + (p.catches ?? 0), 0);
+          runouts[name] = sidePlayers.reduce((s: number, p: any) => s + (p.runouts ?? 0), 0);
+          stumpings[name] = sidePlayers.reduce((s: number, p: any) => s + (p.stumpings ?? 0), 0);
           const cap = sidePlayers.find((p: any) => p.captain);
           captainPts[name] = cap ? playerPoints(cap, rules).final : 0;
           captainName[name] = cap?.name ?? "—";
@@ -230,6 +238,8 @@ async function getData(competitionId: number | null) {
           runs,
           wickets,
           catches,
+          runouts,
+          stumpings,
           captainPts,
           captainName,
           hasData,

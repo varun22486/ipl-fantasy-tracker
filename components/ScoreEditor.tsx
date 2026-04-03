@@ -3,12 +3,14 @@
 import { useState, type CSSProperties } from "react";
 import type { FantasyPlayer } from "@/lib/scoring";
 
-type Field = "runs" | "wickets" | "catches" | "fifty_bonus" | "hundred_bonus" | "three_w_bonus" | "five_w_bonus" | "mom_bonus";
+type Field = "runs" | "wickets" | "catches" | "runouts" | "stumpings" | "fifty_bonus" | "hundred_bonus" | "three_w_bonus" | "five_w_bonus" | "mom_bonus";
 
 const FIELDS: { key: Field; label: string }[] = [
   { key: "runs",          label: "Runs" },
   { key: "wickets",       label: "Wickets" },
-  { key: "catches",       label: "Catches" },
+  { key: "catches",       label: "Catches (CT)" },
+  { key: "runouts",       label: "Run-outs (RO)" },
+  { key: "stumpings",     label: "Stumpings (ST)" },
   { key: "fifty_bonus",   label: "50-run bonus (0 or 1)" },
   { key: "hundred_bonus", label: "100-run bonus (0 or 1)" },
   { key: "three_w_bonus", label: "3-wkt bonus (0 or 1)" },
@@ -22,6 +24,8 @@ export default function ScoreEditor({ player }: { player: FantasyPlayer }) {
     runs:          player.runs,
     wickets:       player.wickets,
     catches:       player.catches,
+    runouts:       player.runouts ?? 0,
+    stumpings:     player.stumpings ?? 0,
     fifty_bonus:   player.fifty_bonus,
     hundred_bonus: player.hundred_bonus,
     three_w_bonus: player.three_w_bonus,

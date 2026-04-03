@@ -8,9 +8,10 @@ import {
 } from "recharts";
 import type { CSSProperties } from "react";
 import Link from "next/link";
+import { DEFAULT_SCORING } from "@/lib/scoring";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type PlayerStat = { name: string; side: string; captain: boolean; points: number; runs: number; wickets: number; catches: number };
+type PlayerStat = { name: string; side: string; captain: boolean; points: number; runs: number; wickets: number; catches: number; runouts?: number; stumpings?: number };
 
 type MatchStat = {
   matchId: number; fixture: string; date: string;
@@ -22,7 +23,7 @@ type MatchStat = {
 
 type LeaderboardEntry = {
   name: string; side: string; totalPoints: number; matches: number;
-  runs: number; wickets: number; catches: number;
+  runs: number; wickets: number; catches: number; runouts?: number; stumpings?: number;
 };
 
 type Props = {
@@ -90,12 +91,16 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
     if (p.points > topPerf.points) topPerf = { name: p.name, side: p.side, points: p.points, fixture: m.fixture };
 
   const capPts = { you: 0, opp: 0 }, totalPts = { you: 0, opp: 0 };
-  const brkd = { you: { runs: 0, wkts: 0, catches: 0 }, opp: { runs: 0, wkts: 0, catches: 0 } };
+  const roPts = DEFAULT_SCORING.runout;
+  const stPts = DEFAULT_SCORING.stump;
+  const brkd = { you: { runs: 0, wkts: 0, catches: 0, runouts: 0, stumpings: 0 }, opp: { runs: 0, wkts: 0, catches: 0, runouts: 0, stumpings: 0 } };
   for (const m of played) for (const p of m.players) {
     const mult = p.captain ? 2 : 1, isYou = p.side === "You";
     const ts = isYou ? totalPts.you : totalPts.opp;
-    if (isYou) { totalPts.you += p.points; if (p.captain) capPts.you += p.points; brkd.you.runs += p.runs * mult; brkd.you.wkts += p.wickets * 20 * mult; brkd.you.catches += p.catches * 10 * mult; }
-    else        { totalPts.opp += p.points; if (p.captain) capPts.opp += p.points; brkd.opp.runs += p.runs * mult; brkd.opp.wkts += p.wickets * 20 * mult; brkd.opp.catches += p.catches * 10 * mult; }
+    const rOut = (p.runouts ?? 0) * roPts * mult;
+    const stMp = (p.stumpings ?? 0) * stPts * mult;
+    if (isYou) { totalPts.you += p.points; if (p.captain) capPts.you += p.points; brkd.you.runs += p.runs * mult; brkd.you.wkts += p.wickets * 20 * mult; brkd.you.catches += p.catches * 10 * mult; brkd.you.runouts += rOut; brkd.you.stumpings += stMp; }
+    else        { totalPts.opp += p.points; if (p.captain) capPts.opp += p.points; brkd.opp.runs += p.runs * mult; brkd.opp.wkts += p.wickets * 20 * mult; brkd.opp.catches += p.catches * 10 * mult; brkd.opp.runouts += rOut; brkd.opp.stumpings += stMp; }
     void ts;
   }
 
@@ -183,6 +188,36 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
       name: shortFixture(m.fixture), fullName: m.fixture,
       [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === "You").reduce((a, p) => a + p.catches, 0), 0),
       [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== "You").reduce((a, p) => a + p.catches, 0), 0),
+    };
+  });
+
+  const runoutsData = played.map((m) => ({
+    name: shortFixture(m.fixture), fullName: m.fixture,
+    [yourName]:     m.players.filter((p) => p.side === "You").reduce((s, p) => s + (p.runouts ?? 0), 0),
+    [opponentName]: m.players.filter((p) => p.side !== "You").reduce((s, p) => s + (p.runouts ?? 0), 0),
+  }));
+
+  const runoutsRunningData = played.map((m, i) => {
+    const slice = played.slice(0, i + 1);
+    return {
+      name: shortFixture(m.fixture), fullName: m.fixture,
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === "You").reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== "You").reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
+    };
+  });
+
+  const stumpingsData = played.map((m) => ({
+    name: shortFixture(m.fixture), fullName: m.fixture,
+    [yourName]:     m.players.filter((p) => p.side === "You").reduce((s, p) => s + (p.stumpings ?? 0), 0),
+    [opponentName]: m.players.filter((p) => p.side !== "You").reduce((s, p) => s + (p.stumpings ?? 0), 0),
+  }));
+
+  const stumpingsRunningData = played.map((m, i) => {
+    const slice = played.slice(0, i + 1);
+    return {
+      name: shortFixture(m.fixture), fullName: m.fixture,
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === "You").reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== "You").reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
     };
   });
 
@@ -490,6 +525,82 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
                       <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#ctGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
                     </AreaChart>
                   </ResponsiveContainer>
+                </div>
+              </div>
+              <div style={{ marginTop: 24 }}>
+                <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Run-outs (fielding)</h2>
+                <p style={sectionSub}>Per-match run-out credits and cumulative tally (each assisting fielder counts as one)</p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
+                  <div>
+                    <div style={miniChartLabel}>Per Match</div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={runoutsData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} credit${v !== 1 ? "s" : ""}`} />} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
+                        <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div>
+                    <div style={miniChartLabel}>Cumulative Total</div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <AreaChart data={runoutsRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="roGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
+                          <linearGradient id="roGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                        <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} credit${v !== 1 ? "s" : ""}`} />} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#roGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
+                        <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#roGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 24 }}>
+                <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>Stumpings (WK)</h2>
+                <p style={sectionSub}>Per-match stumpings and cumulative tally</p>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
+                  <div>
+                    <div style={miniChartLabel}>Per Match</div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={stumpingsData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} stump${v !== 1 ? "s" : ""}`} />} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
+                        <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div>
+                    <div style={miniChartLabel}>Cumulative Total</div>
+                    <ResponsiveContainer width="100%" height={220}>
+                      <AreaChart data={stumpingsRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="stGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
+                          <linearGradient id="stGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                        <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} stump${v !== 1 ? "s" : ""}`} />} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#stGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
+                        <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#stGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
               <div style={{ marginTop: 24 }}>

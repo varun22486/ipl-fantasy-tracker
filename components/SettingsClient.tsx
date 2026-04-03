@@ -8,6 +8,8 @@ type Settings = {
   pts_run?: number;
   pts_wicket?: number;
   pts_catch?: number;
+  pts_runout?: number;
+  pts_stump?: number;
   pts_fifty?: number;
   pts_hundred?: number;
   pts_three_w?: number;
@@ -16,7 +18,7 @@ type Settings = {
 };
 
 const DEFAULTS = {
-  pts_run: 1, pts_wicket: 20, pts_catch: 10,
+  pts_run: 1, pts_wicket: 20, pts_catch: 10, pts_runout: 10, pts_stump: 10,
   pts_fifty: 10, pts_hundred: 20,
   pts_three_w: 10, pts_five_w: 20, pts_mom: 10,
 };
@@ -25,6 +27,8 @@ const SCORING_RULES = [
   { key: "pts_run",      label: "1 Run",           emoji: "🏏" },
   { key: "pts_wicket",   label: "1 Wicket",         emoji: "🎯" },
   { key: "pts_catch",    label: "1 Catch",          emoji: "🙌" },
+  { key: "pts_runout",   label: "Run-out (fielder)", emoji: "🎯" },
+  { key: "pts_stump",    label: "Stumping (WK)",    emoji: "🧤" },
   { key: "pts_fifty",    label: "50-run bonus",     emoji: "⭐" },
   { key: "pts_hundred",  label: "100-run bonus",    emoji: "💯" },
   { key: "pts_three_w",  label: "3-wicket bonus",   emoji: "🔥" },
@@ -39,6 +43,8 @@ export default function SettingsClient({ settings }: { settings: Settings }) {
     pts_run:     settings.pts_run     ?? DEFAULTS.pts_run,
     pts_wicket:  settings.pts_wicket  ?? DEFAULTS.pts_wicket,
     pts_catch:   settings.pts_catch   ?? DEFAULTS.pts_catch,
+    pts_runout:  settings.pts_runout  ?? DEFAULTS.pts_runout,
+    pts_stump:   settings.pts_stump   ?? DEFAULTS.pts_stump,
     pts_fifty:   settings.pts_fifty   ?? DEFAULTS.pts_fifty,
     pts_hundred: settings.pts_hundred ?? DEFAULTS.pts_hundred,
     pts_three_w: settings.pts_three_w ?? DEFAULTS.pts_three_w,

@@ -1,4 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  parseRunOutFieldersFromDismissalText,
+  splitRunOutFieldersFromText,
+} from "@/lib/runout-fielders";
 import { formatUiDateTimeLong } from "@/lib/ui-time";
 import { buildMomWebSearchQuery, searchWebForMom } from "@/lib/web-mom-search";
 
@@ -130,6 +134,10 @@ export type PlayerStats = {
   runs: number;
   wickets: number;
   catches: number;
+  /** Run-out fielding credits (each listed fielder gets +1). */
+  runouts: number;
+  /** Wicket-keeper stumpings. */
+  stumpings: number;
   fifty_bonus: number;
   hundred_bonus: number;
   three_w_bonus: number;
@@ -982,6 +990,8 @@ function bonusify(row: PlayerStats): PlayerStats {
   return {
     ...row,
     mom_bonus: row.mom_bonus ?? 0,
+    runouts: row.runouts ?? 0,
+    stumpings: row.stumpings ?? 0,
     fifty_bonus: row.runs >= 50 ? 1 : 0,
     hundred_bonus: row.runs >= 100 ? 1 : 0,
     three_w_bonus: row.wickets >= 3 ? 1 : 0,
@@ -1197,7 +1207,7 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
         acc.get(k)!.total += c;
       }
       for (const { name, total } of acc.values()) {
-        bucket.push(bonusify({ name, runs: 0, wickets: 0, catches: total, fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0 }));
+        bucket.push(bonusify({ name, runs: 0, wickets: 0, catches: total, runouts: 0, stumpings: 0, fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0 }));
       }
       return;
     }
@@ -1232,6 +1242,8 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
       runs: numberValue(node.r ?? node.runs),
       wickets: 0,
       catches: numberValue(node.ct ?? node.c ?? 0),
+      runouts: 0,
+      stumpings: 0,
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
     }));
     return; // leaf node — don't recurse further
@@ -1249,6 +1261,8 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
       runs: 0,
       wickets: numberValue(node.w ?? node.wickets ?? node.bowlWkts),
       catches: 0,
+      runouts: 0,
+      stumpings: 0,
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
     }));
     return; // leaf node — don't recurse further
@@ -1262,7 +1276,7 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
     if (numCatches > 0) {
       bucket.push(bonusify({
         name: catcherName,
-        runs: 0, wickets: 0, catches: numCatches,
+        runs: 0, wickets: 0, catches: numCatches, runouts: 0, stumpings: 0,
         fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
       }));
     }
@@ -1291,6 +1305,8 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
         runs: numberValue(node.runs ?? node.r ?? node.batRuns ?? node.batsmanRuns),
         wickets: numberValue(node.wickets ?? node.w ?? node.bowlWkts),
         catches: numberValue(node.catches ?? node.c),
+        runouts: 0,
+        stumpings: 0,
         fifty_bonus: 0,
         hundred_bonus: 0,
         three_w_bonus: 0,
@@ -1352,7 +1368,7 @@ function extractCatchesFromWickets(data: MaybeRecord): PlayerStats[] {
   return Array.from(countByKey.entries()).map(([key, total]) =>
     bonusify({
       name: nameByKey.get(key) ?? key,
-      runs: 0, wickets: 0, catches: total,
+      runs: 0, wickets: 0, catches: total, runouts: 0, stumpings: 0,
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
     })
   );
@@ -1451,8 +1467,250 @@ function extractCatchesFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
     bonusify({
       id: idByKey.get(key),
       name: nameByKey.get(key) ?? key,
-      runs: 0, wickets: 0, catches: total,
+      runs: 0, wickets: 0, catches: total, runouts: 0, stumpings: 0,
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
+    })
+  );
+}
+
+/**
+ * Structured wicket rows with kind run-out / fielder list (CricAPI scorecard).
+ */
+function extractRunoutsFromWickets(data: MaybeRecord): PlayerStats[] {
+  const countByKey = new Map<string, number>();
+  const nameByKey = new Map<string, string>();
+
+  function processWicket(w: any) {
+    const kind = safeString(w.kind ?? w.howOut ?? w.dismissalKind ?? "");
+    const dismissal = safeString(w.dismissal ?? w.desc ?? w.dismissalText ?? "");
+    if (/hit\s*wicket/i.test(kind) || /hit\s*wicket/i.test(dismissal)) return;
+    const isRunOut =
+      /run[\s_-]*out|runout/i.test(kind) || /run[\s_-]*out|runout/i.test(dismissal);
+    if (!isRunOut) return;
+
+    const raw = w.fielder ?? w.fielders ?? w.fielder_player ?? w.assistants;
+    const fielders: any[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    for (const f of fielders) {
+      const rawName =
+        typeof f === "string"
+          ? f.trim()
+          : safeString(f?.name ?? f?.playerName ?? f?.fullName ?? "");
+      if (!rawName) continue;
+      for (const name of splitRunOutFieldersFromText(rawName)) {
+        const key = name.toLowerCase();
+        nameByKey.set(key, nameByKey.get(key) ?? name);
+        countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+      }
+    }
+  }
+
+  for (const inn of normalizeScorecardInningsArray(data as MaybeRecord)) {
+    const wkts = (inn as any).wickets ?? (inn as any).fall_wickets ?? (inn as any).fallWickets;
+    if (Array.isArray(wkts)) wkts.forEach(processWicket);
+  }
+  const direct = (data as any).wickets ?? (data as any).fall_wickets ?? (data as any).fallWickets;
+  if (Array.isArray(direct)) direct.forEach(processWicket);
+
+  if (countByKey.size === 0) return [];
+
+  return Array.from(countByKey.entries()).map(([key, total]) =>
+    bonusify({
+      name: nameByKey.get(key) ?? key,
+      runs: 0,
+      wickets: 0,
+      catches: 0,
+      runouts: total,
+      stumpings: 0,
+      fifty_bonus: 0,
+      hundred_bonus: 0,
+      three_w_bonus: 0,
+      five_w_bonus: 0,
+    })
+  );
+}
+
+/**
+ * Batting dismissal text e.g. `run out (Sarfaraz Khan/Ruturaj Gaikwad)`.
+ */
+function extractRunoutsFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
+  const countByKey = new Map<string, number>();
+  const nameByKey = new Map<string, string>();
+
+  function addRunout(name: string) {
+    const key = name.toLowerCase().trim();
+    if (!key || key.length < 2) return;
+    nameByKey.set(key, nameByKey.get(key) ?? name.trim());
+    countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+  }
+
+  function processBattingEntry(b: any) {
+    const dt = safeString(b["dismissal-text"] ?? b.dismissalText ?? "");
+    const dismissal = safeString(b.dismissal ?? b.howOut ?? "");
+    if (/hit\s*wicket/i.test(dt) || /hit\s*wicket/i.test(dismissal)) return;
+    if (!/run[\s_-]*out|runout/i.test(dt) && !/run[\s_-]*out|runout/i.test(dismissal)) return;
+
+    let names = parseRunOutFieldersFromDismissalText(dt);
+    if (names.length === 0) names = parseRunOutFieldersFromDismissalText(dismissal);
+    for (const nm of names) addRunout(nm);
+  }
+
+  for (const inn of normalizeScorecardInningsArray(data)) {
+    scorecardInningsBattingRows(inn).forEach((row) => processBattingEntry(row));
+  }
+
+  if (countByKey.size === 0) return [];
+
+  return Array.from(countByKey.entries()).map(([key, total]) =>
+    bonusify({
+      name: nameByKey.get(key) ?? key,
+      runs: 0,
+      wickets: 0,
+      catches: 0,
+      runouts: total,
+      stumpings: 0,
+      fifty_bonus: 0,
+      hundred_bonus: 0,
+      three_w_bonus: 0,
+      five_w_bonus: 0,
+    })
+  );
+}
+
+/**
+ * Structured wicket rows — stumped (wicket-keeper credit).
+ */
+function extractStumpingsFromWickets(data: MaybeRecord): PlayerStats[] {
+  const countByKey = new Map<string, number>();
+  const nameByKey = new Map<string, string>();
+
+  function processWicket(w: any) {
+    const kind = safeString(w.kind ?? w.howOut ?? w.dismissalKind ?? "");
+    const dismissal = safeString(w.dismissal ?? w.desc ?? w.dismissalText ?? "");
+    const isStumped =
+      /stump/i.test(kind) ||
+      /stumped/i.test(kind) ||
+      /stump/i.test(dismissal) ||
+      /stumped/i.test(dismissal);
+    if (!isStumped) return;
+
+    const raw =
+      w.fielder ??
+      w.fielders ??
+      w.wicketKeeper ??
+      w.wicket_keeper ??
+      w.keeper ??
+      w.stumper;
+    const fielders: any[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    for (const f of fielders) {
+      const name =
+        typeof f === "string"
+          ? f.trim()
+          : safeString(f?.name ?? f?.playerName ?? f?.fullName ?? "");
+      if (!name) continue;
+      const key = name.toLowerCase();
+      nameByKey.set(key, nameByKey.get(key) ?? name);
+      countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+    }
+  }
+
+  for (const inn of normalizeScorecardInningsArray(data as MaybeRecord)) {
+    const wkts = (inn as any).wickets ?? (inn as any).fall_wickets ?? (inn as any).fallWickets;
+    if (Array.isArray(wkts)) wkts.forEach(processWicket);
+  }
+  const direct = (data as any).wickets ?? (data as any).fall_wickets ?? (data as any).fallWickets;
+  if (Array.isArray(direct)) direct.forEach(processWicket);
+
+  if (countByKey.size === 0) return [];
+
+  return Array.from(countByKey.entries()).map(([key, total]) =>
+    bonusify({
+      name: nameByKey.get(key) ?? key,
+      runs: 0,
+      wickets: 0,
+      catches: 0,
+      runouts: 0,
+      stumpings: total,
+      fifty_bonus: 0,
+      hundred_bonus: 0,
+      three_w_bonus: 0,
+      five_w_bonus: 0,
+    })
+  );
+}
+
+/** Batting dismissal text e.g. `st Yastika Bhatia b Deepti Sharma`. */
+function extractStumpingsFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
+  const countByKey = new Map<string, number>();
+  const nameByKey = new Map<string, string>();
+  const idByKey = new Map<string, string>();
+
+  function addStump(name: string, id?: string) {
+    const key = name.toLowerCase().trim();
+    if (!key || key.length < 2) return;
+    nameByKey.set(key, nameByKey.get(key) ?? name.trim());
+    if (id && !idByKey.has(key)) idByKey.set(key, id);
+    countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+  }
+
+  function processBattingEntry(b: any) {
+    const dt = safeString(b["dismissal-text"] ?? b.dismissalText ?? "");
+    const dismissal = safeString(b.dismissal ?? b.howOut ?? "").toLowerCase();
+    const looksStumped =
+      dismissal.includes("stump") ||
+      /^st\s+/i.test(dt.trim()) ||
+      /\bstumped\b/i.test(dt);
+    if (!looksStumped) return;
+
+    if (dt) {
+      const st = dt.match(/^st\s+(.+?)\s+b\s+/i);
+      if (st) {
+        const namePart = st[1].trim();
+        let id: string | undefined;
+        const keeperField = b.stumper ?? b.wicketKeeper ?? b.keeper ?? b.catcher;
+        if (keeperField && typeof keeperField === "object" && typeof keeperField.id === "string") {
+          const kn = safeString(keeperField?.name ?? keeperField?.playerName ?? "");
+          if (kn && kn.toLowerCase().trim() === namePart.toLowerCase()) {
+            id = keeperField.id.trim();
+          }
+        }
+        addStump(namePart, id);
+        return;
+      }
+    }
+
+    const keeperField = b.stumper ?? b.wicketKeeper ?? b.keeper;
+    if (keeperField) {
+      const name =
+        typeof keeperField === "string"
+          ? keeperField
+          : safeString(keeperField?.name ?? keeperField?.playerName ?? "");
+      const id =
+        keeperField && typeof keeperField === "object" && typeof keeperField.id === "string"
+          ? keeperField.id.trim() || undefined
+          : undefined;
+      if (name) addStump(name, id);
+    }
+  }
+
+  for (const inn of normalizeScorecardInningsArray(data)) {
+    scorecardInningsBattingRows(inn).forEach((row) => processBattingEntry(row));
+  }
+
+  if (countByKey.size === 0) return [];
+
+  return Array.from(countByKey.entries()).map(([key, total]) =>
+    bonusify({
+      id: idByKey.get(key),
+      name: nameByKey.get(key) ?? key,
+      runs: 0,
+      wickets: 0,
+      catches: 0,
+      runouts: 0,
+      stumpings: total,
+      fifty_bonus: 0,
+      hundred_bonus: 0,
+      three_w_bonus: 0,
+      five_w_bonus: 0,
     })
   );
 }
@@ -1530,6 +1788,80 @@ function patchCatches(merged: PlayerStats[], catchRows: PlayerStats[]): PlayerSt
   return result;
 }
 
+function patchRunouts(merged: PlayerStats[], runRows: PlayerStats[]): PlayerStats[] {
+  const idToIdx = new Map<string, number>();
+  const variantToIdx = new Map<string, number>();
+  merged.forEach((p, i) => {
+    if (p.id) idToIdx.set(p.id, i);
+    for (const v of nameVariants(p.name)) {
+      if (!variantToIdx.has(v)) variantToIdx.set(v, i);
+    }
+  });
+
+  const result = merged.map((p) => ({ ...p }));
+
+  for (const rr of runRows) {
+    if (rr.runouts <= 0) continue;
+    let idx: number | undefined;
+    if (rr.id) idx = idToIdx.get(rr.id);
+    if (idx === undefined) {
+      for (const v of nameVariants(rr.name)) {
+        idx = variantToIdx.get(v);
+        if (idx !== undefined) break;
+      }
+    }
+
+    if (idx !== undefined) {
+      result[idx] = bonusify({
+        ...result[idx],
+        runouts: Math.max(result[idx].runouts ?? 0, rr.runouts),
+        id: result[idx].id ?? rr.id,
+      });
+    } else {
+      result.push(bonusify({ ...rr }));
+    }
+  }
+
+  return result;
+}
+
+function patchStumpings(merged: PlayerStats[], stumpRows: PlayerStats[]): PlayerStats[] {
+  const idToIdx = new Map<string, number>();
+  const variantToIdx = new Map<string, number>();
+  merged.forEach((p, i) => {
+    if (p.id) idToIdx.set(p.id, i);
+    for (const v of nameVariants(p.name)) {
+      if (!variantToIdx.has(v)) variantToIdx.set(v, i);
+    }
+  });
+
+  const result = merged.map((p) => ({ ...p }));
+
+  for (const sr of stumpRows) {
+    if (sr.stumpings <= 0) continue;
+    let idx: number | undefined;
+    if (sr.id) idx = idToIdx.get(sr.id);
+    if (idx === undefined) {
+      for (const v of nameVariants(sr.name)) {
+        idx = variantToIdx.get(v);
+        if (idx !== undefined) break;
+      }
+    }
+
+    if (idx !== undefined) {
+      result[idx] = bonusify({
+        ...result[idx],
+        stumpings: Math.max(result[idx].stumpings ?? 0, sr.stumpings),
+        id: result[idx].id ?? sr.id,
+      });
+    } else {
+      result.push(bonusify({ ...sr }));
+    }
+  }
+
+  return result;
+}
+
 function mergePlayers(rows: PlayerStats[]) {
   const byName = new Map<string, PlayerStats>();
 
@@ -1546,6 +1878,8 @@ function mergePlayers(rows: PlayerStats[]) {
       runs: Math.max(existing.runs, row.runs),
       wickets: Math.max(existing.wickets, row.wickets),
       catches: Math.max(existing.catches, row.catches), // each source emits one aggregated row
+      runouts: Math.max(existing.runouts ?? 0, row.runouts ?? 0),
+      stumpings: Math.max(existing.stumpings ?? 0, row.stumpings ?? 0),
       fifty_bonus: 0,
       hundred_bonus: 0,
       three_w_bonus: 0,
@@ -1589,6 +1923,8 @@ function parseSimpleLiveScore(data: MaybeRecord): PlayerStats[] {
         runs: batter.runs,
         wickets: 0,
         catches: 0,
+        runouts: 0,
+        stumpings: 0,
         fifty_bonus: 0,
         hundred_bonus: 0,
         three_w_bonus: 0,
@@ -1604,6 +1940,8 @@ function parseSimpleLiveScore(data: MaybeRecord): PlayerStats[] {
         runs: 0,
         wickets: bowler.wickets,
         catches: 0,
+        runouts: 0,
+        stumpings: 0,
         fifty_bonus: 0,
         hundred_bonus: 0,
         three_w_bonus: 0,
@@ -2111,7 +2449,13 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   // "Philip Salt" (batting row) which would otherwise be separate keys.
   const catchRowsFromDismissals = extractCatchesFromBattingDismissals(data as MaybeRecord);
   const merged = patchCatches(mergedRaw, catchRowsFromDismissals);
-  const mergedOrLive = merged.length > 0 ? merged : parseSimpleLiveScore(data);
+  const runRowsW = extractRunoutsFromWickets(data as MaybeRecord);
+  const runRowsB = extractRunoutsFromBattingDismissals(data as MaybeRecord);
+  const mergedWithRunouts = patchRunouts(patchRunouts(merged, runRowsW), runRowsB);
+  const stRowsW = extractStumpingsFromWickets(data as MaybeRecord);
+  const stRowsB = extractStumpingsFromBattingDismissals(data as MaybeRecord);
+  const mergedWithStumps = patchStumpings(patchStumpings(mergedWithRunouts, stRowsW), stRowsB);
+  const mergedOrLive = mergedWithStumps.length > 0 ? mergedWithStumps : parseSimpleLiveScore(data);
 
   const dataRec = data as MaybeRecord;
   let momName = extractManOfTheMatchName(dataRec, payload as MaybeRecord);

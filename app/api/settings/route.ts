@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     const allowed = [
       "your_name", "opponent_name",
-      "pts_run", "pts_wicket", "pts_catch",
+      "pts_run", "pts_wicket", "pts_catch", "pts_runout", "pts_stump",
       "pts_fifty", "pts_hundred", "pts_three_w", "pts_five_w", "pts_mom",
     ];
 

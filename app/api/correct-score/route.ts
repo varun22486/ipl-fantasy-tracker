@@ -3,7 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function POST(req: NextRequest) {
   try {
-    const { playerId, runs, wickets, catches, fifty_bonus, hundred_bonus, three_w_bonus, five_w_bonus, mom_bonus } = await req.json();
+    const { playerId, runs, wickets, catches, runouts, stumpings, fifty_bonus, hundred_bonus, three_w_bonus, five_w_bonus, mom_bonus } = await req.json();
 
     if (!playerId) {
       return NextResponse.json({ ok: false, error: "playerId is required" }, { status: 400 });
@@ -15,6 +15,8 @@ export async function POST(req: NextRequest) {
         runs: Number(runs ?? 0),
         wickets: Number(wickets ?? 0),
         catches: Number(catches ?? 0),
+        runouts: Number(runouts ?? 0),
+        stumpings: Number(stumpings ?? 0),
         fifty_bonus: Number(fifty_bonus ?? 0),
         hundred_bonus: Number(hundred_bonus ?? 0),
         three_w_bonus: Number(three_w_bonus ?? 0),

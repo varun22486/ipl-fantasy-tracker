@@ -51,6 +51,8 @@ function findIncomingPlayer(
       runs: number;
       wickets: number;
       catches: number;
+      runouts: number;
+      stumpings: number;
       fifty_bonus: number;
       hundred_bonus: number;
       three_w_bonus: number;
@@ -155,6 +157,8 @@ export async function GET() {
         runs: hit.runs,
         wickets: hit.wickets,
         catches: hit.catches,
+        runouts: hit.runouts ?? 0,
+        stumpings: hit.stumpings ?? 0,
         fifty_bonus: hit.fifty_bonus,
         hundred_bonus: hit.hundred_bonus,
         three_w_bonus: hit.three_w_bonus,
@@ -282,9 +286,15 @@ export async function POST(req: Request) {
       if (!hit) { unmatched.push(player.name); continue; }
       matched.push({ selected: player.name, provider: hit.name, matchedById: Boolean(idHit) });
       const updatePayload: Record<string, unknown> = {
-        runs: hit.runs, wickets: hit.wickets, catches: hit.catches,
-        fifty_bonus: hit.fifty_bonus, hundred_bonus: hit.hundred_bonus,
-        three_w_bonus: hit.three_w_bonus, five_w_bonus: hit.five_w_bonus,
+        runs: hit.runs,
+        wickets: hit.wickets,
+        catches: hit.catches,
+        runouts: hit.runouts ?? 0,
+        stumpings: hit.stumpings ?? 0,
+        fifty_bonus: hit.fifty_bonus,
+        hundred_bonus: hit.hundred_bonus,
+        three_w_bonus: hit.three_w_bonus,
+        five_w_bonus: hit.five_w_bonus,
       };
       if (payload.manOfTheMatchSynced) {
         updatePayload.mom_bonus = hit.mom_bonus ?? 0;

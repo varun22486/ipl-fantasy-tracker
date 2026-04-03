@@ -5,6 +5,8 @@ create table if not exists series_settings (
   pts_run integer not null default 1,
   pts_wicket integer not null default 20,
   pts_catch integer not null default 10,
+  pts_runout integer not null default 10,
+  pts_stump integer not null default 10,
   pts_fifty integer not null default 10,
   pts_hundred integer not null default 20,
   pts_three_w integer not null default 10,
@@ -17,6 +19,8 @@ alter table series_settings add column if not exists your_name text not null def
 alter table series_settings add column if not exists pts_run integer not null default 1;
 alter table series_settings add column if not exists pts_wicket integer not null default 20;
 alter table series_settings add column if not exists pts_catch integer not null default 10;
+alter table series_settings add column if not exists pts_runout integer not null default 10;
+alter table series_settings add column if not exists pts_stump integer not null default 10;
 alter table series_settings add column if not exists pts_fifty integer not null default 10;
 alter table series_settings add column if not exists pts_hundred integer not null default 20;
 alter table series_settings add column if not exists pts_three_w integer not null default 10;
@@ -140,6 +144,8 @@ create table if not exists fantasy_players (
   runs integer not null default 0,
   wickets integer not null default 0,
   catches integer not null default 0,
+  runouts integer not null default 0,
+  stumpings integer not null default 0,
   fifty_bonus integer not null default 0,
   hundred_bonus integer not null default 0,
   three_w_bonus integer not null default 0,
@@ -166,6 +172,8 @@ create unique index if not exists fp_named_unique
 -- CREATE UNIQUE INDEX IF NOT EXISTS fp_default_unique ON fantasy_players (match_id, name) WHERE competition_id IS NULL;
 -- CREATE UNIQUE INDEX IF NOT EXISTS fp_named_unique ON fantasy_players (match_id, name, competition_id) WHERE competition_id IS NOT NULL;
 alter table fantasy_players add column if not exists provider_player_id text;
+alter table fantasy_players add column if not exists runouts integer not null default 0;
+alter table fantasy_players add column if not exists stumpings integer not null default 0;
 
 -- Remove the hardcoded 'Rahul' constraint so any opponent name works
 -- (safe to run multiple times — drops only if the constraint exists)

@@ -1,11 +1,11 @@
-import { FantasyPlayer, playerPoints } from "@/lib/scoring";
+import { FantasyPlayer, formatCtRoSt, playerPoints } from "@/lib/scoring";
 
 type Props = {
   title: string;
   players: FantasyPlayer[];
 };
 
-const COLS = ["Player", "Cap", "R", "W", "Ct", "50+", "100", "3W", "5W", "MoM", "Pts"] as const;
+const COLS = ["Player", "Cap", "R", "W", "CT/RO/ST", "50+", "100", "3W", "5W", "MoM", "Pts"] as const;
 
 export default function PlayerTable({ title, players }: Props) {
   return (
@@ -14,7 +14,7 @@ export default function PlayerTable({ title, players }: Props) {
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>{title}</h3>
       </div>
       <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" } as React.CSSProperties}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 500 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
               {COLS.map((h) => (
@@ -39,7 +39,7 @@ export default function PlayerTable({ title, players }: Props) {
                   <td style={td}>{p.captain ? "★" : "—"}</td>
                   <td style={td}>{p.runs}</td>
                   <td style={td}>{p.wickets}</td>
-                  <td style={td}>{p.catches}</td>
+                  <td style={{ ...td, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{formatCtRoSt(p)}</td>
                   <td style={td}>{p.fifty_bonus}</td>
                   <td style={td}>{p.hundred_bonus}</td>
                   <td style={td}>{p.three_w_bonus}</td>
