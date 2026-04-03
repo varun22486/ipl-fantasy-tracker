@@ -8,7 +8,7 @@ import PlayerTable from "@/components/PlayerTable";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
 
 const KEY_LIMIT = 100;          // CricAPI free plan per key per day
-const QUOTA_LIMIT = 1000; // 100/day × 10 API keys (CRICKET_API_KEY … _10)
+const QUOTA_LIMIT = 1100; // 100/day × 11 API keys (CRICKET_API_KEY … _11)
 const QUOTA_WARN_AT = 640; // warn at 80% of 800
 const QUOTA_KEY = "cricapi_quota";
 

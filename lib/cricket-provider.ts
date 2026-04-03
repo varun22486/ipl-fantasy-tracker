@@ -198,6 +198,7 @@ function allApiKeys(): string[] {
     cleanEnvText(process.env.CRICKET_API_KEY_8),
     cleanEnvText(process.env.CRICKET_API_KEY_9),
     cleanEnvText(process.env.CRICKET_API_KEY_10),
+    cleanEnvText(process.env.CRICKET_API_KEY_11),
   ].filter(Boolean) as string[];
 }
 
@@ -357,7 +358,7 @@ async function fetchJson(path: string) {
   const nowMs = Date.now();
 
   if (keys.length === 0) {
-    throw new Error("Cricket API error: no CRICKET_API_KEY / CRICKET_API_KEY_2…_9 configured");
+    throw new Error("Cricket API error: no CRICKET_API_KEY / CRICKET_API_KEY_2…_11 configured");
   }
 
   const keyStatusMap = await (async (): Promise<Record<string, KeyStatus>> => {
