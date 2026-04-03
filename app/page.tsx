@@ -74,17 +74,15 @@ function MultiPlayerHero({ participants, nextMatch }: {
   );
 }
 
-const HOME_SETTINGS_COLS =
-  "your_name, opponent_name, pts_run, pts_wicket, pts_catch, pts_runout, pts_stump, pts_fifty, pts_hundred, pts_three_w, pts_five_w, pts_mom";
 const HOME_MATCH_COLS =
   "id, fixture, match_date, status, venue, is_current, external_match_id";
-const HOME_PLAYER_COLS =
-  "id, match_id, competition_id, side, name, captain, runs, wickets, catches, runouts, stumpings, fifty_bonus, hundred_bonus, three_w_bonus, five_w_bonus, mom_bonus, provider_player_id";
 
 async function getData(competitionId: number | null) {
+  // Use select("*") so the page still works if optional columns (runouts, stumpings, pts_runout, …)
+  // are not migrated yet on the remote DB — explicit column lists make PostgREST fail entirely.
   const playersBase = supabaseAdmin
     .from("fantasy_players")
-    .select(HOME_PLAYER_COLS)
+    .select("*")
     .order("id", { ascending: true });
   const playersPromise =
     competitionId != null
@@ -93,12 +91,12 @@ async function getData(competitionId: number | null) {
 
   const [
     { data: matches, error: matchErr },
-    { data: settings },
-    { data: competitions },
-    { data: allPlayers },
+    { data: settings, error: settingsErr },
+    { data: competitions, error: competitionsErr },
+    { data: allPlayers, error: playersErr },
   ] = await Promise.all([
     supabaseAdmin.from("matches").select(HOME_MATCH_COLS).order("id", { ascending: true }),
-    supabaseAdmin.from("series_settings").select(HOME_SETTINGS_COLS).limit(1).single(),
+    supabaseAdmin.from("series_settings").select("*").limit(1).single(),
     supabaseAdmin
       .from("competitions")
       .select("id, name, player1_name, player2_name, players")
@@ -107,6 +105,9 @@ async function getData(competitionId: number | null) {
   ]);
 
   if (matchErr) console.error("[home] matches query error:", matchErr.message);
+  if (settingsErr) console.error("[home] series_settings query error:", settingsErr.message);
+  if (competitionsErr) console.error("[home] competitions query error:", competitionsErr.message);
+  if (playersErr) console.error("[home] fantasy_players query error:", playersErr.message);
 
   // Resolve competition info
   const comp = competitionId != null ? (competitions ?? []).find((c: any) => c.id === competitionId) : null;
@@ -330,6 +331,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
         <StatsClient
           yourName={data.yourName}
           opponentName={data.opponentName}
+          youSide={competitionId != null ? data.yourName : "You"}
           matchStats={data.matchStats}
           leaderboard={data.leaderboard}
           summary={data.summary}

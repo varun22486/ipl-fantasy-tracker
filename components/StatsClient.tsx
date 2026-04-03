@@ -27,7 +27,10 @@ type LeaderboardEntry = {
 };
 
 type Props = {
-  yourName: string; opponentName: string;
+  yourName: string;
+  opponentName: string;
+  /** fantasy_players.side for your team: "You" (default) or player1 name (named competition). */
+  youSide?: string;
   matchStats: MatchStat[];
   leaderboard: LeaderboardEntry[];
   summary: { yourWins: number; oppWins: number; ties: number; yourTotal: number; oppTotal: number; matchesPlayed: number };
@@ -73,7 +76,7 @@ function ChartTooltip({ active, payload, label, formatter }: any) {
 }
 
 // ── Computed analytics ────────────────────────────────────────────────────────
-function computeInsights(played: MatchStat[], yourName: string, opponentName: string) {
+function computeInsights(played: MatchStat[], yourName: string, opponentName: string, youSide: string) {
   if (played.length === 0) return null;
 
   let streak = 1, streakSide = played[played.length - 1].winner;
@@ -95,7 +98,7 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
   const stPts = DEFAULT_SCORING.stump;
   const brkd = { you: { runs: 0, wkts: 0, catches: 0, runouts: 0, stumpings: 0 }, opp: { runs: 0, wkts: 0, catches: 0, runouts: 0, stumpings: 0 } };
   for (const m of played) for (const p of m.players) {
-    const mult = p.captain ? 2 : 1, isYou = p.side === "You";
+    const mult = p.captain ? 2 : 1, isYou = p.side === youSide;
     const ts = isYou ? totalPts.you : totalPts.opp;
     const rOut = (p.runouts ?? 0) * roPts * mult;
     const stMp = (p.stumpings ?? 0) * stPts * mult;
@@ -115,9 +118,9 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function StatsClient({ yourName, opponentName, matchStats, leaderboard, summary }: Props) {
+export default function StatsClient({ yourName, opponentName, youSide = "You", matchStats, leaderboard, summary }: Props) {
   const played = matchStats.filter((m) => m.hasData);
-  const ins = computeInsights(played, yourName, opponentName);
+  const ins = computeInsights(played, yourName, opponentName, youSide);
 
   // ── Chart datasets ──────────────────────────────────────────────────────────
 
@@ -135,8 +138,8 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
 
   // 3. Captain points per match
   const captainPtsData = played.map((m) => {
-    const yourCap = m.players.find((p) => p.side === "You" && p.captain);
-    const oppCap  = m.players.find((p) => p.side !== "You" && p.captain);
+    const yourCap = m.players.find((p) => p.side === youSide && p.captain);
+    const oppCap  = m.players.find((p) => p.side !== youSide && p.captain);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
       yourCapName: yourCap?.name ?? "—",
@@ -149,20 +152,20 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
   // 4. Per-match runs / wickets / catches totals
   const runsData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === "You").reduce((s, p) => s + p.runs, 0),
-    [opponentName]: m.players.filter((p) => p.side !== "You").reduce((s, p) => s + p.runs, 0),
+    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + p.runs, 0),
+    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + p.runs, 0),
   }));
 
   const wicketsData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === "You").reduce((s, p) => s + p.wickets, 0),
-    [opponentName]: m.players.filter((p) => p.side !== "You").reduce((s, p) => s + p.wickets, 0),
+    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + p.wickets, 0),
+    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + p.wickets, 0),
   }));
 
   const catchesData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === "You").reduce((s, p) => s + p.catches, 0),
-    [opponentName]: m.players.filter((p) => p.side !== "You").reduce((s, p) => s + p.catches, 0),
+    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + p.catches, 0),
+    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + p.catches, 0),
   }));
 
   // 5a. Cumulative running totals for each stat
@@ -170,54 +173,54 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === "You").reduce((a, p) => a + p.runs, 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== "You").reduce((a, p) => a + p.runs, 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + p.runs, 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + p.runs, 0), 0),
     };
   });
   const wicketsRunningData = played.map((m, i) => {
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === "You").reduce((a, p) => a + p.wickets, 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== "You").reduce((a, p) => a + p.wickets, 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + p.wickets, 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + p.wickets, 0), 0),
     };
   });
   const catchesRunningData = played.map((m, i) => {
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === "You").reduce((a, p) => a + p.catches, 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== "You").reduce((a, p) => a + p.catches, 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + p.catches, 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + p.catches, 0), 0),
     };
   });
 
   const runoutsData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === "You").reduce((s, p) => s + (p.runouts ?? 0), 0),
-    [opponentName]: m.players.filter((p) => p.side !== "You").reduce((s, p) => s + (p.runouts ?? 0), 0),
+    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + (p.runouts ?? 0), 0),
+    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + (p.runouts ?? 0), 0),
   }));
 
   const runoutsRunningData = played.map((m, i) => {
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === "You").reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== "You").reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
     };
   });
 
   const stumpingsData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === "You").reduce((s, p) => s + (p.stumpings ?? 0), 0),
-    [opponentName]: m.players.filter((p) => p.side !== "You").reduce((s, p) => s + (p.stumpings ?? 0), 0),
+    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + (p.stumpings ?? 0), 0),
+    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + (p.stumpings ?? 0), 0),
   }));
 
   const stumpingsRunningData = played.map((m, i) => {
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === "You").reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== "You").reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
     };
   });
 
@@ -226,8 +229,8 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + (x.players.find((p) => p.side === "You" && p.captain)?.points ?? 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + (x.players.find((p) => p.side !== "You" && p.captain)?.points ?? 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + (x.players.find((p) => p.side === youSide && p.captain)?.points ?? 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + (x.players.find((p) => p.side !== youSide && p.captain)?.points ?? 0), 0),
     };
   });
 
@@ -329,7 +332,7 @@ export default function StatsClient({ yourName, opponentName, matchStats, leader
 
           <div className="insight-card insight-card--amber">
             <div style={insightLabel}>Best performance</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: ins.topPerf.side === "You" ? YOU_COLOR : OPP_COLOR, marginTop: 6, lineHeight: 1 }}>{ins.topPerf.points}<span style={{ fontSize: 13, fontWeight: 500, color: "#64748b" }}> pts</span></div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: ins.topPerf.side === youSide ? YOU_COLOR : OPP_COLOR, marginTop: 6, lineHeight: 1 }}>{ins.topPerf.points}<span style={{ fontSize: 13, fontWeight: 500, color: "#64748b" }}> pts</span></div>
             <div style={{ fontWeight: 600, fontSize: 13, marginTop: 4 }}>{ins.topPerf.name}</div>
             <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{ins.topPerf.fixture}</div>
           </div>
