@@ -66,6 +66,14 @@ export default function CompetitionSwitcher({ variant }: Props) {
       .catch(() => {});
   }, []);
 
+  /** Warm RSC payloads so switching league feels instant when possible. */
+  useEffect(() => {
+    router.prefetch("/");
+    for (const c of competitions) {
+      router.prefetch(`/?c=${c.id}`);
+    }
+  }, [competitions, router]);
+
   function navigateTo(id: number | null) {
     if (typeof document !== "undefined") {
       if (id == null) {
@@ -79,7 +87,7 @@ export default function CompetitionSwitcher({ variant }: Props) {
     // Always land on home when switching league so Match/Select client state does not
     // stick to the previous competition, and the dashboard is the default entry point.
     const homeQs = nextId == null ? "" : `?c=${nextId}`;
-    router.push(`/${homeQs}`);
+    router.push(`/${homeQs}`, { scroll: false });
   }
 
   async function addCompetition() {

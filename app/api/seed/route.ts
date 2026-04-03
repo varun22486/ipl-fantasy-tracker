@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   fetchMatchRoster,
-  getBestLeagueMatch,
   getMatchSeedByExternalIdForToday,
   type MatchSeed,
 } from "@/lib/cricket-provider";
@@ -110,24 +109,16 @@ async function persistSeededMatch(discovered: MatchSeed) {
   return match;
 }
 
-async function seedMatchAuto() {
-  const discovered = await getBestLeagueMatch();
-  return persistSeededMatch(discovered);
-}
-
+/** CricAPI is only used when the user links a match (POST with externalMatchId). No cron / GET auto-seed. */
 export async function GET() {
-  try {
-    const match = await seedMatchAuto();
-    return NextResponse.json({ ok: true, match });
-  } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Seed failed",
-      },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json(
+    {
+      ok: false,
+      error:
+        "Auto seed is disabled. Link a match from the dashboard (POST /api/seed with externalMatchId) or use Sync scores.",
+    },
+    { status: 405 }
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -137,26 +128,31 @@ export async function POST(req: NextRequest) {
       const body = await req.json();
       externalMatchId = typeof body?.externalMatchId === "string" ? body.externalMatchId.trim() : "";
     } catch {
-      // no JSON body — fall through to auto seed
+      // invalid or empty body
     }
 
-    if (externalMatchId) {
-      const discovered = await getMatchSeedByExternalIdForToday(externalMatchId);
-      if (!discovered) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error:
-              "Could not find that fixture via the API. The match may be too old for the live feed — try refreshing the list or check your API quota.",
-          },
-          { status: 400 }
-        );
-      }
-      const match = await persistSeededMatch(discovered);
-      return NextResponse.json({ ok: true, match });
+    if (!externalMatchId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "Missing externalMatchId. Pick a fixture from the list, then link the match.",
+        },
+        { status: 400 }
+      );
     }
 
-    const match = await seedMatchAuto();
+    const discovered = await getMatchSeedByExternalIdForToday(externalMatchId);
+    if (!discovered) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Could not find that fixture via the API. The match may be too old for the live feed — try refreshing the list or check your API quota.",
+        },
+        { status: 400 }
+      );
+    }
+    const match = await persistSeededMatch(discovered);
     return NextResponse.json({ ok: true, match });
   } catch (error) {
     return NextResponse.json(

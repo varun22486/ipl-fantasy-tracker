@@ -5,7 +5,6 @@ export const revalidate = 0;
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
-import { fetchMatchSeedFromMatchInfo } from "@/lib/cricket-provider";
 import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
 import nextDynamic from "next/dynamic";
@@ -75,11 +74,36 @@ function MultiPlayerHero({ participants, nextMatch }: {
   );
 }
 
+const HOME_SETTINGS_COLS =
+  "your_name, opponent_name, pts_run, pts_wicket, pts_catch, pts_fifty, pts_hundred, pts_three_w, pts_five_w, pts_mom";
+const HOME_MATCH_COLS =
+  "id, fixture, match_date, status, venue, is_current, external_match_id";
+const HOME_PLAYER_COLS =
+  "id, match_id, competition_id, side, name, captain, runs, wickets, catches, fifty_bonus, hundred_bonus, three_w_bonus, five_w_bonus, mom_bonus, provider_player_id";
+
 async function getData(competitionId: number | null) {
-  const [{ data: matches, error: matchErr }, { data: settings }, { data: competitions }] = await Promise.all([
-    supabaseAdmin.from("matches").select("*").order("id", { ascending: true }),
-    supabaseAdmin.from("series_settings").select("*").limit(1).single(),
-    supabaseAdmin.from("competitions").select("*").order("id", { ascending: true }),
+  const playersBase = supabaseAdmin
+    .from("fantasy_players")
+    .select(HOME_PLAYER_COLS)
+    .order("id", { ascending: true });
+  const playersPromise =
+    competitionId != null
+      ? playersBase.eq("competition_id", competitionId)
+      : playersBase.is("competition_id", null);
+
+  const [
+    { data: matches, error: matchErr },
+    { data: settings },
+    { data: competitions },
+    { data: allPlayers },
+  ] = await Promise.all([
+    supabaseAdmin.from("matches").select(HOME_MATCH_COLS).order("id", { ascending: true }),
+    supabaseAdmin.from("series_settings").select(HOME_SETTINGS_COLS).limit(1).single(),
+    supabaseAdmin
+      .from("competitions")
+      .select("id, name, player1_name, player2_name, players")
+      .order("id", { ascending: true }),
+    playersPromise,
   ]);
 
   if (matchErr) console.error("[home] matches query error:", matchErr.message);
@@ -101,11 +125,6 @@ async function getData(competitionId: number | null) {
     opponentName = settings?.opponent_name ?? "Rahul";
   }
 
-  // Fetch only this competition's player rows
-  const playersQuery = supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true });
-  const { data: allPlayers } = competitionId != null
-    ? await playersQuery.eq("competition_id", competitionId)
-    : await playersQuery.is("competition_id", null);
   const rules = scoringFromSettings(settings as any);
 
   // Determine which side value means "player 1 / you"
@@ -235,21 +254,9 @@ async function getData(competitionId: number | null) {
   }
 
   const nextMatchRow = pickNextUnplayedMatch(matches ?? [], matchIdsWithPlayers);
-  let nextFixture = nextMatchRow?.fixture as string | undefined;
+  const nextFixture = nextMatchRow?.fixture as string | undefined;
   let nextDate = nextMatchRow?.match_date as string | undefined;
-  let nextVenue = (nextMatchRow as { venue?: string | null } | null)?.venue ?? null;
-  if (nextMatchRow && (nextMatchRow as { external_match_id?: string }).external_match_id) {
-    try {
-      const fresh = await fetchMatchSeedFromMatchInfo(String((nextMatchRow as { external_match_id: string }).external_match_id));
-      if (fresh) {
-        if (fresh.fixture) nextFixture = fresh.fixture;
-        if (fresh.match_date) nextDate = fresh.match_date;
-        if (fresh.venue != null && String(fresh.venue).trim() !== "") nextVenue = fresh.venue;
-      }
-    } catch {
-      /* quota / network — keep DB values */
-    }
-  }
+  const nextVenue = (nextMatchRow as { venue?: string | null } | null)?.venue ?? null;
 
   const leagueNo = parseLeagueMatchNumberFromFixture(
     String(nextFixture ?? (nextMatchRow as { fixture?: string } | null)?.fixture ?? "")
