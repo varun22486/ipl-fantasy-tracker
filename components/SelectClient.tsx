@@ -6,6 +6,17 @@ import { formatUiCalendarDate } from "@/lib/ui-time";
 import type { CSSProperties } from "react";
 import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
+import {
+  emptyRosterSlots,
+  ROSTER_MAX_PLAYERS,
+  ROSTER_STARTING_COUNT,
+  rosterFilledCount,
+  rosterSlotsCanSave,
+  rosterSlotsFromSaved,
+  rosterStartersFilled,
+  slotsToLineupPayload,
+  type RosterSlotPlayer,
+} from "@/lib/roster-config";
 
 const KEY_LIMIT = 100;
 const QUOTA_LIMIT = 1100; // 100/day × 11 API keys (CRICKET_API_KEY … _11)
@@ -51,15 +62,15 @@ const rosterPlayersBelowTeam: CSSProperties = {
   gap: 8,
 };
 
-type Player = { name: string; captain: boolean; providerId?: string };
+type Player = RosterSlotPlayer;
 type SquadTeam = { teamName: string; players: string[] };
 type MatchChoice = { externalMatchId?: string; fixture: string; status: string; venue?: string | null; match_date: string };
 
 type Props = {
   yourName: string;
   opponentName: string;
-  yourPlayers: Player[];
-  opponentPlayers: Player[];
+  yourPlayers: Array<{ name: string; captain: boolean; bench?: boolean | null; provider_player_id?: string | null }>;
+  opponentPlayers: Array<{ name: string; captain: boolean; bench?: boolean | null; provider_player_id?: string | null }>;
   rosterNames: string[];
   squads: SquadTeam[];
   /** lowercase player name → CricAPI UUID; used to save provider_player_id at lineup time */
@@ -75,16 +86,8 @@ type Props = {
    */
   compPlayers?: string[];
   /** Existing picks per participant (indexed same as compPlayers) */
-  existingPicks?: Player[][];
+  existingPicks?: Array<Array<{ name: string; captain: boolean; bench?: boolean | null; provider_player_id?: string | null }>>;
 };
-
-function emptyPlayers() { return Array.from({ length: 4 }, () => ({ name: "", captain: false })); }
-function withFallback(players: Player[]) {
-  const next = emptyPlayers();
-  for (let i = 0; i < Math.min(players.length, 4); i++) next[i] = players[i];
-  if (!next.some((p) => p.captain) && next[0]) next[0].captain = true;
-  return next;
-}
 
 export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch, matchId, competitionId, compPlayers, existingPicks }: Props) {
   // Multi-player mode: 3+ participants
@@ -92,7 +95,9 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   const multiPlayers = compPlayers ?? [];
   // Per-participant picks array (mirrors compPlayers indices)
   const [allPicks, setAllPicks] = React.useState<Player[][]>(() =>
-    multiPlayers.map((_, i) => withFallback(existingPicks?.[i] ?? []))
+    multiPlayers.map((_, i) =>
+      (existingPicks?.[i]?.length ? rosterSlotsFromSaved(existingPicks[i]!) : emptyRosterSlots())
+    )
   );
   const [activeMultiIdx, setActiveMultiIdx] = React.useState(0);
   const [savingIdx, setSavingIdx] = React.useState<number | null>(null);
@@ -109,13 +114,13 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   async function saveParticipant(idx: number) {
     const picks = allPicks[idx];
     const name = multiPlayers[idx];
-    if (!picks.every(p => p.name.trim()) || picks.filter(p => p.captain).length !== 1) return;
+    if (!rosterSlotsCanSave(picks)) return;
     setSavingIdx(idx); setApiMsg(null);
     try {
       const res = await fetch("/api/lineup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerName: name, players: picks, competitionId: competitionId ?? null }),
+        body: JSON.stringify({ playerName: name, players: slotsToLineupPayload(picks), competitionId: competitionId ?? null }),
       });
       const json = await res.json();
       setSavingIdx(null);
@@ -140,40 +145,69 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   }
 
   function updateMultiCaptain(idx: number, slotIdx: number) {
-    setAllPicks(prev => prev.map((picks, i) =>
-      i !== idx ? picks : picks.map((p, j) => ({ ...p, captain: j === slotIdx }))
-    ));
+    if (slotIdx >= ROSTER_STARTING_COUNT) return;
+    setAllPicks((prev) =>
+      prev.map((picks, i) => (i !== idx ? picks : picks.map((p, j) => ({ ...p, captain: j === slotIdx }))))
+    );
   }
   function clearMultiSlot(idx: number, slotIdx: number) {
-    setAllPicks(prev => prev.map((picks, i) =>
-      i !== idx ? picks : picks.map((p, j) => j !== slotIdx ? p : { name: "", captain: false })
-    ));
-    // ensure still one captain
-    setAllPicks(prev => {
-      const picks = [...prev[idx]];
-      if (!picks.some(p => p.captain && p.name.trim())) {
-        const first = picks.findIndex(p => p.name.trim());
-        if (first !== -1) picks[first] = { ...picks[first], captain: true };
-      }
-      return prev.map((p, i) => i === idx ? picks : p);
-    });
+    setAllPicks((prev) =>
+      prev.map((picks, i) => {
+        if (i !== idx) return picks;
+        const next = picks.map((p, j) => (j !== slotIdx ? p : { name: "", captain: false, providerId: undefined }));
+        const head = next.slice(0, ROSTER_STARTING_COUNT);
+        if (!head.some((p) => p.captain && p.name.trim())) {
+          const first = head.findIndex((p) => p.name.trim());
+          if (first !== -1) next[first] = { ...next[first], captain: true };
+        }
+        for (let j = ROSTER_STARTING_COUNT; j < ROSTER_MAX_PLAYERS; j++) next[j] = { ...next[j], captain: false };
+        return next;
+      })
+    );
   }
   function applyMultiRoster(name: string) {
     const picks = allPicks[activeMultiIdx];
-    const next = picks.findIndex(p => !p.name.trim());
-    if (next === -1) { setApiMsg({ type: "warning", title: "All 4 slots full", detail: "Remove one first." }); return; }
+    const next = picks.findIndex((p) => !p.name.trim());
+    if (next === -1) {
+      setApiMsg({ type: "warning", title: "All 7 slots full", detail: "Remove a player first." });
+      return;
+    }
     const providerId = nameToId[name.toLowerCase()] || undefined;
-    setAllPicks(prev => prev.map((p, i) =>
-      i !== activeMultiIdx ? p : p.map((slot, j) => j !== next ? slot : { ...slot, name, providerId })
-    ));
+    setAllPicks((prev) =>
+      prev.map((p, i) =>
+        i !== activeMultiIdx ? p : p.map((slot, j) => (j !== next ? slot : { ...slot, name, providerId }))
+      )
+    );
+  }
+  function moveMultiSlot(idx: number, from: number, dir: -1 | 1) {
+    const to = from + dir;
+    if (to < 0 || to >= ROSTER_MAX_PLAYERS) return;
+    setAllPicks((prev) =>
+      prev.map((picks, i) => {
+        if (i !== idx) return picks;
+        const next = [...picks];
+        [next[from], next[to]] = [next[to]!, next[from]!];
+        for (let j = ROSTER_STARTING_COUNT; j < ROSTER_MAX_PLAYERS; j++) next[j] = { ...next[j], captain: false };
+        const head = next.slice(0, ROSTER_STARTING_COUNT);
+        if (!head.some((p) => p.captain && p.name.trim())) {
+          const fi = head.findIndex((p) => p.name.trim());
+          if (fi !== -1) next[fi] = { ...next[fi], captain: true };
+        }
+        return next;
+      })
+    );
   }
   const [saving, setSaving] = useState<"mine" | "theirs" | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
   const [apiMsg, setApiMsg] = useState<ApiMsg | null>(null);
   const [rival, setRival] = useState(opponentName || "Rahul");
-  const [mine, setMine] = useState<Player[]>(withFallback(yourPlayers));
-  const [theirs, setTheirs] = useState<Player[]>(withFallback(opponentPlayers));
+  const [mine, setMine] = useState<Player[]>(() =>
+    yourPlayers.length ? rosterSlotsFromSaved(yourPlayers) : emptyRosterSlots()
+  );
+  const [theirs, setTheirs] = useState<Player[]>(() =>
+    opponentPlayers.length ? rosterSlotsFromSaved(opponentPlayers) : emptyRosterSlots()
+  );
   const [activeSide, setActiveSide] = useState<"mine" | "theirs">("mine");
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
   const [pickedLinkId, setPickedLinkId] = useState("");
@@ -210,8 +244,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     return s;
   }, [mine, theirs]);
 
-  const canSaveMine = mine.every((p) => p.name.trim()) && mine.filter((p) => p.captain).length === 1;
-  const canSaveTheirs = theirs.every((p) => p.name.trim()) && theirs.filter((p) => p.captain).length === 1;
+  const canSaveMine = rosterSlotsCanSave(mine);
+  const canSaveTheirs = rosterSlotsCanSave(theirs);
 
   const hasRoster = rosterNames.length > 0 || squads.some((t) => t.players.length > 0);
 
@@ -298,8 +332,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     setSaving(side); setApiMsg(null);
     const payload =
       side === "mine"
-        ? { saveSide: "mine", yourPlayers: mine, opponentName: rival, competitionId: competitionId ?? null }
-        : { saveSide: "theirs", opponentPlayers: theirs, opponentName: rival, competitionId: competitionId ?? null };
+        ? { saveSide: "mine", yourPlayers: slotsToLineupPayload(mine), opponentName: rival, competitionId: competitionId ?? null }
+        : { saveSide: "theirs", opponentPlayers: slotsToLineupPayload(theirs), opponentName: rival, competitionId: competitionId ?? null };
     try {
       const res = await fetch("/api/lineup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const json = await res.json();
@@ -314,26 +348,55 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   }
 
   function updateCaptain(side: "mine" | "theirs", index: number) {
+    if (index >= ROSTER_STARTING_COUNT) return;
     (side === "mine" ? setMine : setTheirs)((prev) => prev.map((p, i) => ({ ...p, captain: i === index })));
   }
   function clearSlot(side: "mine" | "theirs", index: number) {
-    (side === "mine" ? setMine : setTheirs)((prev) => prev.map((p, i) => i !== index ? p : { name: "", captain: false }));
+    (side === "mine" ? setMine : setTheirs)((prev) => {
+      const next = prev.map((p, i) => (i !== index ? p : { name: "", captain: false, providerId: undefined }));
+      const head = next.slice(0, ROSTER_STARTING_COUNT);
+      if (!head.some((p) => p.captain && p.name.trim())) {
+        const fi = head.findIndex((p) => p.name.trim());
+        if (fi !== -1) next[fi] = { ...next[fi], captain: true };
+      }
+      for (let j = ROSTER_STARTING_COUNT; j < ROSTER_MAX_PLAYERS; j++) next[j] = { ...next[j], captain: false };
+      return next;
+    });
   }
   function ensureOneCaptain(side: "mine" | "theirs") {
     (side === "mine" ? setMine : setTheirs)((prev) => {
-      if (prev.some((p) => p.captain && p.name.trim())) return prev;
-      const first = prev.findIndex((p) => p.name.trim());
+      const head = prev.slice(0, ROSTER_STARTING_COUNT);
+      if (head.some((p) => p.captain && p.name.trim())) return prev;
+      const first = head.findIndex((p) => p.name.trim());
       if (first === -1) return prev;
       return prev.map((p, i) => ({ ...p, captain: i === first }));
+    });
+  }
+  function moveH2hSlot(side: "mine" | "theirs", from: number, dir: -1 | 1) {
+    const to = from + dir;
+    if (to < 0 || to >= ROSTER_MAX_PLAYERS) return;
+    (side === "mine" ? setMine : setTheirs)((prev) => {
+      const next = [...prev];
+      [next[from], next[to]] = [next[to]!, next[from]!];
+      for (let j = ROSTER_STARTING_COUNT; j < ROSTER_MAX_PLAYERS; j++) next[j] = { ...next[j], captain: false };
+      const head = next.slice(0, ROSTER_STARTING_COUNT);
+      if (!head.some((p) => p.captain && p.name.trim())) {
+        const fi = head.findIndex((p) => p.name.trim());
+        if (fi !== -1) next[fi] = { ...next[fi], captain: true };
+      }
+      return next;
     });
   }
   function applyRosterName(name: string) {
     const list = activeSide === "mine" ? mine : theirs;
     const setter = activeSide === "mine" ? setMine : setTheirs;
     const next = list.findIndex((p) => !p.name.trim());
-    if (next === -1) { setApiMsg({ type: "warning", title: "All 4 slots are full", detail: "Remove a player first, then tap again." }); return; }
+    if (next === -1) {
+      setApiMsg({ type: "warning", title: "All 7 slots are full", detail: "Remove a player first, then tap again." });
+      return;
+    }
     const providerId = nameToId[name.toLowerCase()] || undefined;
-    setter((prev) => prev.map((p, i) => i === next ? { ...p, name, providerId } : p));
+    setter((prev) => prev.map((p, i) => (i === next ? { ...p, name, providerId } : p)));
     setMessage("");
   }
 
@@ -355,7 +418,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   if (isMulti) {
     const COLORS = ["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2"];
     const activePicks = allPicks[activeMultiIdx] ?? [];
-    const canSave = activePicks.every(p => p.name.trim()) && activePicks.filter(p => p.captain).length === 1;
+    const canSave = rosterSlotsCanSave(activePicks);
 
     // Players taken by OTHER participants (not the active one) — these chips are locked
     const takenByOthers = new Set(
@@ -536,12 +599,12 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
           {/* Active participant card */}
           <div style={{ display: "grid", gap: 10 }}>
             <div style={{ fontSize: 12, color: "#64748b", padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
-              💡 Each person picks their own 4. Use the tabs above to switch who you&apos;re picking for.
+              💡 Each person picks 4 for points + up to 3 super subs. Use ↑↓ to swap slots. Tabs switch whose lineup you&apos;re editing.
             </div>
             {multiPlayers.map((name, idx) => {
               const picks = allPicks[idx] ?? [];
-              const filled = picks.filter(p => p.name.trim()).length;
-              const canS = picks.every(p => p.name.trim()) && picks.filter(p => p.captain).length === 1;
+              const filled = rosterFilledCount(picks);
+              const canS = rosterSlotsCanSave(picks);
               const color = COLORS[idx % COLORS.length];
               const isActive = activeMultiIdx === idx;
               return (
@@ -550,7 +613,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <div style={{ width: 10, height: 10, borderRadius: 999, background: color }} />
                       <span style={{ fontWeight: 800, fontSize: 14 }}>{name}</span>
-                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{filled}/4</span>
+                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{filled}/{ROSTER_MAX_PLAYERS}</span>
                     </div>
                     {!isActive && <button type="button" onClick={() => setActiveMultiIdx(idx)} style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 8, border: `1px solid ${color}`, background: "white", color, cursor: "pointer" }}>Select</button>}
                     {isActive && <span style={{ fontSize: 11, fontWeight: 700, color, background: `${color}20`, padding: "3px 8px", borderRadius: 999 }}>Active ✓</span>}
@@ -559,10 +622,17 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                     {picks.map((player, slotIdx) => (
                       <div key={slotIdx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, background: player.name.trim() ? (player.captain ? "#fefce8" : "#f8fafc") : "#f8fafc", border: player.name.trim() ? (player.captain ? "1px solid #fde68a" : "1px solid #e2e8f0") : "1px dashed #cbd5e1" }}>
                         <div style={{ width: 22, height: 22, borderRadius: 999, background: player.name.trim() ? color : "#e2e8f0", color: player.name.trim() ? "white" : "#94a3b8", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{slotIdx + 1}</div>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: slotIdx < ROSTER_STARTING_COUNT ? "#15803d" : "#6366f1", width: 28, flexShrink: 0 }}>{slotIdx < ROSTER_STARTING_COUNT ? "XI" : "Sub"}</span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                          <button type="button" title="Move up" disabled={slotIdx === 0} onClick={() => moveMultiSlot(idx, slotIdx, -1)} style={{ width: 22, height: 18, fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 4, background: "white", cursor: slotIdx === 0 ? "not-allowed" : "pointer" }}>↑</button>
+                          <button type="button" title="Move down" disabled={slotIdx >= ROSTER_MAX_PLAYERS - 1} onClick={() => moveMultiSlot(idx, slotIdx, 1)} style={{ width: 22, height: 18, fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 4, background: "white", cursor: slotIdx >= ROSTER_MAX_PLAYERS - 1 ? "not-allowed" : "pointer" }}>↓</button>
+                        </div>
                         {player.name.trim() ? (
                           <>
                             <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{player.name}</span>
-                            <button type="button" onClick={() => updateMultiCaptain(idx, slotIdx)} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 7, cursor: "pointer", border: player.captain ? "1px solid #d97706" : "1px solid #e2e8f0", background: player.captain ? "#fef9c3" : "white", color: player.captain ? "#d97706" : "#94a3b8", fontWeight: 700 }}>★</button>
+                            {slotIdx < ROSTER_STARTING_COUNT && (
+                              <button type="button" onClick={() => updateMultiCaptain(idx, slotIdx)} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 7, cursor: "pointer", border: player.captain ? "1px solid #d97706" : "1px solid #e2e8f0", background: player.captain ? "#fef9c3" : "white", color: player.captain ? "#d97706" : "#94a3b8", fontWeight: 700 }}>★</button>
+                            )}
                             <button type="button" onClick={() => clearMultiSlot(idx, slotIdx)} style={{ width: 22, height: 22, borderRadius: 999, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>✕</button>
                           </>
                         ) : (
@@ -584,7 +654,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                     {savingIdx === idx ? "Saving…"
                       : savedSet.has(idx) ? `✓ ${name}'s team saved — click to update`
                       : canS ? `Save ${name}'s team →`
-                      : `Pick ${4 - filled} more`}
+                      : `Fill XI (${rosterStartersFilled(picks)}/${ROSTER_STARTING_COUNT})`}
                   </button>
                 </div>
               );
@@ -905,7 +975,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         <div style={{ display: "grid", gap: 16 }}>
           {/* Tip */}
           <div style={{ fontSize: 12, color: "#64748b", padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
-            💡 <strong>Independent saves</strong> — {yourName} and {rival} each save their own 4.
+            💡 <strong>Independent saves</strong> — {yourName} and {rival} each save 4 for points + up to 3 super subs. Use ↑↓ to swap slots (e.g. bring a sub into the XI).
           </div>
 
           {(["mine", "theirs"] as const).map((side) => {
@@ -916,7 +986,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             const isActive = activeSide === side;
             const color = sideColor(side);
             const bg = sideBg(side);
-            const filled = list.filter((p) => p.name.trim()).length;
+            const filled = rosterFilledCount(list);
+            const startersOk = rosterStartersFilled(list);
 
             return (
               <div
@@ -934,7 +1005,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                     <div>
                       <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>{name}</div>
                       <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>
-                        {filled}/4 picked · 1 captain
+                        {filled}/{ROSTER_MAX_PLAYERS} · XI {startersOk}/{ROSTER_STARTING_COUNT} · 1 captain (XI only)
                       </div>
                     </div>
                   </div>
@@ -988,26 +1059,31 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                         }}>
                           {index + 1}
                         </div>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: index < ROSTER_STARTING_COUNT ? "#15803d" : "#6366f1", width: 30, flexShrink: 0 }}>{index < ROSTER_STARTING_COUNT ? "XI" : "Sub"}</span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                          <button type="button" title="Move up" disabled={index === 0} onClick={() => moveH2hSlot(side, index, -1)} style={{ width: 24, height: 18, fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 4, background: "white", cursor: index === 0 ? "not-allowed" : "pointer" }}>↑</button>
+                          <button type="button" title="Move down" disabled={index >= ROSTER_MAX_PLAYERS - 1} onClick={() => moveH2hSlot(side, index, 1)} style={{ width: 24, height: 18, fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 4, background: "white", cursor: index >= ROSTER_MAX_PLAYERS - 1 ? "not-allowed" : "pointer" }}>↓</button>
+                        </div>
 
                         {filled ? (
                           <>
                             <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: "#0f172a" }}>{player.name}</span>
-                            {/* Captain toggle */}
-                            <button
-                              type="button"
-                              onClick={() => updateCaptain(side, index)}
-                              title="Set as captain (×2 pts)"
-                              style={{
-                                fontSize: 13, padding: "3px 8px", borderRadius: 8, cursor: "pointer",
-                                fontWeight: 700, transition: "all 0.12s",
-                                border: player.captain ? "1px solid #d97706" : "1px solid #e2e8f0",
-                                background: player.captain ? "#fef9c3" : "white",
-                                color: player.captain ? "#d97706" : "#94a3b8",
-                              }}
-                            >
-                              ★ {player.captain ? "Captain" : "Cap?"}
-                            </button>
-                            {/* Remove */}
+                            {index < ROSTER_STARTING_COUNT && (
+                              <button
+                                type="button"
+                                onClick={() => updateCaptain(side, index)}
+                                title="Set as captain (×2 pts)"
+                                style={{
+                                  fontSize: 13, padding: "3px 8px", borderRadius: 8, cursor: "pointer",
+                                  fontWeight: 700, transition: "all 0.12s",
+                                  border: player.captain ? "1px solid #d97706" : "1px solid #e2e8f0",
+                                  background: player.captain ? "#fef9c3" : "white",
+                                  color: player.captain ? "#d97706" : "#94a3b8",
+                                }}
+                              >
+                                ★ {player.captain ? "Captain" : "Cap?"}
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => { clearSlot(side, index); ensureOneCaptain(side); }}
@@ -1038,7 +1114,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                     transition: "all 0.15s",
                   }}
                 >
-                  {isSaving ? "Saving…" : canSave ? `Save ${name}'s team →` : `Pick ${4 - list.filter(p => p.name.trim()).length} more player${4 - list.filter(p => p.name.trim()).length === 1 ? "" : "s"}`}
+                  {isSaving ? "Saving…" : canSave ? `Save ${name}'s team →` : `Fill XI (${rosterStartersFilled(list)}/${ROSTER_STARTING_COUNT})`}
                 </button>
               </div>
             );

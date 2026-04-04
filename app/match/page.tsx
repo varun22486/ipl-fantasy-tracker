@@ -115,8 +115,18 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         rosterNames={rosterNames}
         squads={squads}
         nameToId={nameToId}
-        existingYourPlayers={yourPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
-        existingOppPlayers={oppPlayers.map((p) => ({ name: p.name, captain: p.captain }))}
+        existingYourPlayers={yourPlayers.map((p) => ({
+          name: p.name,
+          captain: p.captain,
+          bench: p.bench,
+          provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
+        }))}
+        existingOppPlayers={oppPlayers.map((p) => ({
+          name: p.name,
+          captain: p.captain,
+          bench: p.bench,
+          provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
+        }))}
         competitionId={competitionId}
         allParticipants={allParticipantPlayers}
       />

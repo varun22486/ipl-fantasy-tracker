@@ -58,8 +58,18 @@ export default async function SelectPage() {
   const { rosterNames, squads, nameToId } = parseRosterFromMatch(currentMatch);
   const opponentName = settings?.opponent_name ?? "Rahul";
   const yourName = (settings as any)?.your_name ?? "Varun";
-  const yourPlayers = matchPlayers.filter((p) => p.side === "You").map((p) => ({ name: p.name, captain: p.captain }));
-  const oppPlayers = matchPlayers.filter((p) => p.side !== "You").map((p) => ({ name: p.name, captain: p.captain }));
+  const yourPlayers = matchPlayers.filter((p) => p.side === "You").map((p) => ({
+    name: p.name,
+    captain: p.captain,
+    bench: p.bench,
+    provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
+  }));
+  const oppPlayers = matchPlayers.filter((p) => p.side !== "You").map((p) => ({
+    name: p.name,
+    captain: p.captain,
+    bench: p.bench,
+    provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
+  }));
 
   return (
     <main className="page-main">

@@ -3,7 +3,7 @@ import { resolveCompetitionId } from "@/lib/competition";
 export const revalidate = 0;
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
+import { FantasyPlayer, fantasyPointsCounted, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
@@ -142,7 +142,7 @@ async function getData(competitionId: number | null) {
     matchId: number; fixture: string; date: string; yourPoints: number; oppPoints: number;
     yourCumulative: number; oppCumulative: number; winner: string | null;
     pointsDiff: number; hasData: boolean; isCurrent: boolean;
-    players: { name: string; side: string; captain: boolean; points: number; runs: number; wickets: number; catches: number; runouts: number; stumpings: number }[];
+    players: { name: string; side: string; captain: boolean; bench?: boolean; points: number; runs: number; wickets: number; catches: number; runouts: number; stumpings: number }[];
   };
 
   let yourCumulative = 0;
@@ -151,8 +151,8 @@ async function getData(competitionId: number | null) {
     const mp = playersByMatch[m.id] ?? [];
     const yourPlayers = mp.filter((p) => p.side === player1Side);
     const oppPlayers = mp.filter((p) => p.side !== player1Side);
-    const yourPts = yourPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
-    const oppPts = oppPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
+    const yourPts = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+    const oppPts = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     yourCumulative += yourPts;
     oppCumulative += oppPts;
 
@@ -161,7 +161,8 @@ async function getData(competitionId: number | null) {
       name: p.name,
       side: p.side as "You" | string,
       captain: p.captain,
-      points: playerPoints(p, rules).final,
+      bench: Boolean((p as FantasyPlayer).bench),
+      points: fantasyPointsCounted(p, rules),
       runs: p.runs,
       wickets: p.wickets,
       catches: p.catches,
@@ -189,7 +190,7 @@ async function getData(competitionId: number | null) {
   for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
     const key = `${p.side}::${p.name}`;
     if (!leaderMap[key]) leaderMap[key] = { name: p.name, side: p.side, totalPoints: 0, matches: 0, runs: 0, wickets: 0, catches: 0, runouts: 0, stumpings: 0 };
-    leaderMap[key].totalPoints += playerPoints(p, rules).final;
+    leaderMap[key].totalPoints += fantasyPointsCounted(p, rules);
     leaderMap[key].matches += 1;
     leaderMap[key].runs += p.runs;
     leaderMap[key].wickets += p.wickets;
@@ -217,14 +218,14 @@ async function getData(competitionId: number | null) {
         const captainName: Record<string, string> = {};
         for (const name of compPlayers) {
           const sidePlayers = mp.filter((p: any) => p.side === name);
-          pts[name] = sidePlayers.reduce((s: number, p: any) => s + playerPoints(p, rules).final, 0);
+          pts[name] = sidePlayers.reduce((s: number, p: any) => s + fantasyPointsCounted(p, rules), 0);
           runs[name] = sidePlayers.reduce((s: number, p: any) => s + (p.runs ?? 0), 0);
           wickets[name] = sidePlayers.reduce((s: number, p: any) => s + (p.wickets ?? 0), 0);
           catches[name] = sidePlayers.reduce((s: number, p: any) => s + (p.catches ?? 0), 0);
           runouts[name] = sidePlayers.reduce((s: number, p: any) => s + (p.runouts ?? 0), 0);
           stumpings[name] = sidePlayers.reduce((s: number, p: any) => s + (p.stumpings ?? 0), 0);
-          const cap = sidePlayers.find((p: any) => p.captain);
-          captainPts[name] = cap ? playerPoints(cap, rules).final : 0;
+          const cap = sidePlayers.find((p: any) => p.captain && !p.bench);
+          captainPts[name] = cap ? fantasyPointsCounted(cap, rules) : 0;
           captainName[name] = cap?.name ?? "—";
         }
         const hasData = Object.values(pts).some(v => v > 0);

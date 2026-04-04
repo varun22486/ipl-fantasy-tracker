@@ -1,4 +1,4 @@
-import { FantasyPlayer, formatCtRoSt, playerPoints } from "@/lib/scoring";
+import { FantasyPlayer, fantasyPointsCounted, formatCtRoSt, playerPoints } from "@/lib/scoring";
 
 type Props = {
   title: string;
@@ -29,12 +29,14 @@ export default function PlayerTable({ title, players }: Props) {
           </thead>
           <tbody>
             {players.map((p) => {
-              const pts = playerPoints(p).final;
+              const pts = fantasyPointsCounted(p);
+              const raw = playerPoints(p).final;
               return (
-                <tr key={p.name} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                <tr key={p.name} style={{ borderBottom: "1px solid #f1f5f9", background: p.bench ? "#fafafa" : undefined }}>
                   <td style={{ padding: "10px 10px", fontSize: 14, fontWeight: 500 }}>
                     {p.name}
                     {p.captain && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: "#d97706", background: "#fef9c3", padding: "1px 5px", borderRadius: 4 }}>★ Cap</span>}
+                    {p.bench && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: "#3730a3", background: "#e0e7ff", padding: "1px 5px", borderRadius: 4 }}>Sub</span>}
                   </td>
                   <td style={td}>{p.captain ? "★" : "—"}</td>
                   <td style={td}>{p.runs}</td>
@@ -45,7 +47,10 @@ export default function PlayerTable({ title, players }: Props) {
                   <td style={td}>{p.three_w_bonus}</td>
                   <td style={td}>{p.five_w_bonus}</td>
                   <td style={td}>{p.mom_bonus}</td>
-                  <td style={{ ...td, fontWeight: 800, fontSize: 16, color: "#0f172a" }}>{pts}</td>
+                  <td style={{ ...td, fontWeight: 800, fontSize: 16, color: "#0f172a" }}>
+                    {pts}
+                    {p.bench && raw > 0 && <div style={{ fontSize: 10, fontWeight: 500, color: "#94a3b8" }}>({raw} if in XI)</div>}
+                  </td>
                 </tr>
               );
             })}

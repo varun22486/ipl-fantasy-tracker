@@ -152,7 +152,8 @@ create table if not exists fantasy_players (
   five_w_bonus integer not null default 0,
   mom_bonus integer not null default 0,
   /** CricAPI player UUID — used for reliable ID-based sync matching */
-  provider_player_id text
+  provider_player_id text,
+  bench boolean not null default false
   -- uniqueness enforced by partial indexes below
 );
 
@@ -174,6 +175,7 @@ create unique index if not exists fp_named_unique
 alter table fantasy_players add column if not exists provider_player_id text;
 alter table fantasy_players add column if not exists runouts integer not null default 0;
 alter table fantasy_players add column if not exists stumpings integer not null default 0;
+alter table fantasy_players add column if not exists bench boolean not null default false;
 
 -- Remove the hardcoded 'Rahul' constraint so any opponent name works
 -- (safe to run multiple times — drops only if the constraint exists)

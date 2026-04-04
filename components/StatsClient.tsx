@@ -11,7 +11,7 @@ import Link from "next/link";
 import { DEFAULT_SCORING } from "@/lib/scoring";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type PlayerStat = { name: string; side: string; captain: boolean; points: number; runs: number; wickets: number; catches: number; runouts?: number; stumpings?: number };
+type PlayerStat = { name: string; side: string; captain: boolean; bench?: boolean; points: number; runs: number; wickets: number; catches: number; runouts?: number; stumpings?: number };
 
 type MatchStat = {
   matchId: number; fixture: string; date: string;
@@ -45,6 +45,14 @@ const OPP_LIGHT  = "#fee2e2";
 function shortFixture(f: string) {
   const m = f.match(/match\s*(\d+)/i);
   return m ? `M${m[1]}` : f.slice(0, 5);
+}
+
+/** Super subs are excluded from stat breakdown charts (only playing 4 count). */
+function xiYou(p: PlayerStat, youSide: string) {
+  return p.side === youSide && !p.bench;
+}
+function xiOpp(p: PlayerStat, youSide: string) {
+  return p.side !== youSide && !p.bench;
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -90,14 +98,18 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
   const closest    = played.reduce((b, m) => m.pointsDiff < b.pointsDiff ? m : b, played[0]);
 
   let topPerf = { name: "", side: "", points: 0, fixture: "" };
-  for (const m of played) for (const p of m.players)
-    if (p.points > topPerf.points) topPerf = { name: p.name, side: p.side, points: p.points, fixture: m.fixture };
+  for (const m of played)
+    for (const p of m.players) {
+      if (p.bench) continue;
+      if (p.points > topPerf.points) topPerf = { name: p.name, side: p.side, points: p.points, fixture: m.fixture };
+    }
 
   const capPts = { you: 0, opp: 0 }, totalPts = { you: 0, opp: 0 };
   const roPts = DEFAULT_SCORING.runout;
   const stPts = DEFAULT_SCORING.stump;
   const brkd = { you: { runs: 0, wkts: 0, catches: 0, runouts: 0, stumpings: 0 }, opp: { runs: 0, wkts: 0, catches: 0, runouts: 0, stumpings: 0 } };
   for (const m of played) for (const p of m.players) {
+    if (p.bench) continue;
     const mult = p.captain ? 2 : 1, isYou = p.side === youSide;
     const ts = isYou ? totalPts.you : totalPts.opp;
     const rOut = (p.runouts ?? 0) * roPts * mult;
@@ -111,6 +123,7 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
   const capPctOpp = totalPts.opp > 0 ? Math.round((capPts.opp / totalPts.opp) * 100) : 0;
 
   const half = Math.min(3, Math.floor(played.length / 2));
+  // Momentum = avg match points late window vs early window. `played` is only the active competition (server filters fantasy_players by ?c= / cookie).
   const yourTrend = half > 0 ? Math.round(((played.slice(-half).reduce((s, m) => s + m.yourPoints, 0) - played.slice(0, half).reduce((s, m) => s + m.yourPoints, 0)) / half) * 10) / 10 : 0;
   const oppTrend  = half > 0 ? Math.round(((played.slice(-half).reduce((s, m) => s + m.oppPoints, 0)  - played.slice(0, half).reduce((s, m) => s + m.oppPoints, 0))  / half) * 10) / 10 : 0;
 
@@ -138,8 +151,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
 
   // 3. Captain points per match
   const captainPtsData = played.map((m) => {
-    const yourCap = m.players.find((p) => p.side === youSide && p.captain);
-    const oppCap  = m.players.find((p) => p.side !== youSide && p.captain);
+    const yourCap = m.players.find((p) => xiYou(p, youSide) && p.captain);
+    const oppCap  = m.players.find((p) => xiOpp(p, youSide) && p.captain);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
       yourCapName: yourCap?.name ?? "—",
@@ -152,20 +165,20 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
   // 4. Per-match runs / wickets / catches totals
   const runsData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + p.runs, 0),
-    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + p.runs, 0),
+    [yourName]:     m.players.filter((p) => xiYou(p, youSide)).reduce((s, p) => s + p.runs, 0),
+    [opponentName]: m.players.filter((p) => xiOpp(p, youSide)).reduce((s, p) => s + p.runs, 0),
   }));
 
   const wicketsData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + p.wickets, 0),
-    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + p.wickets, 0),
+    [yourName]:     m.players.filter((p) => xiYou(p, youSide)).reduce((s, p) => s + p.wickets, 0),
+    [opponentName]: m.players.filter((p) => xiOpp(p, youSide)).reduce((s, p) => s + p.wickets, 0),
   }));
 
   const catchesData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + p.catches, 0),
-    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + p.catches, 0),
+    [yourName]:     m.players.filter((p) => xiYou(p, youSide)).reduce((s, p) => s + p.catches, 0),
+    [opponentName]: m.players.filter((p) => xiOpp(p, youSide)).reduce((s, p) => s + p.catches, 0),
   }));
 
   // 5a. Cumulative running totals for each stat
@@ -173,54 +186,54 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + p.runs, 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + p.runs, 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => xiYou(p, youSide)).reduce((a, p) => a + p.runs, 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => xiOpp(p, youSide)).reduce((a, p) => a + p.runs, 0), 0),
     };
   });
   const wicketsRunningData = played.map((m, i) => {
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + p.wickets, 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + p.wickets, 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => xiYou(p, youSide)).reduce((a, p) => a + p.wickets, 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => xiOpp(p, youSide)).reduce((a, p) => a + p.wickets, 0), 0),
     };
   });
   const catchesRunningData = played.map((m, i) => {
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + p.catches, 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + p.catches, 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => xiYou(p, youSide)).reduce((a, p) => a + p.catches, 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => xiOpp(p, youSide)).reduce((a, p) => a + p.catches, 0), 0),
     };
   });
 
   const runoutsData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + (p.runouts ?? 0), 0),
-    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + (p.runouts ?? 0), 0),
+    [yourName]:     m.players.filter((p) => xiYou(p, youSide)).reduce((s, p) => s + (p.runouts ?? 0), 0),
+    [opponentName]: m.players.filter((p) => xiOpp(p, youSide)).reduce((s, p) => s + (p.runouts ?? 0), 0),
   }));
 
   const runoutsRunningData = played.map((m, i) => {
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => xiYou(p, youSide)).reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => xiOpp(p, youSide)).reduce((a, p) => a + (p.runouts ?? 0), 0), 0),
     };
   });
 
   const stumpingsData = played.map((m) => ({
     name: shortFixture(m.fixture), fullName: m.fixture,
-    [yourName]:     m.players.filter((p) => p.side === youSide).reduce((s, p) => s + (p.stumpings ?? 0), 0),
-    [opponentName]: m.players.filter((p) => p.side !== youSide).reduce((s, p) => s + (p.stumpings ?? 0), 0),
+    [yourName]:     m.players.filter((p) => xiYou(p, youSide)).reduce((s, p) => s + (p.stumpings ?? 0), 0),
+    [opponentName]: m.players.filter((p) => xiOpp(p, youSide)).reduce((s, p) => s + (p.stumpings ?? 0), 0),
   }));
 
   const stumpingsRunningData = played.map((m, i) => {
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => p.side === youSide).reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => p.side !== youSide).reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + x.players.filter((p) => xiYou(p, youSide)).reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => xiOpp(p, youSide)).reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
     };
   });
 
@@ -229,8 +242,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
     const slice = played.slice(0, i + 1);
     return {
       name: shortFixture(m.fixture), fullName: m.fixture,
-      [yourName]:     slice.reduce((s, x) => s + (x.players.find((p) => p.side === youSide && p.captain)?.points ?? 0), 0),
-      [opponentName]: slice.reduce((s, x) => s + (x.players.find((p) => p.side !== youSide && p.captain)?.points ?? 0), 0),
+      [yourName]:     slice.reduce((s, x) => s + (x.players.find((p) => xiYou(p, youSide) && p.captain)?.points ?? 0), 0),
+      [opponentName]: slice.reduce((s, x) => s + (x.players.find((p) => xiOpp(p, youSide) && p.captain)?.points ?? 0), 0),
     };
   });
 
@@ -340,6 +353,7 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
           {played.length >= 4 && (
             <div className="insight-card insight-card--purple">
               <div style={insightLabel}>Momentum</div>
+              <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2, marginBottom: 6 }}>Late vs early matches in this competition only</div>
               {[{ name: yourName, trend: ins.yourTrend, color: YOU_COLOR }, { name: opponentName, trend: ins.oppTrend, color: OPP_COLOR }].map(({ name, trend, color }) => (
                 <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9 }}>
                   <div style={{ width: 8, height: 8, borderRadius: 999, background: color, flexShrink: 0 }} />

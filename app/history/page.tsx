@@ -3,7 +3,7 @@ import { resolveCompetitionId } from "@/lib/competition";
 export const revalidate = 0;
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer, playerPoints, scoringFromSettings } from "@/lib/scoring";
+import { FantasyPlayer, fantasyPointsCounted, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import { isLiveMatchStatus } from "@/lib/next-match";
 import NavBar from "@/components/NavBar";
@@ -98,7 +98,7 @@ async function getData(competitionId: number | null) {
     if (isMulti) {
       const ptsByPlayer: Record<string, number> = {};
       for (const n of compPlayers) {
-        ptsByPlayer[n] = mp.filter((p) => p.side === n).reduce((s, p) => s + playerPoints(p, rules).final, 0);
+        ptsByPlayer[n] = mp.filter((p) => p.side === n).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
       }
       const hasData = Object.values(ptsByPlayer).some((v) => v > 0);
       const maxPts = Math.max(0, ...Object.values(ptsByPlayer));
@@ -128,13 +128,13 @@ async function getData(competitionId: number | null) {
     }
 
     const yourPts = competitionId != null
-      ? mp.filter((p) => p.side === yourName).reduce((s, p) => s + playerPoints(p, rules).final, 0)
-      : mp.filter((p) => p.side === "You").reduce((s, p) => s + playerPoints(p, rules).final, 0);
+      ? mp.filter((p) => p.side === yourName).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
+      : mp.filter((p) => p.side === "You").reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     // Default league rows use side "You" vs anything else (not necessarily === settings.opponent_name).
     const oppPts =
       competitionId != null
-        ? mp.filter((p) => p.side === opponentName).reduce((s, p) => s + playerPoints(p, rules).final, 0)
-        : mp.filter((p) => p.side !== "You").reduce((s, p) => s + playerPoints(p, rules).final, 0);
+        ? mp.filter((p) => p.side === opponentName).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
+        : mp.filter((p) => p.side !== "You").reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     const hasData = yourPts > 0 || oppPts > 0;
     const winner = !hasData ? null : yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : yourPts > 0 || oppPts > 0 ? "Tie" : null;
 

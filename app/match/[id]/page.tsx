@@ -3,7 +3,7 @@ export const revalidate = 0;
 
 import { resolveCompetitionId } from "@/lib/competition";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer, formatCtRoSt, playerPoints, scoringFromSettings } from "@/lib/scoring";
+import { FantasyPlayer, fantasyPointsCounted, formatCtRoSt, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import NavBar from "@/components/NavBar";
 import SyncButton from "@/components/SyncButton";
@@ -68,13 +68,17 @@ async function getData(matchId: number, competitionId: number | null) {
 
 function PlayerRow({ p, rules, displaySide }: { p: FantasyPlayer; rules: ReturnType<typeof scoringFromSettings>; displaySide: string }) {
   const pts = playerPoints(p, rules);
+  const counted = fantasyPointsCounted(p, rules);
   return (
-    <tr style={{ background: "white" }}>
+    <tr style={{ background: p.bench ? "#fafafa" : "white" }}>
       <td style={td}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontWeight: 600 }}>{p.name}</span>
           {p.captain && (
             <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 6, background: "#fef9c3", color: "#92400e", fontWeight: 700 }}>★ Captain</span>
+          )}
+          {p.bench && (
+            <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 6, background: "#e0e7ff", color: "#3730a3", fontWeight: 700 }}>Super sub</span>
           )}
         </div>
         <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
@@ -107,7 +111,12 @@ function PlayerRow({ p, rules, displaySide }: { p: FantasyPlayer; rules: ReturnT
         {p.captain && <div>Cap: ×2</div>}
         {!p.catches && !p.fifty_bonus && !p.hundred_bonus && !p.three_w_bonus && !p.five_w_bonus && !p.mom_bonus && !(p.runouts ?? 0) && !(p.stumpings ?? 0) && !p.captain && <span style={{ color: "#cbd5e1" }}>—</span>}
       </td>
-      <td style={{ ...td, fontWeight: 800, fontSize: 18, color: "#0f172a" }}>{pts.final}</td>
+      <td style={{ ...td, fontWeight: 800, fontSize: 18, color: "#0f172a" }}>
+        {counted}
+        {p.bench && pts.final > 0 && (
+          <div style={{ fontSize: 11, fontWeight: 500, color: "#94a3b8" }}>(would be {pts.final} if in XI)</div>
+        )}
+      </td>
       <td style={td}>
         <ScoreEditor player={p} />
       </td>
@@ -151,15 +160,15 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     cid == null
       ? players.filter((p) => p.side !== "You")
       : players.filter((p) => p.side === opponentName);
-  const yourTotal = yourPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
-  const oppTotal = oppPlayers.reduce((s, p) => s + playerPoints(p, rules).final, 0);
+  const yourTotal = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+  const oppTotal = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
 
   const participantBlocks = isMulti
     ? compPlayers.map((name, i) => ({
         name,
         color: MULTI_COLORS[i % MULTI_COLORS.length],
         players: players.filter((p) => p.side === name),
-        total: players.filter((p) => p.side === name).reduce((s, p) => s + playerPoints(p, rules).final, 0),
+        total: players.filter((p) => p.side === name).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0),
       }))
     : null;
 

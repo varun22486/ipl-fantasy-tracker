@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer, playerPoints } from "@/lib/scoring";
+import { FantasyPlayer, fantasyPointsCounted, playerPoints } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 
 export async function GET() {
@@ -28,8 +28,8 @@ export async function GET() {
       const mp = playersByMatch[m.id] ?? [];
       const yourPlayers = mp.filter((p) => p.side === "You");
       const oppPlayers = mp.filter((p) => p.side === "Rahul");
-      const yourPts = yourPlayers.reduce((s, p) => s + playerPoints(p).final, 0);
-      const oppPts = oppPlayers.reduce((s, p) => s + playerPoints(p).final, 0);
+      const yourPts = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p), 0);
+      const oppPts = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p), 0);
       yourCumulative += yourPts;
       oppCumulative += oppPts;
 
@@ -38,7 +38,7 @@ export async function GET() {
         name: p.name,
         side: p.side,
         captain: p.captain,
-        points: playerPoints(p).final,
+        points: fantasyPointsCounted(p),
         runs: p.runs,
         wickets: p.wickets,
         catches: p.catches,
@@ -66,7 +66,7 @@ export async function GET() {
     for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
       const key = `${p.side}::${p.name}`;
       if (!leaderboard[key]) leaderboard[key] = { name: p.name, side: p.side, totalPoints: 0, matches: 0, runs: 0, wickets: 0, catches: 0, runouts: 0, stumpings: 0 };
-      leaderboard[key].totalPoints += playerPoints(p).final;
+      leaderboard[key].totalPoints += fantasyPointsCounted(p);
       leaderboard[key].matches += 1;
       leaderboard[key].runs += p.runs;
       leaderboard[key].wickets += p.wickets;

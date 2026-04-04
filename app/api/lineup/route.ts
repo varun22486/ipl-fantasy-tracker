@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-type PlayerInput = { name: string; captain: boolean; providerId?: string };
+type PlayerInput = { name: string; captain: boolean; bench?: boolean; providerId?: string };
 
 function normalizePlayers(players: unknown): PlayerInput[] {
   if (!Array.isArray(players)) return [];
@@ -9,15 +9,30 @@ function normalizePlayers(players: unknown): PlayerInput[] {
     .map((p) => ({
       name: String((p as any)?.name || "").trim(),
       captain: Boolean((p as any)?.captain),
+      bench: Boolean((p as any)?.bench),
       providerId: typeof (p as any)?.providerId === "string" ? (p as any).providerId.trim() || undefined : undefined,
     }))
     .filter((p) => p.name);
 }
 
+/** 4 starters (bench false) + up to 3 super subs (bench true). Legacy: 4 rows, all starters. */
 function validateSide(label: string, players: PlayerInput[]) {
-  if (players.length !== 4) throw new Error(`${label} must have exactly 4 players.`);
-  if (new Set(players.map((p) => p.name.toLowerCase())).size !== 4) throw new Error(`${label} has duplicate player names.`);
-  if (players.filter((p) => p.captain).length !== 1) throw new Error(`${label} must have exactly 1 Team Captain.`);
+  const named = players.filter((p) => p.name);
+  if (named.length < 4 || named.length > 7) {
+    throw new Error(`${label}: pick 4–7 players (4 count for points; up to 3 super subs).`);
+  }
+  const starters = named.filter((p) => !p.bench);
+  const subs = named.filter((p) => p.bench);
+  if (starters.length !== 4) {
+    throw new Error(`${label}: exactly 4 must be playing XI (not super sub). Re-save from the latest team picker.`);
+  }
+  if (subs.length > 3) throw new Error(`${label}: at most 3 super subs.`);
+  if (starters.filter((p) => p.captain).length !== 1) {
+    throw new Error(`${label}: exactly 1 Team Captain among the playing 4.`);
+  }
+  if (subs.some((p) => p.captain)) throw new Error(`${label}: captain must be one of the playing 4, not a super sub.`);
+  const keys = named.map((p) => p.name.toLowerCase());
+  if (new Set(keys).size !== keys.length) throw new Error(`${label} has duplicate player names.`);
 }
 
 async function getCurrentMatchId() {
@@ -92,6 +107,7 @@ export async function POST(req: NextRequest) {
           side: playerName,
           name: p.name,
           captain: p.captain,
+          bench: p.bench === true,
           provider_player_id: p.providerId ?? null,
           competition_id: isDefault ? null : competitionId,
         }))
@@ -109,6 +125,7 @@ export async function POST(req: NextRequest) {
           side: side1,
           name: p.name,
           captain: p.captain,
+          bench: p.bench === true,
           provider_player_id: p.providerId ?? null,
           competition_id: isDefault ? null : competitionId,
         }))
@@ -125,6 +142,7 @@ export async function POST(req: NextRequest) {
           side: side2,
           name: p.name,
           captain: p.captain,
+          bench: p.bench === true,
           provider_player_id: p.providerId ?? null,
           competition_id: isDefault ? null : competitionId,
         }))

@@ -3,6 +3,8 @@ export type FantasyPlayer = {
   side: "You" | "Rahul";
   name: string;
   captain: boolean;
+  /** Super sub: stats sync but points do not count until swapped into the playing 4. */
+  bench?: boolean;
   runs: number;
   wickets: number;
   catches: number;
@@ -15,6 +17,8 @@ export type FantasyPlayer = {
   three_w_bonus: number;
   five_w_bonus: number;
   mom_bonus: number;
+  /** CricAPI player id — optional, from DB. */
+  provider_player_id?: string | null;
 };
 
 export type ScoringRules = {
@@ -49,6 +53,12 @@ export function scoringFromSettings(s: Record<string, unknown> | null | undefine
 /** Legacy alias so existing call-sites that don't pass custom rules still work. */
 export const scoring = DEFAULT_SCORING;
 
+/** Fantasy points that count toward team totals (0 for bench / super sub). */
+export function fantasyPointsCounted(p: FantasyPlayer, rules: ScoringRules = DEFAULT_SCORING): number {
+  if (p.bench) return 0;
+  return playerPoints(p, rules).final;
+}
+
 export function playerPoints(p: FantasyPlayer, rules: ScoringRules = DEFAULT_SCORING) {
   const base =
     p.runs          * rules.run    +
@@ -69,7 +79,7 @@ export function playerPoints(p: FantasyPlayer, rules: ScoringRules = DEFAULT_SCO
 }
 
 export function teamPoints(players: FantasyPlayer[]) {
-  return players.reduce((sum, p) => sum + playerPoints(p).final, 0);
+  return players.reduce((sum, p) => sum + fantasyPointsCounted(p), 0);
 }
 
 /** Single table cell: catches / run-outs / stumpings */

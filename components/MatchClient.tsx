@@ -51,8 +51,8 @@ type Props = {
   rosterNames: string[];
   squads: SquadTeam[];
   nameToId: Record<string, string>;
-  existingYourPlayers: { name: string; captain: boolean }[];
-  existingOppPlayers: { name: string; captain: boolean }[];
+  existingYourPlayers: { name: string; captain: boolean; bench?: boolean | null; provider_player_id?: string | null }[];
+  existingOppPlayers: { name: string; captain: boolean; bench?: boolean | null; provider_player_id?: string | null }[];
   competitionId?: number | null;
   /** For 3+ player competitions — all participants and their picks */
   allParticipants?: { name: string; players: FantasyPlayer[] }[];
@@ -291,7 +291,12 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           matchId={matchId ?? null}
           competitionId={competitionId ?? null}
           compPlayers={isMultiPlayer ? (allParticipants ?? []).map(p => p.name) : undefined}
-          existingPicks={isMultiPlayer ? (allParticipants ?? []).map(p => p.players.map(fp => ({ name: fp.name, captain: fp.captain }))) : undefined}
+          existingPicks={isMultiPlayer ? (allParticipants ?? []).map(p => p.players.map(fp => ({
+            name: fp.name,
+            captain: fp.captain,
+            bench: fp.bench,
+            provider_player_id: fp.provider_player_id ?? null,
+          }))) : undefined}
         />
       </div>
     );
