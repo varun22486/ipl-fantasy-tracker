@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
-import { getIplMatchChoicesForToday } from "@/lib/cricket-provider";
+import { getIplMatchChoicesForToday, sortMatchSeedsLikeHistory } from "@/lib/cricket-provider";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export async function GET() {
   try {
-    const { choices, totalRaw, nonIplSample } = await getIplMatchChoicesForToday();
+    const [{ choices: rawChoices, totalRaw, nonIplSample }, { data: dbMatches }] = await Promise.all([
+      getIplMatchChoicesForToday(),
+      supabaseAdmin.from("matches").select("id, external_match_id").order("id", { ascending: false }),
+    ]);
+    const choices = sortMatchSeedsLikeHistory(rawChoices, dbMatches ?? []);
 
     const date = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York",

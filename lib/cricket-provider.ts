@@ -862,7 +862,35 @@ function choiceDisplayOrder(a: MatchSeed, b: MatchSeed): number {
   };
   const dr = rank(a) - rank(b);
   if (dr !== 0) return dr;
+  const dateCmp = (b.match_date || "").localeCompare(a.match_date || "");
+  if (dateCmp !== 0) return dateCmp;
   return a.fixture.localeCompare(b.fixture);
+}
+
+/**
+ * Link IPL Match picker: same relative order as History (`matches.id` desc via row order).
+ * Rows already linked appear first in that order; other feed fixtures use live/date fallback.
+ */
+export function sortMatchSeedsLikeHistory(
+  choices: MatchSeed[],
+  dbMatches: { id: number; external_match_id?: string | null }[]
+): MatchSeed[] {
+  const orderIdx = new Map<string, number>();
+  let i = 0;
+  for (const row of dbMatches) {
+    const ext = cleanEnvText(row.external_match_id);
+    if (ext && !orderIdx.has(ext)) orderIdx.set(ext, i++);
+  }
+  return [...choices].sort((a, b) => {
+    const ea = cleanEnvText(a.externalMatchId);
+    const eb = cleanEnvText(b.externalMatchId);
+    const ia = ea ? orderIdx.get(ea) : undefined;
+    const ib = eb ? orderIdx.get(eb) : undefined;
+    if (ia !== undefined && ib !== undefined) return ia - ib;
+    if (ia !== undefined) return -1;
+    if (ib !== undefined) return 1;
+    return choiceDisplayOrder(a, b);
+  });
 }
 
 /** All IPL fixtures currently in the feed (live, recent, upcoming). */
@@ -885,7 +913,7 @@ export async function getIplMatchChoicesForToday(): Promise<{
     .map((m) => safeString(m.name || m.title || m.matchDesc) || "Unknown match");
 
   return {
-    choices: [...byId.values()].sort(choiceDisplayOrder),
+    choices: [...byId.values()],
     totalRaw: raw.length,
     nonIplSample,
   };
