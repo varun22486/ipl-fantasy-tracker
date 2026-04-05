@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 import { formatFixture } from "@/lib/format";
 import { formatUiCalendarDate, formatUiDateTime } from "@/lib/ui-time";
 import PlayerTable from "@/components/PlayerTable";
@@ -9,6 +10,7 @@ import SelectClient from "@/components/SelectClient";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
 import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
+import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
 
 const QUOTA_LIMIT = 1100; // 100/day × 11 API keys (CRICKET_API_KEY … _11)
 const QUOTA_WARN_AT = 640; // warn at 80% of 800
@@ -31,7 +33,19 @@ type CurrentMatch = { fixture?: string; label?: string; status?: string; venue?:
 
 type DebugData = {
   message?: string; skipped?: boolean; reason?: string; live_summary?: string; error?: string;
-  debug?: { selectedCount?: number; providerRowCount?: number; updatedRows?: number; unmatched?: string[]; matched?: Array<{ selected: string; provider: string }>; providerPlayersSample?: string[]; syncedAt?: string; lastSyncedAt?: string; sourceUrl?: string | null; status?: string; rosterCount?: number };
+  debug?: {
+    selectedCount?: number;
+    providerRowCount?: number;
+    updatedRows?: number;
+    unmatched?: string[];
+    matched?: Array<{ selected: string; provider: string; matchedById?: boolean }>;
+    providerPlayersSample?: string[];
+    syncedAt?: string;
+    lastSyncedAt?: string;
+    sourceUrl?: string | null;
+    status?: string;
+    rosterCount?: number;
+  };
 };
 
 type SquadTeam = { teamName: string; players: string[] };
@@ -59,7 +73,12 @@ type Props = {
 };
 
 function DebugPanel({ info }: { info: DebugData | null }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
+  // Expand whenever a new sync response arrives so details aren’t missed before refresh.
+  useEffect(() => {
+    if (info?.debug != null) setOpen(true);
+  }, [info]);
+
   if (!info) return null;
   const d = info.debug;
   return (
@@ -72,7 +91,16 @@ function DebugPanel({ info }: { info: DebugData | null }) {
           <div style={{ marginBottom: 4 }}>{info.error || info.reason || info.message || "—"}</div>
           {info.live_summary && <div><strong>Live:</strong> {info.live_summary}</div>}
           {typeof d?.updatedRows === "number" && <div><strong>Updated:</strong> {d.updatedRows}/{d.selectedCount ?? 0} players</div>}
-          {d?.unmatched?.length ? <div><strong>Unmatched:</strong> {d.unmatched.join(", ")}</div> : null}
+          {d?.matched && d.matched.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <strong>Matched:</strong>{" "}
+              <span style={{ wordBreak: "break-word" }}>
+                {d.matched.slice(0, 24).map((m) => `${m.selected} → ${m.provider}${m.matchedById ? " (id)" : ""}`).join(" · ")}
+                {d.matched.length > 24 ? ` … +${d.matched.length - 24} more` : ""}
+              </span>
+            </div>
+          )}
+          {d?.unmatched?.length ? <div style={{ marginTop: 6 }}><strong>Unmatched:</strong> {d.unmatched.join(", ")}</div> : null}
           {d?.providerPlayersSample?.length ? <div><strong>Provider names:</strong> {d.providerPlayersSample.join(", ")}</div> : null}
           {(d?.syncedAt || d?.lastSyncedAt) && (
             <div>
@@ -86,6 +114,7 @@ function DebugPanel({ info }: { info: DebugData | null }) {
 }
 
 export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, matchId, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId, allParticipants }: Props) {
+  const router = useRouter();
   const isMultiPlayer = (allParticipants?.length ?? 0) > 2;
   // Show inline team picker only when NO ONE has saved yet (truly fresh start).
   // Once any participant has saved, show the live view — the pending banner
@@ -208,11 +237,10 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       }
 
       addUsage(1);
-      // Success — persist the message through the upcoming page reload
       const successMsg: ApiMsg = { type: "success", title: json.message || "Scores updated!" };
-      try { sessionStorage.setItem("match_msg", JSON.stringify(successMsg)); } catch {}
       setApiMsg(successMsg);
-      window.setTimeout(() => window.location.reload(), 2500);
+      // Soft refresh keeps this panel and messages visible (full reload used to wipe debug before you could read it).
+      router.refresh();
     } catch (e) {
       setSyncing(false);
       setApiMsg(classifyApiMsg(e instanceof Error ? e.message : "Network error during sync.", "Sync scores"));
@@ -227,8 +255,12 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       const res = await fetch("/api/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ externalMatchId }) });
       const json = await res.json();
       setLinkChoices(null); addUsage(1);
-      showMsg(json.ok ? "Match linked! Reloading…" : (json.error || "Could not link match."), "Link match");
-      if (json.ok) window.location.reload();
+      showMsg(json.ok ? "Match linked! Opening…" : (json.error || "Could not link match."), "Link match");
+      if (json.ok) {
+        const mid = json.match && typeof json.match.id === "number" ? json.match.id : null;
+        if (mid != null) navigateToMatchAfterSeed(mid);
+        else window.location.reload();
+      }
     } catch { showMsg("Network error while linking.", "Link match"); }
     setSyncing(false);
   }

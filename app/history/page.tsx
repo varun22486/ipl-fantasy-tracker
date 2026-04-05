@@ -8,7 +8,6 @@ import { formatFixture } from "@/lib/format";
 import { isLiveMatchStatus } from "@/lib/next-match";
 import NavBar from "@/components/NavBar";
 import Link from "next/link";
-import type { CSSProperties } from "react";
 
 const YOU_COLOR = "#2563eb";
 const OPP_COLOR = "#dc2626";
@@ -155,7 +154,9 @@ async function getData(competitionId: number | null) {
     };
   });
 
-  return { matchRows, yourName, opponentName, competitionId, isMulti, compPlayers };
+  const compName = (comp as { name?: string } | null)?.name?.trim() || null;
+
+  return { matchRows, yourName, opponentName, competitionId, isMulti, compPlayers, compName };
 }
 
 function matchHref(matchId: number, competitionId: number | null) {
@@ -163,132 +164,158 @@ function matchHref(matchId: number, competitionId: number | null) {
   return `/match/${matchId}`;
 }
 
+function generateSelectionHref(competitionId: number | null) {
+  return competitionId != null ? `/select?c=${competitionId}` : "/select";
+}
+
 export default async function HistoryPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
   const { c } = await searchParams;
   const competitionId = await resolveCompetitionId(c);
-  const { matchRows, yourName, opponentName, competitionId: cid, isMulti, compPlayers } = await getData(competitionId);
+  const { matchRows, yourName, opponentName, competitionId: cid, isMulti, compPlayers, compName } = await getData(competitionId);
   const visibleRows = matchRows.filter(includeInHistory);
   const played = visibleRows.filter((m) => m.hasData);
+  const liveCount = visibleRows.filter((m) => m.isCurrent || isLiveMatchStatus(m.status)).length;
 
   const subtitle = isMulti
     ? `${compPlayers?.join(" · ")} · ${played.length} with scores · live & finished only`
     : `${played.length} with scores · live & finished only`;
 
   return (
-    <main className="page-main">
+    <main className="page-main history-page">
       <NavBar title="Match History" subtitle={subtitle} />
 
       {matchRows.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 60, background: "white", border: "1px solid #e2e8f0", borderRadius: 20 }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
-          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>No matches yet</div>
-          <div style={{ color: "#64748b", marginBottom: 24 }}>Link a match first to start tracking.</div>
-          <Link href={cid != null ? `/select?c=${cid}` : "/select"} style={btnStyle}>
-            Select Teams →
+        <div className="history-empty">
+          <div className="history-empty__icon" aria-hidden>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
+              <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+              <rect x="9" y="3" width="6" height="4" rx="1" />
+              <path d="M9 12h6M9 16h4" />
+            </svg>
+          </div>
+          <h2 className="history-empty__title">No matches yet</h2>
+          <p className="history-empty__text">Link a match first to start tracking.</p>
+          <Link href={generateSelectionHref(cid)} className="history-empty__btn">
+            Select teams
           </Link>
         </div>
       ) : visibleRows.length === 0 ? (
-        <div style={{ textAlign: "center", padding: 60, background: "white", border: "1px solid #e2e8f0", borderRadius: 20 }}>
-          <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
-          <div style={{ fontWeight: 700, fontSize: 17, marginBottom: 8 }}>Nothing live or finished yet</div>
-          <div style={{ color: "#64748b", marginBottom: 24 }}>
-            Upcoming fixtures stay on Select. History lists matches in progress or completed.
+        <div className="history-empty history-empty--muted">
+          <div className="history-empty__icon" aria-hidden>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25">
+              <rect x="3" y="4" width="18" height="18" rx="2" />
+              <path d="M16 2v4M8 2v4M3 10h18" />
+            </svg>
           </div>
-          <Link href={cid != null ? `/select?c=${cid}` : "/select"} style={btnStyle}>
-            Select match →
+          <h2 className="history-empty__title">Nothing live or finished yet</h2>
+          <p className="history-empty__text">
+            Upcoming fixtures stay on Select. History lists matches in progress or completed.
+          </p>
+          <Link href={generateSelectionHref(cid)} className="history-empty__btn">
+            Select match
           </Link>
         </div>
       ) : (
-        <div style={{ display: "grid", gap: 10 }}>
+        <>
+          <div className="history-summary" role="region" aria-label="History overview">
+            {compName && (
+              <div className="history-summary__card history-summary__card--accent">
+                <div className="history-summary__label">Competition</div>
+                <div className="history-summary__value history-summary__value--sm">{compName}</div>
+              </div>
+            )}
+            <div className="history-summary__card">
+              <div className="history-summary__label">In history</div>
+              <div className="history-summary__value">{visibleRows.length}</div>
+              <div className="history-summary__hint">live & finished</div>
+            </div>
+            <div className="history-summary__card">
+              <div className="history-summary__label">With scores</div>
+              <div className="history-summary__value">{played.length}</div>
+              <div className="history-summary__hint">synced matches</div>
+            </div>
+            {liveCount > 0 && (
+              <div className="history-summary__card history-summary__card--live">
+                <div className="history-summary__label">Live now</div>
+                <div className="history-summary__value">{liveCount}</div>
+                <div className="history-summary__hint">open from list</div>
+              </div>
+            )}
+          </div>
+          <div className="history-list">
           {visibleRows.map((m) => {
             if (m.isMulti && m.ptsByPlayer && m.compPlayers) {
               const total = m.compPlayers.reduce((s, n) => s + (m.ptsByPlayer![n] ?? 0), 0);
               return (
-                <Link key={m.matchId} href={matchHref(m.matchId, cid)} style={{ textDecoration: "none" }}>
-                  <div className={`match-card${m.isCurrent ? " match-card--current" : ""}`}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>{m.fixture}</div>
-                        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
-                          {m.date || "—"}
+                <Link key={m.matchId} href={matchHref(m.matchId, cid)} className="history-card-link">
+                  <article className={`history-card history-card--multi${m.isCurrent ? " history-card--live" : ""}`}>
+                    <div className="history-card__top">
+                      <div className="history-card__titles">
+                        <h3 className="history-card__fixture">{m.fixture}</h3>
+                        <div className="history-card__meta">
+                          <time dateTime={m.date}>{m.date || "—"}</time>
                           {m.status && m.status !== "COMPLETED" && (
-                            <span
-                              style={{
-                                marginLeft: 8,
-                                padding: "1px 7px",
-                                borderRadius: 999,
-                                fontSize: 11,
-                                fontWeight: 700,
-                                background: m.isCurrent ? "#dcfce7" : "#f1f5f9",
-                                color: m.isCurrent ? "#16a34a" : "#64748b",
-                              }}
-                            >
-                              {m.isCurrent ? "● Live" : m.status}
+                            <span className={`history-card__pill${m.isCurrent ? " history-card__pill--live" : ""}`}>
+                              {m.isCurrent ? "Live" : m.status}
                             </span>
                           )}
                         </div>
                       </div>
                       {m.hasData && m.winner && (
                         <span
-                          style={{
-                            padding: "3px 10px",
-                            borderRadius: 999,
-                            fontSize: 12,
-                            fontWeight: 700,
-                            flexShrink: 0,
-                            background: m.winner === "Tie" ? "#fef9c3" : "#eff6ff",
-                            color: m.winner === "Tie" ? "#92400e" : "#2563eb",
-                          }}
+                          className={`history-card__winner${m.winner === "Tie" ? " history-card__winner--tie" : ""}`}
                         >
                           {m.winner === "Tie" ? "Tie" : `${m.winner} won`}
                         </span>
                       )}
+                      <span className="history-card__chevron" aria-hidden>
+                        →
+                      </span>
                     </div>
                     {m.hasData ? (
                       <>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 10, alignItems: "center" }}>
+                        <div className="history-card__players history-card__players--multi">
                           {m.compPlayers.map((name, i) => {
                             const pts = m.ptsByPlayer![name] ?? 0;
                             const pct = total > 0 ? Math.round((pts / total) * 100) : 0;
                             const won = m.winner === name;
                             const color = MULTI_COLORS[i % MULTI_COLORS.length];
                             return (
-                              <div key={name} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 120 }}>
-                                <div style={{ width: 8, height: 8, borderRadius: 999, background: color }} />
-                                <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{name}</span>
-                                <span style={{ fontSize: 18, fontWeight: 800, color: won ? color : "#0f172a" }}>{pts}</span>
-                                <span style={{ fontSize: 11, color: "#94a3b8" }}>pts</span>
-                                {total > 0 && <span style={{ fontSize: 11, color: "#cbd5e1" }}>({pct}%)</span>}
+                              <div key={name} className="history-card__player-chip">
+                                <span className="history-card__swatch" style={{ background: color }} />
+                                <span className="history-card__pname">{name}</span>
+                                <span className="history-card__ppts" style={{ color: won ? color : undefined }}>
+                                  {pts}
+                                </span>
+                                <span className="history-card__ppts-suffix">pts</span>
+                                {total > 0 && <span className="history-card__ppct">{pct}%</span>}
                               </div>
                             );
                           })}
                         </div>
-                        <div className="score-bar" style={{ marginTop: 10 }}>
-                          <div style={{ display: "flex", height: 8, borderRadius: 999, overflow: "hidden", background: "#f1f5f9" }}>
-                            {m.compPlayers.map((name, i) => {
-                              const pts = m.ptsByPlayer![name] ?? 0;
-                              const w = total > 0 ? (pts / total) * 100 : 100 / m.compPlayers!.length;
-                              return (
-                                <div
-                                  key={name}
-                                  style={{
-                                    width: `${w}%`,
-                                    background: MULTI_COLORS[i % MULTI_COLORS.length],
-                                    minWidth: pts > 0 ? 4 : 0,
-                                  }}
-                                  title={`${name}: ${pts}`}
-                                />
-                              );
-                            })}
-                          </div>
+                        <div className="history-card__bar history-card__bar--multi">
+                          {m.compPlayers.map((name, i) => {
+                            const pts = m.ptsByPlayer![name] ?? 0;
+                            const w = total > 0 ? (pts / total) * 100 : 100 / m.compPlayers!.length;
+                            return (
+                              <div
+                                key={name}
+                                className="history-card__bar-seg"
+                                style={{
+                                  width: `${w}%`,
+                                  background: MULTI_COLORS[i % MULTI_COLORS.length],
+                                  minWidth: pts > 0 ? 4 : 0,
+                                }}
+                                title={`${name}: ${pts}`}
+                              />
+                            );
+                          })}
                         </div>
                       </>
                     ) : (
-                      <div style={{ fontSize: 13, color: "#94a3b8", fontStyle: "italic", marginTop: 8 }}>
-                        Not yet played — tap to view details
-                      </div>
+                      <p className="history-card__pending">Not yet played — open for details</p>
                     )}
-                  </div>
+                  </article>
                 </Link>
               );
             }
@@ -300,100 +327,88 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
             const youPct = totalPts > 0 ? Math.round((m.yourPoints / totalPts) * 100) : 50;
 
             return (
-              <Link key={m.matchId} href={matchHref(m.matchId, cid)} style={{ textDecoration: "none" }}>
-                <div className={`match-card${m.isCurrent ? " match-card--current" : ""}`}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>{m.fixture}</div>
-                      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
-                        {m.date || "—"}
+              <Link key={m.matchId} href={matchHref(m.matchId, cid)} className="history-card-link">
+                <article className={`history-card history-card--h2h${m.isCurrent ? " history-card--live" : ""}`}>
+                  <div className="history-card__top">
+                    <div className="history-card__titles">
+                      <h3 className="history-card__fixture">{m.fixture}</h3>
+                      <div className="history-card__meta">
+                        <time dateTime={m.date}>{m.date || "—"}</time>
                         {m.status && m.status !== "COMPLETED" && (
-                          <span
-                            style={{
-                              marginLeft: 8,
-                              padding: "1px 7px",
-                              borderRadius: 999,
-                              fontSize: 11,
-                              fontWeight: 700,
-                              background: m.isCurrent ? "#dcfce7" : "#f1f5f9",
-                              color: m.isCurrent ? "#16a34a" : "#64748b",
-                            }}
-                          >
-                            {m.isCurrent ? "● Live" : m.status}
+                          <span className={`history-card__pill${m.isCurrent ? " history-card__pill--live" : ""}`}>
+                            {m.isCurrent ? "Live" : m.status}
                           </span>
                         )}
                       </div>
                     </div>
                     {m.hasData && winnerName && (
                       <span
-                        style={{
-                          padding: "3px 10px",
-                          borderRadius: 999,
-                          fontSize: 12,
-                          fontWeight: 700,
-                          flexShrink: 0,
-                          background: youWon ? YOU_LIGHT : oppWon ? OPP_LIGHT : "#fef9c3",
-                          color: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#92400e",
-                        }}
+                        className={[
+                          "history-card__winner",
+                          "history-card__winner--h2h",
+                          youWon ? "history-card__winner--you" : "",
+                          oppWon ? "history-card__winner--opp" : "",
+                          m.winner === "Tie" ? "history-card__winner--tie" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
                       >
                         {m.winner === "Tie" ? "Tie" : `${winnerName} +${m.pointsDiff}`}
                       </span>
                     )}
+                    <span className="history-card__chevron" aria-hidden>
+                      →
+                    </span>
                   </div>
 
                   {m.hasData ? (
                     <>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 999, background: YOU_COLOR }} />
-                          <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{yourName}</span>
-                          <span style={{ fontSize: 22, fontWeight: 800, color: youWon ? YOU_COLOR : "#0f172a" }}>{m.yourPoints}</span>
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>pts</span>
+                      <div className="history-card__h2h">
+                        <div className="history-card__side history-card__side--you">
+                          <span className="history-card__dot" style={{ background: YOU_COLOR }} />
+                          <span className="history-card__side-name">{yourName}</span>
+                          <span className="history-card__side-pts" style={{ color: youWon ? YOU_COLOR : undefined }}>
+                            {m.yourPoints}
+                          </span>
+                          <span className="history-card__side-unit">pts</span>
                         </div>
-                        <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 700 }}>vs</div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexDirection: "row-reverse" as const }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 999, background: OPP_COLOR }} />
-                          <span style={{ fontSize: 13, fontWeight: 600, color: "#334155" }}>{opponentName}</span>
-                          <span style={{ fontSize: 22, fontWeight: 800, color: oppWon ? OPP_COLOR : "#0f172a" }}>{m.oppPoints}</span>
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>pts</span>
+                        <span className="history-card__vs">vs</span>
+                        <div className="history-card__side history-card__side--opp">
+                          <span className="history-card__side-pts" style={{ color: oppWon ? OPP_COLOR : undefined }}>
+                            {m.oppPoints}
+                          </span>
+                          <span className="history-card__side-unit">pts</span>
+                          <span className="history-card__side-name">{opponentName}</span>
+                          <span className="history-card__dot" style={{ background: OPP_COLOR }} />
                         </div>
                       </div>
-                      <div className="score-bar">
-                        <div className="score-bar__fill" style={{ width: `${youPct}%`, background: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#94a3b8" }} />
+                      <div className="history-card__scorebar">
+                        <div
+                          className="history-card__scorebar-fill"
+                          style={{ width: `${youPct}%`, background: youWon ? YOU_COLOR : oppWon ? OPP_COLOR : "#94a3b8" }}
+                        />
                       </div>
                     </>
                   ) : (
-                    <div style={{ fontSize: 13, color: "#94a3b8", fontStyle: "italic" }}>
-                      Not yet played — tap to view details
-                    </div>
+                    <p className="history-card__pending">Not yet played — open for details</p>
                   )}
-                </div>
+                </article>
               </Link>
             );
           })}
-        </div>
+          </div>
+        </>
       )}
 
       {played.length === 0 && visibleRows.length > 0 && (
-        <div style={{ marginTop: 16, textAlign: "center", fontSize: 13, color: "#94a3b8" }}>
+        <p className="history-footnote">
           No scores synced yet.{" "}
-          <Link href={cid != null ? `/match?c=${cid}` : "/match"} style={{ color: "#2563eb", textDecoration: "none", fontWeight: 600 }}>
-            Go to Live Match →
+          <Link href={cid != null ? `/match?c=${cid}` : "/match"} className="history-footnote__link">
+            Go to live match
           </Link>
-        </div>
+        </p>
       )}
     </main>
   );
 }
 
-const btnStyle: CSSProperties = {
-  padding: "10px 20px",
-  borderRadius: 12,
-  border: "1px solid #0f172a",
-  background: "#0f172a",
-  color: "white",
-  textDecoration: "none",
-  fontWeight: 700,
-  fontSize: 14,
-  display: "inline-block",
-};

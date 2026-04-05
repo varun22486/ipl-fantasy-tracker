@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { refreshMatchFromProvider } from "@/lib/cricket-provider";
+import { getDefaultActiveMatchRowForSync } from "@/lib/active-match";
 
 type SelectedPlayer = {
   id: number;
@@ -125,7 +126,8 @@ async function doRefresh(matchId?: number) {
   }
   // Otherwise fall back to the "current" match
   if (!currentMatch) {
-    ({ data: currentMatch } = await supabaseAdmin.from("matches").select("*").eq("is_current", true).limit(1).maybeSingle());
+    const row = await getDefaultActiveMatchRowForSync();
+    currentMatch = row as typeof currentMatch;
   }
   if (!currentMatch) {
     ({ data: currentMatch } = await supabaseAdmin.from("matches").select("*").order("id", { ascending: false }).limit(1).maybeSingle());

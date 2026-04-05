@@ -33,6 +33,47 @@ export default function HomeHero({
           Tracking <span className="home-hero__name--you">{yourName}</span> vs{" "}
           <span className="home-hero__name--opp">{opponentName}</span> — match-by-match results, cumulative points, and season insights.
         </p>
+        <div className="home-hero__duel" aria-label="Series points comparison">
+          <div className="home-hero__duel-head">
+            <span className="home-hero__duel-title">Series totals</span>
+            <span className="home-hero__duel-gap">
+              {summary.yourTotal + summary.oppTotal > 0
+                ? `Gap: ${Math.abs(summary.yourTotal - summary.oppTotal)} pts`
+                : "Even — first scores soon"}
+            </span>
+          </div>
+          <div className="home-hero__duel-bar" role="presentation">
+            {(() => {
+              const t = summary.yourTotal + summary.oppTotal;
+              const youPct = t > 0 ? Math.round((summary.yourTotal / t) * 1000) / 10 : 50;
+              const oppPct = t > 0 ? Math.round((summary.oppTotal / t) * 1000) / 10 : 50;
+              return (
+                <>
+                  <div
+                    className="home-hero__duel-seg home-hero__duel-seg--you"
+                    style={{ width: `${youPct}%` }}
+                    title={`${yourName}: ${summary.yourTotal}`}
+                  />
+                  <div
+                    className="home-hero__duel-seg home-hero__duel-seg--opp"
+                    style={{ width: `${oppPct}%` }}
+                    title={`${opponentName}: ${summary.oppTotal}`}
+                  />
+                </>
+              );
+            })()}
+          </div>
+          <div className="home-hero__duel-foot">
+            <span>
+              <span className="home-hero__duel-dot home-hero__duel-dot--you" />
+              {yourName} <strong>{summary.yourTotal}</strong>
+            </span>
+            <span>
+              <span className="home-hero__duel-dot home-hero__duel-dot--opp" />
+              {opponentName} <strong>{summary.oppTotal}</strong>
+            </span>
+          </div>
+        </div>
         <div className="home-hero__stats">
           <div className="home-hero__stat">
             <div className="home-hero__stat-label">Your wins</div>

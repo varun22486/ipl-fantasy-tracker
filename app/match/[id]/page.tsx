@@ -168,7 +168,10 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
   const { match, players, yourName, opponentName, compPlayers, isMulti, rules, competitionId: cid } = await getData(matchId, competitionId);
 
   const historyHref = cid != null ? `/history?c=${cid}` : "/history";
-  const matchLiveHref = cid != null ? `/match?c=${cid}` : "/match";
+  const matchLiveHref =
+    cid != null
+      ? `/match?c=${encodeURIComponent(String(cid))}&m=${matchId}`
+      : `/match?m=${matchId}`;
 
   if (!match) {
     return (

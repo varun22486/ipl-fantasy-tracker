@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { fetchMatchRoster } from "@/lib/cricket-provider";
+import { getDefaultActiveMatchRowForSync } from "@/lib/active-match";
 
 export async function POST(request: Request) {
   try {
@@ -25,12 +26,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: "Match not found." }, { status: 404 });
       }
     } else {
-      ({ data: match, error } = await supabaseAdmin
-        .from("matches")
-        .select("id, external_match_id")
-        .eq("is_current", true)
-        .limit(1)
-        .maybeSingle());
+      const row = await getDefaultActiveMatchRowForSync();
+      match = row
+        ? { id: row.id as number, external_match_id: (row.external_match_id as string | null) ?? null }
+        : null;
+      error = null;
       if (!match) {
         ({ data: match, error } = await supabaseAdmin
           .from("matches")

@@ -6,6 +6,7 @@ import { formatUiCalendarDate } from "@/lib/ui-time";
 import type { CSSProperties } from "react";
 import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
+import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
 import {
   emptyRosterSlots,
   ROSTER_MAX_PLAYERS,
@@ -87,9 +88,11 @@ type Props = {
   compPlayers?: string[];
   /** Existing picks per participant (indexed same as compPlayers) */
   existingPicks?: Array<Array<{ name: string; captain: boolean; bench?: boolean | null; provider_player_id?: string | null }>>;
+  /** When set (e.g. history detail editor), navigate here after save instead of /match?m=… */
+  afterLineupSaveHref?: string | null;
 };
 
-export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch, matchId, competitionId, compPlayers, existingPicks }: Props) {
+export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch, matchId, competitionId, compPlayers, existingPicks, afterLineupSaveHref }: Props) {
   // Multi-player mode: 3+ participants
   const isMulti = (compPlayers?.length ?? 0) >= 3;
   const multiPlayers = compPlayers ?? [];
@@ -276,8 +279,12 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       const res = await fetch("/api/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ externalMatchId }) });
       const json = await res.json();
       setLinkChoices(null); addUsage(1);
-      showMsg(json.ok ? "Match linked! Refreshing…" : (json.error || "Could not link match."), "Link match");
-      if (json.ok) window.location.reload();
+      showMsg(json.ok ? "Match linked! Opening…" : (json.error || "Could not link match."), "Link match");
+      if (json.ok) {
+        const mid = json.match && typeof json.match.id === "number" ? json.match.id : null;
+        if (mid != null) navigateToMatchAfterSeed(mid);
+        else window.location.reload();
+      }
     } catch { showMsg("Network error while linking.", "Link match"); }
     setSyncing(false);
   }
@@ -346,8 +353,15 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       setSaving(null);
       if (json.ok) {
         setApiMsg({ type: "success", title: `${side === "mine" ? yourName : rival}'s team saved! Taking you to the match…` });
-        const cQ = competitionId != null ? `?c=${encodeURIComponent(String(competitionId))}` : "";
-        const dest = matchId != null ? `/match/${matchId}${cQ}` : `/match${cQ}`;
+        let dest: string;
+        if (afterLineupSaveHref) {
+          dest = afterLineupSaveHref;
+        } else {
+          const params = new URLSearchParams();
+          if (competitionId != null) params.set("c", String(competitionId));
+          if (matchId != null) params.set("m", String(matchId));
+          dest = params.toString() ? `/match?${params.toString()}` : "/match";
+        }
         window.setTimeout(() => { window.location.href = dest; }, 900);
       } else {
         showMsg(json.error || "Could not save.", "Save team");

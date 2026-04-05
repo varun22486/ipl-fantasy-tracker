@@ -6,6 +6,7 @@ import { formatUiCalendarDate, formatUiDateTime } from "@/lib/ui-time";
 import ScoreCard from "@/components/ScoreCard";
 import PlayerTable from "@/components/PlayerTable";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
+import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
 
 const KEY_LIMIT = 100;          // CricAPI free plan per key per day
 const QUOTA_LIMIT = 1100; // 100/day × 11 API keys (CRICKET_API_KEY … _11)
@@ -327,8 +328,12 @@ export default function DashboardClient({
       setDebugInfo(json);
       setLinkChoices(null);
       addUsage(1);
-      setMessage(json.ok ? "Match linked. Refreshing…" : json.error || "Could not link match.");
-      if (json.ok) window.location.reload();
+      setMessage(json.ok ? "Match linked. Opening…" : json.error || "Could not link match.");
+      if (json.ok) {
+        const mid = json.match && typeof json.match.id === "number" ? json.match.id : null;
+        if (mid != null) navigateToMatchAfterSeed(mid);
+        else window.location.reload();
+      }
     } catch {
       setMessage("Network error while linking.");
     }

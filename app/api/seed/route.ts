@@ -97,11 +97,9 @@ async function persistSeededMatch(discovered: MatchSeed) {
     }
   }
 
-  // Mark this match as current, clear flag on all others.
-  // These updates require the is_current column — run the schema migration if they fail.
-  const { error: clearErr } = await supabaseAdmin.from("matches").update({ is_current: false }).neq("id", match.id);
-  const { error: setErr   } = await supabaseAdmin.from("matches").update({ is_current: true  }).eq("id", match.id);
-  if (clearErr || setErr) {
+  // Mark this match as actively tracked. Other matches stay tracked (e.g. two fixtures on the same day).
+  const { error: setErr } = await supabaseAdmin.from("matches").update({ is_current: true }).eq("id", match.id);
+  if (setErr) {
     console.error("is_current update failed — run: ALTER TABLE matches ADD COLUMN IF NOT EXISTS is_current boolean NOT NULL DEFAULT false;");
   }
 

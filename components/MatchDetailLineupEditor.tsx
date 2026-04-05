@@ -94,6 +94,7 @@ export default function MatchDetailLineupEditor({
         competitionId={competitionId}
         compPlayers={isMulti ? compPlayers : undefined}
         existingPicks={existingPicks}
+        afterLineupSaveHref={`/match/${matchId}${competitionId != null ? `?c=${encodeURIComponent(String(competitionId))}` : ""}`}
       />
     </div>
   );

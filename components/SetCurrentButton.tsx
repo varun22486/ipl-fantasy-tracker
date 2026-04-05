@@ -30,7 +30,7 @@ export default function SetCurrentButton({ matchId }: { matchId: number }) {
         opacity: loading ? 0.6 : 1,
       }}
     >
-      {loading ? "Setting…" : "Set as Current"}
+      {loading ? "Setting…" : "Track for live"}
     </button>
   );
 }

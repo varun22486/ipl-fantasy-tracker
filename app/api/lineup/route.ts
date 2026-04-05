@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { resolveDefaultMatchIdFromPreferences, ACTIVE_MATCH_COOKIE } from "@/lib/active-match";
 
 type PlayerInput = { name: string; captain: boolean; bench?: boolean; providerId?: string };
 
@@ -35,16 +36,13 @@ function validateSide(label: string, players: PlayerInput[]) {
   if (new Set(keys).size !== keys.length) throw new Error(`${label} has duplicate player names.`);
 }
 
-async function getCurrentMatchId() {
-  const { data: byFlag } = await supabaseAdmin.from("matches").select("id").eq("is_current", true).limit(1).maybeSingle();
-  if (byFlag) return byFlag.id as number;
-  const { data: fallback } = await supabaseAdmin.from("matches").select("id").order("id", { ascending: false }).limit(1).maybeSingle();
-  if (!fallback) throw new Error("Seed a match first.");
-  return fallback.id as number;
+async function defaultLineupMatchId(req: NextRequest): Promise<number> {
+  const cookieVal = req.cookies.get(ACTIVE_MATCH_COOKIE)?.value;
+  return resolveDefaultMatchIdFromPreferences(cookieVal ?? undefined);
 }
 
 /** When `body.matchId` is set, lineup changes apply to that fixture (e.g. completed match from History). */
-async function resolveLineupMatchId(body: { matchId?: unknown }): Promise<number> {
+async function resolveLineupMatchId(req: NextRequest, body: { matchId?: unknown }): Promise<number> {
   const raw = body.matchId;
   if (raw != null && raw !== "") {
     const n = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
@@ -55,7 +53,7 @@ async function resolveLineupMatchId(body: { matchId?: unknown }): Promise<number
       return row.id as number;
     }
   }
-  return getCurrentMatchId();
+  return defaultLineupMatchId(req);
 }
 
 /**
@@ -77,7 +75,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const saveSide: "mine" | "theirs" | "both" = body.saveSide ?? "both";
-    const matchId = await resolveLineupMatchId(body);
+    const matchId = await resolveLineupMatchId(req, body);
 
     // Resolve competition context
     const rawCompId = body.competitionId;

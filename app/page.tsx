@@ -9,8 +9,8 @@ import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-date
 import { pickNextUnplayedMatch } from "@/lib/next-match";
 import nextDynamic from "next/dynamic";
 import HomeHero from "@/components/HomeHero";
+import SeriesStandingsHero from "@/components/SeriesStandingsHero";
 import StatsSectionSkeleton from "@/components/StatsSectionSkeleton";
-import Link from "next/link";
 
 const StatsClient = nextDynamic(() => import("@/components/StatsClient"), {
   loading: () => <StatsSectionSkeleton variant="duo" />,
@@ -19,60 +19,6 @@ const StatsClient = nextDynamic(() => import("@/components/StatsClient"), {
 const MultiStatsClient = nextDynamic(() => import("@/components/MultiStatsClient"), {
   loading: () => <StatsSectionSkeleton variant="multi" />,
 });
-
-function MultiPlayerHero({ participants, nextMatch }: {
-  participants: { name: string; totalPoints: number; wins: number; matches: number }[];
-  nextMatch: { fixture: string; date: string; venue: string | null } | null;
-}) {
-  const colors = ["#93c5fd", "#fca5a5", "#86efac", "#fcd34d", "#c4b5fd", "#fdba74"];
-  return (
-    <section className="home-hero" style={{ marginBottom: 28 }}>
-      <div className="home-hero__inner">
-        <p className="home-hero__eyebrow">Multi-player competition</p>
-        <h2 className="home-hero__title">Series Standings</h2>
-        <div className="home-hero__standings">
-          {participants.map((p, i) => {
-            const pct = participants[0].totalPoints > 0 ? (p.totalPoints / participants[0].totalPoints) * 100 : 0;
-            const barColor = colors[i] ?? "#64748b";
-            return (
-              <div key={p.name} className="home-hero__standings-row">
-                <span className="home-hero__standings-rank">#{i + 1}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="home-hero__standings-name" style={{ color: barColor }}>
-                    {p.name}
-                  </div>
-                  <div className="home-hero__standings-bar">
-                    <div
-                      className="home-hero__standings-bar-fill"
-                      style={{ width: `${pct}%`, background: barColor }}
-                    />
-                  </div>
-                </div>
-                <div className="home-hero__standings-meta">
-                  <div className="home-hero__standings-pts">{p.totalPoints}</div>
-                  <div className="home-hero__standings-sub">
-                    {p.wins}W · {p.matches} played
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {nextMatch && (
-          <div className="home-hero__next">
-            <span>
-              <strong>Next:</strong> {nextMatch.fixture}
-              {nextMatch.date ? ` · ${nextMatch.date}` : ""}
-            </span>
-            <Link href="/match" className="home-hero__cta">
-              Pick teams
-            </Link>
-          </div>
-        )}
-      </div>
-    </section>
-  );
-}
 
 const HOME_MATCH_COLS =
   "id, fixture, match_date, status, venue, is_current, external_match_id";
@@ -312,7 +258,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
   return (
     <main className="page-main">
       {data.isMultiPlayer ? (
-        <MultiPlayerHero participants={data.participantTotals} nextMatch={data.nextMatch} />
+        <SeriesStandingsHero participants={data.participantTotals} nextMatch={data.nextMatch} />
       ) : (
         <HomeHero
           yourName={data.yourName}

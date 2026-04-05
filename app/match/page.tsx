@@ -6,6 +6,8 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer } from "@/lib/scoring";
 import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
+import MatchActiveTabs from "@/components/MatchActiveTabs";
+import { readActiveMatchCookieValue, pickTrackedMatchRowFromList } from "@/lib/active-match";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -29,23 +31,26 @@ function parseRoster(match: unknown): { rosterNames: string[]; squads: SquadTeam
   return { rosterNames, squads, nameToId };
 }
 
-async function getData() {
+async function getData(queryM: string | undefined, cookieVal: string | undefined) {
   const [{ data: matches }, { data: settings }, { data: players }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").order("id", { ascending: false }),
     supabaseAdmin.from("series_settings").select("*").limit(1).single(),
     supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
   ]);
 
-  const currentMatch = (matches ?? []).find((m: any) => m.is_current) ?? matches?.[0] ?? null;
+  const list = matches ?? [];
+  const { activeTracked, shownRow } = pickTrackedMatchRowFromList(list as { id: number; is_current?: boolean }[], queryM, cookieVal);
+  const currentMatch = shownRow as (typeof list)[number] | null;
   const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
 
-  return { currentMatch, matchPlayers, settings };
+  return { currentMatch, matchPlayers, settings, activeTracked };
 }
 
-export default async function MatchPage({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
-  const { c } = await searchParams;
+export default async function MatchPage({ searchParams }: { searchParams: Promise<{ c?: string; m?: string }> }) {
+  const { c, m } = await searchParams;
   const competitionId = await resolveCompetitionId(c);
-  const { currentMatch, matchPlayers, settings } = await getData();
+  const cookieVal = await readActiveMatchCookieValue();
+  const { currentMatch, matchPlayers, settings, activeTracked } = await getData(m, cookieVal);
 
   let yourName: string;
   let opponentName: string;
@@ -99,9 +104,18 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
     ? `${currentMatch.fixture} — pick your teams to start`
     : currentMatch.fixture;
 
+  const competitionSuffix = competitionId != null ? `&c=${encodeURIComponent(String(competitionId))}` : "";
+  const selectedTabId = currentMatch?.id ?? 0;
+
   return (
     <main className="page-main">
       <NavBar title="Match" subtitle={subtitle} />
+      <MatchActiveTabs
+        matches={activeTracked as { id: number; fixture?: string | null }[]}
+        selectedId={selectedTabId}
+        basePath="/match"
+        competitionSuffix={competitionSuffix}
+      />
       <MatchClient
         yourName={yourName}
         opponentName={opponentName}

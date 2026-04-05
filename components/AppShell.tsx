@@ -14,6 +14,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import CompetitionSwitcher from "@/components/CompetitionSwitcher";
+import { readActiveMatchIdFromBrowserCookie } from "@/lib/active-match-cookie-client";
 
 type NavItem = {
   href: string;
@@ -40,19 +41,31 @@ function NavLinks({ variant }: { variant: "sidebar" | "header" | "mobile" }) {
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const cParam = searchParams?.get("c") ?? "";
+  const mParam = searchParams?.get("m") ?? "";
   const [navC, setNavC] = useState<string | null>(() => (cParam !== "" ? cParam : null));
+  const [navM, setNavM] = useState<string | null>(() => (mParam !== "" ? mParam : null));
 
   useLayoutEffect(() => {
     if (cParam !== "") {
       setNavC(cParam);
-      return;
+    } else {
+      const id = readActiveCompetitionIdFromCookie();
+      setNavC(id != null ? String(id) : null);
     }
-    const id = readActiveCompetitionIdFromCookie();
-    setNavC(id != null ? String(id) : null);
-  }, [pathname, cParam]);
+    if (mParam !== "") {
+      setNavM(mParam);
+    } else {
+      const mid = readActiveMatchIdFromBrowserCookie();
+      setNavM(mid && /^\d+$/.test(mid.trim()) ? mid.trim() : null);
+    }
+  }, [pathname, cParam, mParam]);
 
   function navHref(base: string) {
-    return navC ? `${base}?c=${navC}` : base;
+    const params = new URLSearchParams();
+    if (navC) params.set("c", navC);
+    if ((base === "/match" || base === "/select") && navM) params.set("m", navM);
+    const q = params.toString();
+    return q ? `${base}?${q}` : base;
   }
 
   if (variant === "sidebar") {
