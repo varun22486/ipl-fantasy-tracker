@@ -1032,15 +1032,52 @@ function isPlaceholderMomName(s: string): boolean {
   return /^(tba|tbd|n\/a|na|[-–—]|pending|not\s+announced|to\s+be\s+announced)$/i.test(safeString(s).trim());
 }
 
+/** Strip team / award clutter: `Mohammed Shami (SRH)`, trailing dash codes, etc. */
+function stripMomDecorators(name: string): string {
+  let s = safeString(name).trim();
+  if (!s) return "";
+  s = s.replace(/\s*[–—-]\s*[A-Z]{2,}.*$/i, "").trim();
+  s = s.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
 function pickNameFromMomField(raw: unknown): string | null {
   if (raw == null) return null;
   if (typeof raw === "string") {
     const s = safeString(raw);
     return s || null;
   }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const n = pickNameFromMomField(item);
+      if (n) return n;
+    }
+    return null;
+  }
   if (typeof raw === "object") {
     const o = raw as MaybeRecord;
-    const n = safeString(o.name ?? o.playerName ?? o.fullName ?? o.shortName ?? o.shortname);
+    const nested =
+      (o as MaybeRecord).player ??
+      (o as MaybeRecord).Player ??
+      (o as MaybeRecord).cricketPlayer ??
+      (o as MaybeRecord).batsman ??
+      (o as MaybeRecord).bowler;
+    if (nested && nested !== raw) {
+      const inner = pickNameFromMomField(nested);
+      if (inner) return inner;
+    }
+    const n = safeString(
+      o.name ??
+        o.playerName ??
+        o.fullName ??
+        o.shortName ??
+        o.shortname ??
+        o.displayName ??
+        o.text ??
+        o.label ??
+        o.title
+    );
     return n || null;
   }
   return null;
@@ -1061,6 +1098,7 @@ function extractMomFromFreeText(text: string): string | null {
     /\bman\s+of\s+the\s+match\s+is\s+([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bm\.?\s*o\.?\s*m\.?\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bnamed\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match[:\s,]+([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
+    /\b(?:mom|potm)\s*[:-–—]\s*([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
   ];
   for (const re of patterns) {
     const m = t.match(re);
@@ -1185,8 +1223,13 @@ function extractManOfTheMatchName(data: MaybeRecord, payloadRoot?: MaybeRecord):
   return null;
 }
 
+/** Map Muhammad/Mohd/M. spellings so API "Mohammad" matches roster "Mohammed". */
+function momComparableName(s: string): string {
+  return normalizeNameForMom(s).replace(/\b(moh?d\.?|md|muhamm?ad|mohamm?ed|muhamm?ed)\b/gi, "__m__");
+}
+
 function playerMatchesMomName(playerName: string, momRaw: string): boolean {
-  const mom = safeString(momRaw).trim();
+  const mom = stripMomDecorators(safeString(momRaw).trim());
   if (!mom || isPlaceholderMomName(mom)) return false;
   const pv = new Set(nameVariants(playerName));
   for (const v of nameVariants(mom)) {
@@ -1195,6 +1238,9 @@ function playerMatchesMomName(playerName: string, momRaw: string): boolean {
   const pn = normalizeNameForMom(playerName);
   const mn = normalizeNameForMom(mom);
   if (pn && mn && (pn.includes(mn) || mn.includes(pn))) return true;
+  const pc = momComparableName(playerName);
+  const mc = momComparableName(mom);
+  if (pc && mc && (pc === mc || pc.includes(mc) || mc.includes(pc))) return true;
   return false;
 }
 
@@ -1213,6 +1259,32 @@ function applyManOfTheMatch(players: PlayerStats[], momName: string | null): { p
     ),
     synced: true,
   };
+}
+
+/**
+ * When the API announces MoM but no scorecard row matched (sparse card, odd spelling, or MoM-only),
+ * inject a zero-stat row so refresh can still map lineup names → mom_bonus via variants.
+ */
+function ensureMomPlayerRowOnPayload(players: PlayerStats[], momName: string | null): PlayerStats[] {
+  if (!momName || !stripMomDecorators(momName)) return players;
+  if (players.some((p) => (p.mom_bonus ?? 0) > 0)) return players;
+  const label = stripMomDecorators(momName);
+  return [
+    ...players,
+    bonusify({
+      name: label,
+      runs: 0,
+      wickets: 0,
+      catches: 0,
+      runouts: 0,
+      stumpings: 0,
+      fifty_bonus: 0,
+      hundred_bonus: 0,
+      three_w_bonus: 0,
+      five_w_bonus: 0,
+      mom_bonus: 1,
+    }),
+  ];
 }
 
 function collectPlayerRows(node: any, bucket: PlayerStats[]) {
@@ -2487,21 +2559,52 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   const mergedOrLive = mergedWithStumps.length > 0 ? mergedWithStumps : parseSimpleLiveScore(data);
 
   const dataRec = data as MaybeRecord;
-  let momName = extractManOfTheMatchName(dataRec, payload as MaybeRecord);
   const statusBlob = safeString(data.update || data.status || (payload as MaybeRecord).status || "");
   const statusEarly = parseStatus(statusBlob);
+  /** Web MoM fallback is allowed when the match looks done, including when the feed mentions the award but `parseStatus` is still loose. */
   const looksFinished =
     statusEarly === "COMPLETED" ||
-    /\b(won by|won the match|beat |defeat(ed)?|match ended)\b/i.test(statusBlob);
-  if (!momName && looksFinished) {
-    const fixtureQ = safeString(data.title || data.fixture || data.name || "");
-    const dateQ = extractProviderMatchDate(dataRec) || "";
-    if (fixtureQ) {
-      const fromSearch = await searchWebForMom(buildMomWebSearchQuery(fixtureQ, dateQ));
-      if (fromSearch) momName = fromSearch;
+    /\b(won by|won the match|beat |defeat(ed)?|match ended)\b/i.test(statusBlob) ||
+    /\bman of the match\b/i.test(statusBlob) ||
+    /\bplayer of the match\b/i.test(statusBlob);
+
+  const fixtureQ = safeString(data.title || data.fixture || data.name || "");
+  const dateQ = extractProviderMatchDate(dataRec) || "";
+
+  let momName = extractManOfTheMatchName(dataRec, payload as MaybeRecord);
+  if (momName) {
+    momName = stripMomDecorators(momName);
+    if (!momName || isPlaceholderMomName(momName)) momName = null;
+  }
+
+  if (!momName && looksFinished && fixtureQ) {
+    const fromSearch = await searchWebForMom(buildMomWebSearchQuery(fixtureQ, dateQ));
+    if (fromSearch) {
+      const w = stripMomDecorators(fromSearch);
+      momName = w && !isPlaceholderMomName(w) ? w : null;
     }
   }
-  const { players: withMom, synced: manOfTheMatchSynced } = applyManOfTheMatch(mergedOrLive, momName);
+
+  let { players: withMom, synced: manOfTheMatchSynced } = applyManOfTheMatch(mergedOrLive, momName);
+
+  /**
+   * If the API had a MoM string that matched no scorecard row (wrong spelling, garbled field),
+   * we still look up DDG + regex / optional AI — otherwise refresh never writes `mom_bonus`.
+   */
+  if (looksFinished && momName && !withMom.some((p) => (p.mom_bonus ?? 0) > 0) && fixtureQ) {
+    const fromSearch = await searchWebForMom(buildMomWebSearchQuery(fixtureQ, dateQ));
+    if (fromSearch) {
+      const webMom = stripMomDecorators(fromSearch);
+      if (webMom && !isPlaceholderMomName(webMom)) {
+        const r2 = applyManOfTheMatch(mergedOrLive, webMom);
+        momName = webMom;
+        withMom = r2.players;
+        manOfTheMatchSynced = r2.synced;
+      }
+    }
+  }
+
+  withMom = ensureMomPlayerRowOnPayload(withMom, momName);
   let squads = extractSquadsFromPayload(payload);
   let count = squadPlayerCount(squads);
   if (count < 8) {
@@ -2545,6 +2648,6 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
     rosterNames,
     nameToId: buildNameToId(squads),
     raw: payload,
-    manOfTheMatchSynced: manOfTheMatchSynced,
+    manOfTheMatchSynced,
   };
 }
