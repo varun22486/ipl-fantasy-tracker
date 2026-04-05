@@ -36,7 +36,8 @@ function buildVariants(name: string) {
     variants.add(`${first} ${last}`);
     variants.add(`${first[0]} ${last}`);
     variants.add(`${first[0]}${last}`);
-    variants.add(last);
+    // Do NOT add bare `last` (e.g. "sharma") — many players share a surname and
+    // incomingByVariant only keeps the first mapping, so sync would copy the wrong player's runs.
   }
 
   return Array.from(variants).filter(Boolean);

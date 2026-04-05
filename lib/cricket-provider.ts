@@ -1761,7 +1761,7 @@ function nameVariants(name: string): string[] {
     variants.add(`${first} ${last}`);
     variants.add(`${first[0]} ${last}`);
     variants.add(`${first[0]}${last}`);
-    variants.add(last);
+    // No bare surname — avoids mapping two different players to the same variant (e.g. both "* Sharma").
   }
   return Array.from(variants).filter(Boolean);
 }
