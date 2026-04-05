@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatUiDateTime } from "@/lib/ui-time";
 
@@ -20,12 +20,8 @@ export default function SyncButton({ matchId, lastSyncedAt }: { matchId: number;
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "warn" | "error">("idle");
   const [message, setMessage] = useState("");
-  const [debugOpen, setDebugOpen] = useState(true);
+  const [debugOpen, setDebugOpen] = useState(false);
   const [lastDebug, setLastDebug] = useState<SyncDebug | null>(null);
-
-  useEffect(() => {
-    if (lastDebug) setDebugOpen(true);
-  }, [lastDebug]);
 
   async function sync() {
     setStatus("loading");
@@ -109,7 +105,7 @@ export default function SyncButton({ matchId, lastSyncedAt }: { matchId: number;
       )}
 
       {lastDebug && status !== "loading" && (
-        <div style={{ border: "1px solid #dbeafe", borderRadius: 12, background: "#f8fbff", padding: "10px 14px", fontSize: 13, color: "#334155" }}>
+        <div style={{ marginTop: 12, border: "1px solid #dbeafe", borderRadius: 12, background: "#f8fbff", padding: "10px 14px", fontSize: 13, color: "#334155" }}>
           <button
             type="button"
             onClick={() => setDebugOpen((o) => !o)}

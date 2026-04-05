@@ -664,9 +664,6 @@ export default function DashboardClient({
           </div>
         )}
 
-        {/* Debug panel (collapsed by default) */}
-        <DebugPanel info={debugInfo} />
-
         {/* Compact quota bar */}
         <QuotaBar
           apiUsed={apiUsed}
@@ -675,6 +672,9 @@ export default function DashboardClient({
           remaining={remaining}
           keyStats={keyStats}
         />
+
+        {/* Sync debug — last, collapsed by default */}
+        <DebugPanel info={debugInfo} />
       </div>
     );
   }
@@ -1006,6 +1006,7 @@ const panelStyle: CSSProperties = {
 };
 
 const debugPanelStyle: CSSProperties = {
+  marginTop: 16,
   border: "1px solid #dbeafe",
   borderRadius: 16,
   background: "#f8fbff",

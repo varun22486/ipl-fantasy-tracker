@@ -9,6 +9,7 @@ import ManualScorePanel from "@/components/ManualScorePanel";
 import SelectClient from "@/components/SelectClient";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
 import ApiMessage from "@/components/ApiMessage";
+import AuditTrailPanel from "@/components/AuditTrailPanel";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
 
@@ -73,16 +74,12 @@ type Props = {
 };
 
 function DebugPanel({ info }: { info: DebugData | null }) {
-  const [open, setOpen] = useState(true);
-  // Expand whenever a new sync response arrives so details aren’t missed before refresh.
-  useEffect(() => {
-    if (info?.debug != null) setOpen(true);
-  }, [info]);
+  const [open, setOpen] = useState(false);
 
   if (!info) return null;
   const d = info.debug;
   return (
-    <div style={{ border: "1px solid #dbeafe", borderRadius: 14, background: "#f8fbff", padding: "10px 14px" }}>
+    <div style={{ marginTop: 20, border: "1px solid #dbeafe", borderRadius: 14, background: "#f8fbff", padding: "10px 14px" }}>
       <button type="button" onClick={() => setOpen((o) => !o)} style={{ background: "none", border: "none", cursor: "pointer", fontWeight: 600, color: "#64748b", padding: 0 }}>
         {open ? "▾" : "▸"} Sync debug
       </button>
@@ -557,6 +554,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       })()}
 
       <DebugPanel info={debugInfo} />
+      <AuditTrailPanel matchId={matchId} competitionId={competitionId} />
     </div>
   );
 }
