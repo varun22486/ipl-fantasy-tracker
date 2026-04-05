@@ -33,8 +33,6 @@ type Props = {
   participants: Participant[];
   matchStats: MatchStat[];
   compPlayers: string[];
-  /** Preserve competition when opening match detail from home */
-  competitionId?: number | null;
 };
 
 function shortFix(f: string) {
@@ -110,12 +108,7 @@ function computeMultiInsights(played: MatchStat[], compPlayers: string[]) {
   return { best, closest, closestSpread, avgs, sortedByAvg, streak, lastWinner };
 }
 
-function matchDetailHref(matchId: number, competitionId?: number | null) {
-  if (competitionId != null) return `/match/${matchId}?c=${competitionId}`;
-  return `/match/${matchId}`;
-}
-
-export default function MultiStatsClient({ participants, matchStats, compPlayers, competitionId: compId }: Props) {
+export default function MultiStatsClient({ participants, matchStats, compPlayers }: Props) {
   const played = matchStats.filter((m) => m.hasData);
   const ins = computeMultiInsights(played, compPlayers);
   const leader = participants[0]?.name ?? compPlayers[0];
@@ -774,53 +767,6 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
               ))}
             </BarChart>
           </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Match results cards */}
-      <div style={panel}>
-        <h2 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 800 }}>Match results</h2>
-        <p style={{ margin: "0 0 16px", fontSize: 13, color: "#64748b" }}>Open a match for full player breakdown</p>
-        <div style={{ display: "grid", gap: 8 }}>
-          {matchStats.map((m) => (
-            <Link key={m.matchId} href={matchDetailHref(m.matchId, compId)} style={{ textDecoration: "none" }}>
-              <div className={`match-card${m.isCurrent ? " match-card--current" : ""}`}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14 }}>{m.fixture}</div>
-                    <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>{m.date || "—"}</div>
-                  </div>
-                  {m.hasData && m.winner && (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: "2px 10px",
-                        borderRadius: 999,
-                        flexShrink: 0,
-                        background: m.winner === "Tie" ? "#fef9c3" : "#eff6ff",
-                        color: m.winner === "Tie" ? "#92400e" : "#2563eb",
-                      }}
-                    >
-                      {m.winner === "Tie" ? "Tie" : `${m.winner} won`}
-                    </span>
-                  )}
-                </div>
-                {m.hasData && (
-                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                    {compPlayers.map((n, i) => (
-                      <div key={n} style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 999, background: COLORS[i % COLORS.length] }} />
-                        <span style={{ fontSize: 12, color: "#475569" }}>{n}</span>
-                        <span style={{ fontWeight: 800, fontSize: 15, color: m.winner === n ? COLORS[i % COLORS.length] : "#0f172a" }}>{m.pts[n] ?? 0}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {!m.hasData && <div style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>No scores yet</div>}
-              </div>
-            </Link>
-          ))}
         </div>
       </div>
     </div>

@@ -326,7 +326,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
           participants={data.participantTotals}
           matchStats={data.participantMatchStats}
           compPlayers={data.compPlayers}
-          competitionId={competitionId}
         />
       ) : (
         <StatsClient
