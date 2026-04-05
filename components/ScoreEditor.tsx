@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 import type { FantasyPlayer } from "@/lib/scoring";
 
 type Field = "runs" | "wickets" | "catches" | "runouts" | "stumpings" | "fifty_bonus" | "hundred_bonus" | "three_w_bonus" | "five_w_bonus" | "mom_bonus";
@@ -18,9 +19,8 @@ const FIELDS: { key: Field; label: string }[] = [
   { key: "mom_bonus",     label: "MOM bonus (0 or 1)" },
 ];
 
-export default function ScoreEditor({ player }: { player: FantasyPlayer }) {
-  const [open, setOpen] = useState(false);
-  const [values, setValues] = useState<Record<Field, number>>({
+function statsFromPlayer(player: FantasyPlayer): Record<Field, number> {
+  return {
     runs:          player.runs,
     wickets:       player.wickets,
     catches:       player.catches,
@@ -31,22 +31,42 @@ export default function ScoreEditor({ player }: { player: FantasyPlayer }) {
     three_w_bonus: player.three_w_bonus,
     five_w_bonus:  player.five_w_bonus,
     mom_bonus:     player.mom_bonus,
-  });
+  };
+}
+
+export default function ScoreEditor({ player }: { player: FantasyPlayer }) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [values, setValues] = useState<Record<Field, number>>(() => statsFromPlayer(player));
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
+  function openModal() {
+    setValues(statsFromPlayer(player));
+    setMsg("");
+    setOpen(true);
+  }
+
   async function save() {
+    const pid = player.id;
+    if (pid == null || !Number.isFinite(Number(pid))) {
+      setMsg("Missing player id — reload the page.");
+      return;
+    }
     setSaving(true); setMsg("");
     try {
       const res = await fetch("/api/correct-score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerId: player.id, ...values }),
+        body: JSON.stringify({ playerId: pid, ...values }),
       });
       const json = await res.json();
       if (json.ok) {
         setMsg("Saved!");
-        setTimeout(() => { setOpen(false); window.location.reload(); }, 700);
+        setTimeout(() => {
+          setOpen(false);
+          router.refresh();
+        }, 500);
       } else {
         setMsg(json.error ?? "Error saving.");
       }
@@ -61,7 +81,7 @@ export default function ScoreEditor({ player }: { player: FantasyPlayer }) {
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} style={editBtn} title="Manually correct scores">
+      <button type="button" onClick={openModal} style={editBtn} title="Manually correct scores">
         ✏️
       </button>
 
