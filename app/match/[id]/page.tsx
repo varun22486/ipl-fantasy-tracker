@@ -8,8 +8,35 @@ import { formatFixture } from "@/lib/format";
 import NavBar from "@/components/NavBar";
 import SyncButton from "@/components/SyncButton";
 import ScoreEditor from "@/components/ScoreEditor";
+import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
 import Link from "next/link";
 import type { CSSProperties } from "react";
+
+type SquadTeam = { teamName: string; players: string[] };
+
+function parseRoster(matchRow: unknown): { rosterNames: string[]; squads: SquadTeam[]; nameToId: Record<string, string> } {
+  if (!matchRow || typeof matchRow !== "object") return { rosterNames: [], squads: [], nameToId: {} };
+  const raw = (matchRow as { provider_squad_json?: unknown }).provider_squad_json;
+  if (!raw || typeof raw !== "object") return { rosterNames: [], squads: [], nameToId: {} };
+  const o = raw as { squads?: unknown; rosterNames?: unknown; nameToId?: unknown };
+  const squads = Array.isArray(o.squads)
+    ? (o.squads as any[])
+        .filter((t) => t && typeof t === "object")
+        .map((t) => ({
+          teamName: typeof t.teamName === "string" ? t.teamName : "Team",
+          players: Array.isArray(t.players) ? t.players.filter((p: any) => typeof p === "string" && p.trim()) : [],
+        }))
+        .filter((t) => t.players.length > 0)
+    : [];
+  let rosterNames = Array.isArray(o.rosterNames) ? o.rosterNames.filter((n: any) => typeof n === "string" && n.trim()) : [];
+  if (rosterNames.length === 0 && squads.length > 0) {
+    const s = new Set<string>();
+    for (const t of squads) for (const p of t.players) s.add(p.trim());
+    rosterNames = [...s].sort((a, b) => a.localeCompare(b));
+  }
+  const nameToId = o.nameToId && typeof o.nameToId === "object" && !Array.isArray(o.nameToId) ? (o.nameToId as Record<string, string>) : {};
+  return { rosterNames, squads, nameToId };
+}
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -195,6 +222,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
   const fixtureName = formatFixture(match.fixture) || match.fixture || "Match";
   const navSubtitle =
     cid != null && compPlayers.length > 0 ? `${compPlayers.join(" · ")} · ${match.match_date ?? ""}` : match.match_date ?? undefined;
+  const { rosterNames, squads, nameToId } = parseRoster(match);
 
   return (
     <main className="page-main" style={{ maxWidth: 1000 }}>
@@ -229,6 +257,22 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
             )}
             <div style={{ marginTop: 14 }}>
               <SyncButton matchId={matchId} lastSyncedAt={match.last_synced_at ?? null} />
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <MatchDetailLineupEditor
+                yourName={yourName}
+                opponentName={opponentName}
+                yourPlayers={yourPlayers}
+                opponentPlayers={oppPlayers}
+                allPlayers={players}
+                rosterNames={rosterNames}
+                squads={squads}
+                nameToId={nameToId}
+                matchId={matchId}
+                competitionId={cid}
+                isMulti={isMulti}
+                compPlayers={compPlayers}
+              />
             </div>
           </div>
           <span

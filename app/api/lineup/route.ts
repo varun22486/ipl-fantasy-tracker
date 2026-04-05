@@ -43,6 +43,21 @@ async function getCurrentMatchId() {
   return fallback.id as number;
 }
 
+/** When `body.matchId` is set, lineup changes apply to that fixture (e.g. completed match from History). */
+async function resolveLineupMatchId(body: { matchId?: unknown }): Promise<number> {
+  const raw = body.matchId;
+  if (raw != null && raw !== "") {
+    const n = typeof raw === "string" ? parseInt(raw, 10) : Number(raw);
+    if (Number.isFinite(n) && n > 0) {
+      const id = Math.floor(n);
+      const { data: row } = await supabaseAdmin.from("matches").select("id").eq("id", id).maybeSingle();
+      if (!row) throw new Error("Match not found.");
+      return row.id as number;
+    }
+  }
+  return getCurrentMatchId();
+}
+
 /**
  * Lineup save endpoint — supports both the legacy default competition
  * (competition_id = null, side = "You" / opponentName) and named competitions
@@ -56,12 +71,13 @@ async function getCurrentMatchId() {
  *   opponentName?: string           — used for default competition display
  *   yourPlayers?: PlayerInput[]
  *   opponentPlayers?: PlayerInput[]
+ *   matchId?: number — optional; target this DB match (defaults to current match)
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const saveSide: "mine" | "theirs" | "both" = body.saveSide ?? "both";
-    const matchId = await getCurrentMatchId();
+    const matchId = await resolveLineupMatchId(body);
 
     // Resolve competition context
     const rawCompId = body.competitionId;

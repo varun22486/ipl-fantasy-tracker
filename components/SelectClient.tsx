@@ -120,7 +120,12 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       const res = await fetch("/api/lineup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ playerName: name, players: slotsToLineupPayload(picks), competitionId: competitionId ?? null }),
+        body: JSON.stringify({
+          playerName: name,
+          players: slotsToLineupPayload(picks),
+          competitionId: competitionId ?? null,
+          ...(matchId != null ? { matchId } : {}),
+        }),
       });
       const json = await res.json();
       setSavingIdx(null);
@@ -334,13 +339,16 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       side === "mine"
         ? { saveSide: "mine", yourPlayers: slotsToLineupPayload(mine), opponentName: rival, competitionId: competitionId ?? null }
         : { saveSide: "theirs", opponentPlayers: slotsToLineupPayload(theirs), opponentName: rival, competitionId: competitionId ?? null };
+    const withMatch = matchId != null ? { ...payload, matchId } : payload;
     try {
-      const res = await fetch("/api/lineup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const res = await fetch("/api/lineup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(withMatch) });
       const json = await res.json();
       setSaving(null);
       if (json.ok) {
         setApiMsg({ type: "success", title: `${side === "mine" ? yourName : rival}'s team saved! Taking you to the match…` });
-        window.setTimeout(() => { window.location.href = "/match"; }, 900);
+        const cQ = competitionId != null ? `?c=${encodeURIComponent(String(competitionId))}` : "";
+        const dest = matchId != null ? `/match/${matchId}${cQ}` : `/match${cQ}`;
+        window.setTimeout(() => { window.location.href = dest; }, 900);
       } else {
         showMsg(json.error || "Could not save.", "Save team");
       }
