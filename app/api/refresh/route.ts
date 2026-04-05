@@ -21,6 +21,26 @@ function tokens(name: string) {
   return normalizeName(name).split(/\s+/).filter(Boolean);
 }
 
+/** Reject stored provider_player_id when it points at a different person (e.g. Kartik vs Jitesh Sharma — same team, wrong UUID from roster). */
+function namesCompatible(fantasyName: string, providerRowName: string): boolean {
+  const na = normalizeName(fantasyName);
+  const nb = normalizeName(providerRowName);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const ta = tokens(fantasyName);
+  const tb = tokens(providerRowName);
+  if (ta.length === 0 || tb.length === 0) return false;
+  if (ta.length >= 2 && tb.length >= 2 && ta[ta.length - 1] === tb[tb.length - 1]) {
+    const fa = ta[0];
+    const fb = tb[0];
+    if (fa === fb) return true;
+    if (fa.startsWith(fb) || fb.startsWith(fa)) return true; // Phil / Philip
+    return false;
+  }
+  return false;
+}
+
+/** Keys when ingesting provider rows — includes short forms so "J Sharma" from the API maps. */
 function buildVariants(name: string) {
   const normalized = normalizeName(name);
   const tokenList = tokens(name);
@@ -43,6 +63,30 @@ function buildVariants(name: string) {
   return Array.from(variants).filter(Boolean);
 }
 
+/**
+ * Keys when resolving a fantasy lineup name → scorecard row.
+ * If the user picked a full first name ("Jitesh"), do not fall back to `j sharma`; that key may
+ * already belong to an abbreviated or different scorecard row that was merged first (wrong runs).
+ */
+function buildFantasyLookupVariants(playerName: string) {
+  const normalized = normalizeName(playerName);
+  const tokenList = tokens(playerName);
+  const variants = new Set<string>();
+  if (normalized) variants.add(normalized);
+  const collapsed = collapsedName(playerName);
+  if (collapsed) variants.add(collapsed);
+  if (tokenList.length >= 2) {
+    const first = tokenList[0];
+    const last = tokenList[tokenList.length - 1];
+    variants.add(`${first} ${last}`);
+    if (first.length <= 1) {
+      variants.add(`${first[0]} ${last}`);
+      variants.add(`${first[0]}${last}`);
+    }
+  }
+  return Array.from(variants).filter(Boolean);
+}
+
 function findIncomingPlayer(
   playerName: string,
   incomingByVariant: Map<
@@ -62,7 +106,7 @@ function findIncomingPlayer(
     }
   >
 ) {
-  for (const variant of buildVariants(playerName)) {
+  for (const variant of buildFantasyLookupVariants(playerName)) {
     const hit = incomingByVariant.get(variant);
     if (hit) return hit;
   }
@@ -143,15 +187,35 @@ export async function GET() {
     let updatedRows = 0;
 
     for (const player of selected) {
-      // Prefer ID match (no name ambiguity)
       const idHit = player.provider_player_id ? incomingById.get(player.provider_player_id) : null;
-      const hit = idHit ?? findIncomingPlayer(player.name, incomingByVariant);
+      const idOk = Boolean(idHit && namesCompatible(player.name, idHit.name));
+      const hit = idOk ? idHit! : findIncomingPlayer(player.name, incomingByVariant);
       if (!hit) {
+        // Wrong stored UUID (e.g. Kartik vs Jitesh Sharma) and no scorecard row for this name — clear stale stats
+        if (idHit && !idOk) {
+          await supabaseAdmin
+            .from("fantasy_players")
+            .update({
+              runs: 0,
+              wickets: 0,
+              catches: 0,
+              runouts: 0,
+              stumpings: 0,
+              fifty_bonus: 0,
+              hundred_bonus: 0,
+              three_w_bonus: 0,
+              five_w_bonus: 0,
+              mom_bonus: 0,
+              provider_player_id: null,
+            })
+            .eq("id", player.id);
+          updatedRows += 1;
+        }
         unmatched.push(player.name);
         continue;
       }
 
-      matched.push({ selected: player.name, provider: hit.name, matchedById: Boolean(idHit) });
+      matched.push({ selected: player.name, provider: hit.name, matchedById: idOk });
 
       // Write stats + lazily capture provider_player_id for future ID-based matching
       const updatePayload: Record<string, unknown> = {
@@ -168,7 +232,7 @@ export async function GET() {
       if (payload.manOfTheMatchSynced) {
         updatePayload.mom_bonus = hit.mom_bonus ?? 0;
       }
-      if (!player.provider_player_id && hit.id) {
+      if (hit.id) {
         updatePayload.provider_player_id = hit.id;
       }
 
@@ -283,9 +347,32 @@ export async function POST(req: Request) {
 
     for (const player of selected) {
       const idHit = player.provider_player_id ? incomingById.get(player.provider_player_id) : null;
-      const hit = idHit ?? findIncomingPlayer(player.name, incomingByVariant);
-      if (!hit) { unmatched.push(player.name); continue; }
-      matched.push({ selected: player.name, provider: hit.name, matchedById: Boolean(idHit) });
+      const idOk = Boolean(idHit && namesCompatible(player.name, idHit.name));
+      const hit = idOk ? idHit! : findIncomingPlayer(player.name, incomingByVariant);
+      if (!hit) {
+        if (idHit && !idOk) {
+          await supabaseAdmin
+            .from("fantasy_players")
+            .update({
+              runs: 0,
+              wickets: 0,
+              catches: 0,
+              runouts: 0,
+              stumpings: 0,
+              fifty_bonus: 0,
+              hundred_bonus: 0,
+              three_w_bonus: 0,
+              five_w_bonus: 0,
+              mom_bonus: 0,
+              provider_player_id: null,
+            })
+            .eq("id", player.id);
+          updatedRows += 1;
+        }
+        unmatched.push(player.name);
+        continue;
+      }
+      matched.push({ selected: player.name, provider: hit.name, matchedById: idOk });
       const updatePayload: Record<string, unknown> = {
         runs: hit.runs,
         wickets: hit.wickets,
@@ -300,7 +387,7 @@ export async function POST(req: Request) {
       if (payload.manOfTheMatchSynced) {
         updatePayload.mom_bonus = hit.mom_bonus ?? 0;
       }
-      if (!player.provider_player_id && hit.id) updatePayload.provider_player_id = hit.id;
+      if (hit.id) updatePayload.provider_player_id = hit.id;
       await supabaseAdmin.from("fantasy_players").update(updatePayload).eq("id", player.id);
       updatedRows += 1;
     }
