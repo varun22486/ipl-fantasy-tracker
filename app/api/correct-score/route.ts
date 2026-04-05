@@ -5,12 +5,11 @@ export async function POST(req: NextRequest) {
   try {
     const { playerId, runs, wickets, catches, runouts, stumpings, fifty_bonus, hundred_bonus, three_w_bonus, five_w_bonus, mom_bonus } = await req.json();
 
-    const id = typeof playerId === "string" ? parseInt(playerId, 10) : Number(playerId);
-    if (!Number.isFinite(id) || id < 1) {
+    if (!playerId) {
       return NextResponse.json({ ok: false, error: "playerId is required" }, { status: 400 });
     }
 
-    const { data: row, error } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("fantasy_players")
       .update({
         runs: Number(runs ?? 0),
@@ -24,17 +23,9 @@ export async function POST(req: NextRequest) {
         five_w_bonus: Number(five_w_bonus ?? 0),
         mom_bonus: Number(mom_bonus ?? 0),
       })
-      .eq("id", id)
-      .select("id")
-      .maybeSingle();
+      .eq("id", playerId);
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-    if (!row) {
-      return NextResponse.json(
-        { ok: false, error: "No row updated — check you are editing this match’s player (id may be wrong or row missing)." },
-        { status: 404 }
-      );
-    }
     return NextResponse.json({ ok: true });
   } catch (err: any) {
     return NextResponse.json({ ok: false, error: err.message ?? "Unknown error" }, { status: 500 });

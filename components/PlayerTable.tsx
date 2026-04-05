@@ -28,11 +28,11 @@ export default function PlayerTable({ title, players }: Props) {
             </tr>
           </thead>
           <tbody>
-            {players.map((p, idx) => {
+            {players.map((p) => {
               const pts = fantasyPointsCounted(p);
               const raw = playerPoints(p).final;
               return (
-                <tr key={p.id != null ? `fp-${p.id}` : `${p.side}-${p.name}-${idx}`} style={{ borderBottom: "1px solid #f1f5f9", background: p.bench ? "#fafafa" : undefined }}>
+                <tr key={p.name} style={{ borderBottom: "1px solid #f1f5f9", background: p.bench ? "#fafafa" : undefined }}>
                   <td style={{ padding: "10px 10px", fontSize: 14, fontWeight: 500 }}>
                     {p.name}
                     {p.captain && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: "#d97706", background: "#fef9c3", padding: "1px 5px", borderRadius: 4 }}>★ Cap</span>}
