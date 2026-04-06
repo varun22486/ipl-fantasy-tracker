@@ -1029,6 +1029,11 @@ button:active:not(:disabled) { transform: scale(0.97); }
   background: linear-gradient(180deg, #f7fef9 0%, #fff 52%);
   box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.1), var(--shadow-xs);
 }
+.history-card--voided {
+  border-color: rgba(180, 83, 9, 0.38);
+  background: linear-gradient(180deg, #fffbeb 0%, #fff 58%);
+  box-shadow: 0 0 0 1px rgba(180, 83, 9, 0.08), var(--shadow-xs);
+}
 
 .history-card__top {
   display: flex;
@@ -1077,6 +1082,19 @@ button:active:not(:disabled) { transform: scale(0.97); }
   background: rgba(34, 197, 94, 0.14);
   border-color: rgba(34, 197, 94, 0.35);
   color: #166534;
+}
+.history-card__pill--voided {
+  background: rgba(180, 83, 9, 0.14);
+  border-color: rgba(180, 83, 9, 0.4);
+  color: #92400e;
+}
+
+.history-card__voided-msg {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #92400e;
+  line-height: 1.5;
 }
 
 .history-card__winner {

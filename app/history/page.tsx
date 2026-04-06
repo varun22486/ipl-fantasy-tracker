@@ -23,6 +23,8 @@ type HistoryMatchRow = {
   hasData: boolean;
   isCurrent: boolean;
   status: string;
+  /** Washout / NR / manual void — points excluded from totals */
+  voided: boolean;
   isMulti: boolean;
   winner: string | null;
   yourPoints: number;
@@ -117,6 +119,7 @@ async function getData(competitionId: number | null) {
         hasData,
         isCurrent: Boolean(m.is_current),
         status: m.status ?? "",
+        voided,
         isMulti: true,
         winner,
         yourPoints: ptsByPlayer[yourName] ?? 0,
@@ -149,6 +152,7 @@ async function getData(competitionId: number | null) {
       hasData,
       isCurrent: Boolean(m.is_current),
       status: m.status ?? "",
+      voided,
       isMulti: false,
       winner,
       yourPoints: yourPts,
@@ -253,12 +257,15 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
               const total = m.compPlayers.reduce((s, n) => s + (m.ptsByPlayer![n] ?? 0), 0);
               return (
                 <Link key={m.matchId} href={matchHref(m.matchId, cid)} className="history-card-link">
-                  <article className={`history-card history-card--multi${m.isCurrent ? " history-card--live" : ""}`}>
+                  <article className={`history-card history-card--multi${m.isCurrent ? " history-card--live" : ""}${m.voided ? " history-card--voided" : ""}`}>
                     <div className="history-card__top">
                       <div className="history-card__titles">
                         <h3 className="history-card__fixture">{m.fixture}</h3>
                         <div className="history-card__meta">
                           <time dateTime={m.date}>{m.date || "—"}</time>
+                          {m.voided && (
+                            <span className="history-card__pill history-card__pill--voided">Voided</span>
+                          )}
                           {m.status && m.status !== "COMPLETED" && (
                             <span className={`history-card__pill${m.isCurrent ? " history-card__pill--live" : ""}`}>
                               {m.isCurrent ? "Live" : m.status}
@@ -277,7 +284,9 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                         →
                       </span>
                     </div>
-                    {m.hasData ? (
+                    {m.voided ? (
+                      <p className="history-card__voided-msg">Voided — fantasy points do not count for this match.</p>
+                    ) : m.hasData ? (
                       <>
                         <div className="history-card__players history-card__players--multi">
                           {m.compPlayers.map((name, i) => {
@@ -333,12 +342,15 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
 
             return (
               <Link key={m.matchId} href={matchHref(m.matchId, cid)} className="history-card-link">
-                <article className={`history-card history-card--h2h${m.isCurrent ? " history-card--live" : ""}`}>
+                <article className={`history-card history-card--h2h${m.isCurrent ? " history-card--live" : ""}${m.voided ? " history-card--voided" : ""}`}>
                   <div className="history-card__top">
                     <div className="history-card__titles">
                       <h3 className="history-card__fixture">{m.fixture}</h3>
                       <div className="history-card__meta">
                         <time dateTime={m.date}>{m.date || "—"}</time>
+                        {m.voided && (
+                          <span className="history-card__pill history-card__pill--voided">Voided</span>
+                        )}
                         {m.status && m.status !== "COMPLETED" && (
                           <span className={`history-card__pill${m.isCurrent ? " history-card__pill--live" : ""}`}>
                             {m.isCurrent ? "Live" : m.status}
@@ -366,7 +378,9 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                     </span>
                   </div>
 
-                  {m.hasData ? (
+                  {m.voided ? (
+                    <p className="history-card__voided-msg">Voided — fantasy points do not count for this match.</p>
+                  ) : m.hasData ? (
                     <>
                       <div className="history-card__h2h">
                         <div className="history-card__side history-card__side--you">
