@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, fantasyPointsCounted, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import { isLiveMatchStatus } from "@/lib/next-match";
+import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import NavBar from "@/components/NavBar";
 import Link from "next/link";
 
@@ -38,7 +39,7 @@ function isFinishedMatchStatus(status: string): boolean {
   const u = status.toUpperCase();
   if (u === "COMPLETED") return true;
   if (u === "ABANDONED") return true;
-  if (u.includes("NO RESULT")) return true;
+  if (u === "NO_RESULT" || u.includes("NO RESULT")) return true;
   const low = status.toLowerCase();
   return low.includes("won by") || /\bbeat\b/.test(low) || low.includes("match tied") || low.includes("match drawn");
 }
@@ -91,18 +92,20 @@ async function getData(competitionId: number | null) {
     playersByMatch[mid].push(p);
   }
 
-  const matchRows: HistoryMatchRow[] = (matches ?? []).map((m: { id: number; fixture?: string; match_date?: string; is_current?: boolean; status?: string }) => {
+  const matchRows: HistoryMatchRow[] = (matches ?? []).map((m: { id: number; fixture?: string; match_date?: string; is_current?: boolean; status?: string; live_summary?: string | null }) => {
     const mp = playersByMatch[m.id] ?? [];
+    const voided = isPointsVoidedMatchStatus(m.status, m.live_summary);
 
     if (isMulti) {
       const ptsByPlayer: Record<string, number> = {};
       for (const n of compPlayers) {
         ptsByPlayer[n] = mp.filter((p) => p.side === n).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
       }
-      const hasData = Object.values(ptsByPlayer).some((v) => v > 0);
+      if (voided) for (const n of compPlayers) ptsByPlayer[n] = 0;
+      const hasData = !voided && Object.values(ptsByPlayer).some((v) => v > 0);
       const maxPts = Math.max(0, ...Object.values(ptsByPlayer));
       const leaders = compPlayers.filter((n) => ptsByPlayer[n] === maxPts && maxPts > 0);
-      const winner = !hasData ? null : leaders.length === 1 ? leaders[0]! : "Tie";
+      const winner = voided || !hasData ? null : leaders.length === 1 ? leaders[0]! : "Tie";
       const sorted = [...compPlayers].sort((a, b) => (ptsByPlayer[b] ?? 0) - (ptsByPlayer[a] ?? 0));
       const top = sorted[0] ?? "";
       const second = sorted[1] ?? top;
@@ -126,16 +129,18 @@ async function getData(competitionId: number | null) {
       };
     }
 
-    const yourPts = competitionId != null
+    const yourPtsRaw = competitionId != null
       ? mp.filter((p) => p.side === yourName).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
       : mp.filter((p) => p.side === "You").reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     // Default league rows use side "You" vs anything else (not necessarily === settings.opponent_name).
-    const oppPts =
+    const oppPtsRaw =
       competitionId != null
         ? mp.filter((p) => p.side === opponentName).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
         : mp.filter((p) => p.side !== "You").reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
-    const hasData = yourPts > 0 || oppPts > 0;
-    const winner = !hasData ? null : yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : yourPts > 0 || oppPts > 0 ? "Tie" : null;
+    const yourPts = voided ? 0 : yourPtsRaw;
+    const oppPts = voided ? 0 : oppPtsRaw;
+    const hasData = !voided && (yourPts > 0 || oppPts > 0);
+    const winner = voided || !hasData ? null : yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : yourPts > 0 || oppPts > 0 ? "Tie" : null;
 
     return {
       matchId: m.id,

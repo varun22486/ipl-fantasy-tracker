@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { resolveDefaultMatchIdFromPreferences, ACTIVE_MATCH_COOKIE } from "@/lib/active-match";
+import {
+  isLateMatchChangeContext,
+  recordFantasyAuditEvent,
+  lineupSnapshotsEqual,
+} from "@/lib/match-audit";
 
 type PlayerInput = { name: string; captain: boolean; bench?: boolean; providerId?: string };
 
@@ -103,6 +108,29 @@ export async function POST(req: NextRequest) {
       ? (q: any) => q.eq("match_id", matchId).is("competition_id", null)
       : (q: any) => q.eq("match_id", matchId).eq("competition_id", competitionId);
 
+    const { data: matchMeta } = await supabaseAdmin
+      .from("matches")
+      .select("match_date,status")
+      .eq("id", matchId)
+      .maybeSingle();
+    const auditLate = isLateMatchChangeContext(
+      matchMeta?.match_date as string | undefined,
+      matchMeta?.status as string | undefined
+    );
+    const compIdForAudit: number | null = isDefault ? null : competitionId;
+
+    async function snapshotSide(sideLabel: string) {
+      const { data } = await baseFilter(supabaseAdmin.from("fantasy_players").select("name,captain,bench")).eq(
+        "side",
+        sideLabel
+      );
+      return (data ?? []).map((r) => ({
+        name: r.name as string,
+        captain: Boolean(r.captain),
+        bench: Boolean(r.bench),
+      }));
+    }
+
     // Helper: insert rows and throw on error (previously errors were silently swallowed)
     async function insertPlayers(rows: object[]) {
       const { error } = await supabaseAdmin.from("fantasy_players").insert(rows);
@@ -114,6 +142,7 @@ export async function POST(req: NextRequest) {
       const playerName = String(body.playerName).trim();
       const playerPicks = normalizePlayers(body.players);
       validateSide(`${playerName}'s team`, playerPicks);
+      const beforeSnap = auditLate ? await snapshotSide(playerName) : [];
       await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", playerName);
       await insertPlayers(
         playerPicks.map((p) => ({
@@ -126,12 +155,30 @@ export async function POST(req: NextRequest) {
           competition_id: isDefault ? null : competitionId,
         }))
       );
+      if (auditLate) {
+        const afterSnap = playerPicks.map((p) => ({
+          name: p.name,
+          captain: p.captain,
+          bench: p.bench === true,
+        }));
+        if (!lineupSnapshotsEqual(beforeSnap, afterSnap)) {
+          await recordFantasyAuditEvent({
+            matchId,
+            competitionId: compIdForAudit,
+            action: "lineup_change",
+            side: playerName,
+            summary: `Lineup changed — ${playerName}`,
+            detail: { before: beforeSnap, after: afterSnap },
+          });
+        }
+      }
       return NextResponse.json({ ok: true });
     }
 
     if (saveSide === "mine" || saveSide === "both") {
       const yourPlayers = normalizePlayers(body.yourPlayers);
       validateSide(`${side1}'s team`, yourPlayers);
+      const beforeMine = auditLate ? await snapshotSide(side1) : [];
       await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", side1);
       await insertPlayers(
         yourPlayers.map((p) => ({
@@ -144,11 +191,29 @@ export async function POST(req: NextRequest) {
           competition_id: isDefault ? null : competitionId,
         }))
       );
+      if (auditLate) {
+        const afterSnap = yourPlayers.map((p) => ({
+          name: p.name,
+          captain: p.captain,
+          bench: p.bench === true,
+        }));
+        if (!lineupSnapshotsEqual(beforeMine, afterSnap)) {
+          await recordFantasyAuditEvent({
+            matchId,
+            competitionId: compIdForAudit,
+            action: "lineup_change",
+            side: side1,
+            summary: `Lineup changed — ${side1}`,
+            detail: { before: beforeMine, after: afterSnap },
+          });
+        }
+      }
     }
 
     if (saveSide === "theirs" || saveSide === "both") {
       const opponentPlayers = normalizePlayers(body.opponentPlayers);
       validateSide(`${side2}'s team`, opponentPlayers);
+      const beforeTheirs = auditLate ? await snapshotSide(side2) : [];
       await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", side2);
       await insertPlayers(
         opponentPlayers.map((p) => ({
@@ -161,6 +226,23 @@ export async function POST(req: NextRequest) {
           competition_id: isDefault ? null : competitionId,
         }))
       );
+      if (auditLate) {
+        const afterSnap = opponentPlayers.map((p) => ({
+          name: p.name,
+          captain: p.captain,
+          bench: p.bench === true,
+        }));
+        if (!lineupSnapshotsEqual(beforeTheirs, afterSnap)) {
+          await recordFantasyAuditEvent({
+            matchId,
+            competitionId: compIdForAudit,
+            action: "lineup_change",
+            side: side2,
+            summary: `Lineup changed — ${side2}`,
+            detail: { before: beforeTheirs, after: afterSnap },
+          });
+        }
+      }
     }
 
     return NextResponse.json({ ok: true });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { refreshMatchFromProvider } from "@/lib/cricket-provider";
 import { getDefaultActiveMatchRowForSync } from "@/lib/active-match";
+import { VOIDED_MATCH_FANTASY_SCORES, isPointsVoidedMatchStatus } from "@/lib/match-void";
 
 type SelectedPlayer = {
   id: number;
@@ -266,13 +267,21 @@ export async function GET() {
       })
       .eq("id", currentMatch.id);
 
+    const resolvedStatus = String(payload.status || currentMatch.status || "");
+    const liveSum = payload.live_summary ?? currentMatch.live_summary ?? null;
+    if (isPointsVoidedMatchStatus(resolvedStatus, liveSum)) {
+      await supabaseAdmin.from("fantasy_players").update(VOIDED_MATCH_FANTASY_SCORES).eq("match_id", currentMatch.id);
+    }
+
     const providerNames = payload.players.map((p) => p.name).filter(Boolean);
+    const voided = isPointsVoidedMatchStatus(resolvedStatus, liveSum);
 
     return NextResponse.json({
       ok: true,
       skipped: false,
-      message:
-        payload.players.length === 0
+      message: voided
+        ? "Match voided (washout / no result) — fantasy scores cleared for this fixture."
+        : payload.players.length === 0
           ? (payload.live_summary || "Scorecard not available from API — stats unchanged.")
           : updatedRows > 0
           ? `Updated ${updatedRows} of ${selected.length} selected players.`
@@ -407,9 +416,18 @@ export async function POST(req: Request) {
       ...(payload.rosterNames.length > 0 ? { provider_squad_json: { squads: payload.squads, rosterNames: payload.rosterNames } } : {}),
     }).eq("id", currentMatch.id);
 
+    const resolvedStatus = String(payload.status || currentMatch.status || "");
+    const liveSum = payload.live_summary ?? currentMatch.live_summary ?? null;
+    if (isPointsVoidedMatchStatus(resolvedStatus, liveSum)) {
+      await supabaseAdmin.from("fantasy_players").update(VOIDED_MATCH_FANTASY_SCORES).eq("match_id", currentMatch.id);
+    }
+    const voided = isPointsVoidedMatchStatus(resolvedStatus, liveSum);
+
     return NextResponse.json({
       ok: true, skipped: false,
-      message: payload.players.length === 0
+      message: voided
+        ? "Match voided (washout / no result) — fantasy scores cleared for this fixture."
+        : payload.players.length === 0
         ? (payload.live_summary || "Scorecard not available from API — stats unchanged.")
         : updatedRows > 0
           ? `Updated ${updatedRows} of ${selected.length} players.`

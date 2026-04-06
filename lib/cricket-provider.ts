@@ -583,6 +583,15 @@ function parseStatus(text: string) {
   const lower = text.toLowerCase();
   if (lower.includes("live") || lower.includes("need") || lower.includes("won toss")) return "LIVE";
   if (lower.includes("won by") || lower.includes("beat") || lower.includes("drew") || lower.includes("tie")) return "COMPLETED";
+  // Washout / NR before "vs" — fixtures like "No result - KKR vs PBKS" must not become SCHEDULED.
+  if (
+    /\bno\s+result\b/.test(lower) ||
+    lower.includes("abandon") ||
+    lower.includes("wash") ||
+    /\bcalled off\b/.test(lower)
+  ) {
+    return "NO_RESULT";
+  }
   if (lower.includes("tomorrow") || lower.includes("upcoming") || lower.includes("starts") || lower.includes("vs")) return "SCHEDULED";
   return text ? text.toUpperCase() : "LIVE";
 }

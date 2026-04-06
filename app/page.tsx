@@ -7,6 +7,7 @@ import { FantasyPlayer, fantasyPointsCounted, playerPoints, scoringFromSettings 
 import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
+import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import nextDynamic from "next/dynamic";
 import HomeHero from "@/components/HomeHero";
 import SeriesStandingsHero from "@/components/SeriesStandingsHero";
@@ -21,7 +22,7 @@ const MultiStatsClient = nextDynamic(() => import("@/components/MultiStatsClient
 });
 
 const HOME_MATCH_COLS =
-  "id, fixture, match_date, status, venue, is_current, external_match_id";
+  "id, fixture, match_date, status, venue, is_current, external_match_id, live_summary";
 
 async function getData(competitionId: number | null) {
   // Use select("*") so the page still works if optional columns (runouts, stumpings, pts_runout, …)
@@ -74,6 +75,12 @@ async function getData(competitionId: number | null) {
 
   const rules = scoringFromSettings(settings as any);
 
+  const voidedMatchIds = new Set<number>();
+  for (const m of matches ?? []) {
+    const row = m as { id?: number; status?: string; live_summary?: string | null };
+    if (typeof row.id === "number" && isPointsVoidedMatchStatus(row.status, row.live_summary)) voidedMatchIds.add(row.id);
+  }
+
   // Determine which side value means "player 1 / you"
   const player1Side = competitionId != null ? yourName : "You";
 
@@ -95,25 +102,29 @@ async function getData(competitionId: number | null) {
   let oppCumulative = 0;
   const matchStats: MatchStatRow[] = (matches ?? []).map((m: any) => {
     const mp = playersByMatch[m.id] ?? [];
+    const voided = voidedMatchIds.has(m.id);
     const yourPlayers = mp.filter((p) => p.side === player1Side);
     const oppPlayers = mp.filter((p) => p.side !== player1Side);
-    const yourPts = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
-    const oppPts = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+    const yourPtsRaw = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+    const oppPtsRaw = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+    const yourPts = voided ? 0 : yourPtsRaw;
+    const oppPts = voided ? 0 : oppPtsRaw;
     yourCumulative += yourPts;
     oppCumulative += oppPts;
 
-    const winner = yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : yourPts > 0 ? "Tie" : null;
+    const winner =
+      voided ? null : yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : yourPts > 0 ? "Tie" : null;
     const players = mp.map((p) => ({
       name: p.name,
       side: p.side as "You" | string,
       captain: p.captain,
       bench: Boolean((p as FantasyPlayer).bench),
-      points: fantasyPointsCounted(p, rules),
-      runs: p.runs,
-      wickets: p.wickets,
-      catches: p.catches,
-      runouts: p.runouts ?? 0,
-      stumpings: p.stumpings ?? 0,
+      points: voided ? 0 : fantasyPointsCounted(p, rules),
+      runs: voided ? 0 : p.runs,
+      wickets: voided ? 0 : p.wickets,
+      catches: voided ? 0 : p.catches,
+      runouts: voided ? 0 : p.runouts ?? 0,
+      stumpings: voided ? 0 : p.stumpings ?? 0,
     }));
 
     return {
@@ -126,7 +137,7 @@ async function getData(competitionId: number | null) {
       oppCumulative,
       winner,
       pointsDiff: Math.abs(yourPts - oppPts),
-      hasData: yourPts > 0 || oppPts > 0,
+      hasData: !voided && (yourPts > 0 || oppPts > 0),
       isCurrent: Boolean(m.is_current),
       players,
     };
@@ -134,6 +145,8 @@ async function getData(competitionId: number | null) {
 
   const leaderMap: Record<string, { name: string; side: string; totalPoints: number; matches: number; runs: number; wickets: number; catches: number; runouts: number; stumpings: number }> = {};
   for (const p of (allPlayers ?? []) as FantasyPlayer[]) {
+    const mid = (p as { match_id?: number }).match_id;
+    if (typeof mid === "number" && voidedMatchIds.has(mid)) continue;
     const key = `${p.side}::${p.name}`;
     if (!leaderMap[key]) leaderMap[key] = { name: p.name, side: p.side, totalPoints: 0, matches: 0, runs: 0, wickets: 0, catches: 0, runouts: 0, stumpings: 0 };
     leaderMap[key].totalPoints += fantasyPointsCounted(p, rules);
@@ -154,6 +167,7 @@ async function getData(competitionId: number | null) {
   const participantMatchStats = isMultiPlayer
     ? (matches ?? []).map((m: any) => {
         const mp = playersByMatch[m.id] ?? [];
+        const voided = voidedMatchIds.has(m.id);
         const pts: Record<string, number> = {};
         const runs: Record<string, number> = {};
         const wickets: Record<string, number> = {};
@@ -164,20 +178,20 @@ async function getData(competitionId: number | null) {
         const captainName: Record<string, string> = {};
         for (const name of compPlayers) {
           const sidePlayers = mp.filter((p: any) => p.side === name);
-          pts[name] = sidePlayers.reduce((s: number, p: any) => s + fantasyPointsCounted(p, rules), 0);
-          runs[name] = sidePlayers.reduce((s: number, p: any) => s + (p.runs ?? 0), 0);
-          wickets[name] = sidePlayers.reduce((s: number, p: any) => s + (p.wickets ?? 0), 0);
-          catches[name] = sidePlayers.reduce((s: number, p: any) => s + (p.catches ?? 0), 0);
-          runouts[name] = sidePlayers.reduce((s: number, p: any) => s + (p.runouts ?? 0), 0);
-          stumpings[name] = sidePlayers.reduce((s: number, p: any) => s + (p.stumpings ?? 0), 0);
+          pts[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + fantasyPointsCounted(p, rules), 0);
+          runs[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.runs ?? 0), 0);
+          wickets[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.wickets ?? 0), 0);
+          catches[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.catches ?? 0), 0);
+          runouts[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.runouts ?? 0), 0);
+          stumpings[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.stumpings ?? 0), 0);
           const cap = sidePlayers.find((p: any) => p.captain && !p.bench);
-          captainPts[name] = cap ? fantasyPointsCounted(cap, rules) : 0;
+          captainPts[name] = voided || !cap ? 0 : fantasyPointsCounted(cap, rules);
           captainName[name] = cap?.name ?? "—";
         }
-        const hasData = Object.values(pts).some(v => v > 0);
-        const maxPts = Math.max(...Object.values(pts));
+        const hasData = !voided && Object.values(pts).some(v => v > 0);
+        const maxPts = Math.max(0, ...Object.values(pts));
         const leaders = compPlayers.filter(n => pts[n] === maxPts && maxPts > 0);
-        const winner = leaders.length === 1 ? leaders[0] : (hasData ? "Tie" : null);
+        const winner = voided ? null : leaders.length === 1 ? leaders[0] : (hasData ? "Tie" : null);
         return {
           matchId: m.id as number,
           fixture: formatFixture(m.fixture) || m.fixture || "TBD",

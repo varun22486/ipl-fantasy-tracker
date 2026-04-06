@@ -5,10 +5,12 @@ import { resolveCompetitionId } from "@/lib/competition";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, fantasyPointsCounted, formatCtRoSt, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
+import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import NavBar from "@/components/NavBar";
 import SyncButton from "@/components/SyncButton";
 import ScoreEditor from "@/components/ScoreEditor";
 import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
+import AuditTrailPanel from "@/components/AuditTrailPanel";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
@@ -93,9 +95,19 @@ async function getData(matchId: number, competitionId: number | null) {
   };
 }
 
-function PlayerRow({ p, rules, displaySide }: { p: FantasyPlayer; rules: ReturnType<typeof scoringFromSettings>; displaySide: string }) {
+function PlayerRow({
+  p,
+  rules,
+  displaySide,
+  pointsVoided,
+}: {
+  p: FantasyPlayer;
+  rules: ReturnType<typeof scoringFromSettings>;
+  displaySide: string;
+  pointsVoided?: boolean;
+}) {
   const pts = playerPoints(p, rules);
-  const counted = fantasyPointsCounted(p, rules);
+  const counted = pointsVoided ? 0 : fantasyPointsCounted(p, rules);
   return (
     <tr style={{ background: p.bench ? "#fafafa" : "white" }}>
       <td style={td}>
@@ -140,7 +152,7 @@ function PlayerRow({ p, rules, displaySide }: { p: FantasyPlayer; rules: ReturnT
       </td>
       <td style={{ ...td, fontWeight: 800, fontSize: 18, color: "#0f172a" }}>
         {counted}
-        {p.bench && pts.final > 0 && (
+        {!pointsVoided && p.bench && pts.final > 0 && (
           <div style={{ fontSize: 11, fontWeight: 500, color: "#94a3b8" }}>(would be {pts.final} if in XI)</div>
         )}
       </td>
@@ -190,21 +202,30 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     cid == null
       ? players.filter((p) => p.side !== "You")
       : players.filter((p) => p.side === opponentName);
-  const yourTotal = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
-  const oppTotal = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+
+  const pointsVoided = isPointsVoidedMatchStatus(match.status, match.live_summary);
+
+  const yourTotal = pointsVoided
+    ? 0
+    : yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+  const oppTotal = pointsVoided
+    ? 0
+    : oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
 
   const participantBlocks = isMulti
     ? compPlayers.map((name, i) => ({
         name,
         color: MULTI_COLORS[i % MULTI_COLORS.length],
         players: players.filter((p) => p.side === name),
-        total: players.filter((p) => p.side === name).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0),
+        total: pointsVoided
+          ? 0
+          : players.filter((p) => p.side === name).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0),
       }))
     : null;
 
-  const hasData = isMulti
+  const hasData = !pointsVoided && (isMulti
     ? (participantBlocks ?? []).some((b) => b.total > 0)
-    : yourTotal > 0 || oppTotal > 0;
+    : yourTotal > 0 || oppTotal > 0);
 
   let winner: string | null = null;
   let diff = 0;
@@ -236,6 +257,23 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
           ← Match History
         </Link>
       </div>
+
+      {pointsVoided ? (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: "12px 16px",
+            borderRadius: 14,
+            background: "#fef3c7",
+            border: "1px solid #fcd34d",
+            color: "#78350f",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          Washout / no result — fantasy points for this match do not count. Sync scores to clear any stale stats in the database.
+        </div>
+      ) : null}
 
       <div style={{ display: "grid", gap: 20 }}>
         <div
@@ -373,7 +411,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
                     </thead>
                     <tbody>
                       {b.players.map((p) => (
-                        <PlayerRow key={p.id} p={p} rules={rules} displaySide={b.name} />
+                        <PlayerRow key={p.id} p={p} rules={rules} displaySide={b.name} pointsVoided={pointsVoided} />
                       ))}
                     </tbody>
                   </table>
@@ -401,7 +439,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
                   </thead>
                   <tbody>
                     {yourPlayers.map((p) => (
-                      <PlayerRow key={p.id} p={p} rules={rules} displaySide={yourName} />
+                      <PlayerRow key={p.id} p={p} rules={rules} displaySide={yourName} pointsVoided={pointsVoided} />
                     ))}
                   </tbody>
                 </table>
@@ -426,7 +464,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
                   </thead>
                   <tbody>
                     {oppPlayers.map((p) => (
-                      <PlayerRow key={p.id} p={p} rules={rules} displaySide={opponentName} />
+                      <PlayerRow key={p.id} p={p} rules={rules} displaySide={opponentName} pointsVoided={pointsVoided} />
                     ))}
                   </tbody>
                 </table>
@@ -434,6 +472,8 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
             </div>
           </>
         )}
+
+        <AuditTrailPanel matchId={matchId} competitionId={cid} />
       </div>
     </main>
   );

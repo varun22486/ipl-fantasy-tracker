@@ -191,3 +191,19 @@ alter table matches enable row level security;
 alter table api_key_stats enable row level security;
 alter table competitions enable row level security;
 alter table fantasy_players enable row level security;
+
+-- Late lineup / manual score edits (after nominal match start + grace), for transparency
+create table if not exists fantasy_audit_events (
+  id bigint generated always as identity primary key,
+  match_id bigint not null references matches(id) on delete cascade,
+  competition_id bigint references competitions(id) on delete cascade,
+  action text not null,
+  side text,
+  summary text not null,
+  detail jsonb not null default '{}'::jsonb,
+  created_at timestamp with time zone not null default now(),
+  constraint fantasy_audit_events_action_check check (action in ('lineup_change', 'manual_score'))
+);
+create index if not exists fantasy_audit_events_match_created_idx
+  on fantasy_audit_events (match_id, created_at desc);
+alter table fantasy_audit_events enable row level security;
