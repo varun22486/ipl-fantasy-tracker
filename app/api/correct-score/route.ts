@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { isLateMatchChangeContext, recordFantasyAuditEvent } from "@/lib/match-audit";
+import { snapshotBeforeManualScoreIfDue } from "@/lib/match-snapshot";
 
 export async function POST(req: NextRequest) {
   try {
@@ -59,6 +60,10 @@ export async function POST(req: NextRequest) {
       before.three_w_bonus === nextStats.three_w_bonus &&
       before.five_w_bonus === nextStats.five_w_bonus &&
       before.mom_bonus === nextStats.mom_bonus;
+
+    if (!statsEqual) {
+      await snapshotBeforeManualScoreIfDue(row.match_id as number);
+    }
 
     const { error } = await supabaseAdmin
       .from("fantasy_players")

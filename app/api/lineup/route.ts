@@ -6,6 +6,7 @@ import {
   recordFantasyAuditEvent,
   lineupSnapshotsEqual,
 } from "@/lib/match-audit";
+import { createMatchSnapshot } from "@/lib/match-snapshot";
 
 type PlayerInput = { name: string; captain: boolean; bench?: boolean; providerId?: string };
 
@@ -81,6 +82,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const saveSide: "mine" | "theirs" | "both" = body.saveSide ?? "both";
     const matchId = await resolveLineupMatchId(req, body);
+
+    await createMatchSnapshot({
+      matchId,
+      source: "pre_lineup",
+      summary: "Before lineup save",
+    });
 
     // Resolve competition context
     const rawCompId = body.competitionId;

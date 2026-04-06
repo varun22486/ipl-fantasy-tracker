@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { refreshMatchFromProvider } from "@/lib/cricket-provider";
 import { getDefaultActiveMatchRowForSync } from "@/lib/active-match";
 import { VOIDED_MATCH_FANTASY_SCORES, isPointsVoidedMatchStatus } from "@/lib/match-void";
+import { createMatchSnapshot } from "@/lib/match-snapshot";
 
 type SelectedPlayer = {
   id: number;
@@ -119,6 +120,47 @@ function summarizeNames(names: string[], limit = 12) {
   return names.slice(0, limit);
 }
 
+/** CricAPI often drops completed fixtures; sync then returns "match not found" for the same id. */
+function isFixtureDroppedByProviderError(liveSummary: unknown): boolean {
+  const s = String(liveSummary ?? "").toLowerCase();
+  if (!s) return false;
+  if (/\binvalid\s+match\s+id\b/.test(s)) return true;
+  if (!/\bnot found\b/.test(s)) return false;
+  return /\bmatch\b/.test(s) || /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(s);
+}
+
+/** Nothing useful to keep (empty or a previous API error string). */
+function isPriorApiFailureBanner(summary: unknown): boolean {
+  const s = String(summary ?? "").trim();
+  if (!s) return true;
+  return /scorecard not available/i.test(s) || /\bERR:\s*/i.test(s);
+}
+
+type RefreshPayload = Awaited<ReturnType<typeof refreshMatchFromProvider>>;
+
+function resolveSummaryAndStatusAfterRefresh(
+  currentMatch: { live_summary?: string | null; status?: string | null },
+  payload: RefreshPayload
+): { live_summary: string | null | undefined; status: string | undefined; preservedDroppedFixture: boolean } {
+  const dropped =
+    payload.players.length === 0 &&
+    isFixtureDroppedByProviderError(payload.live_summary) &&
+    !isPriorApiFailureBanner(currentMatch.live_summary);
+
+  if (dropped) {
+    return {
+      live_summary: currentMatch.live_summary ?? null,
+      status: currentMatch.status ?? undefined,
+      preservedDroppedFixture: true,
+    };
+  }
+  return {
+    live_summary: payload.live_summary ?? currentMatch.live_summary,
+    status: payload.status || currentMatch.status || undefined,
+    preservedDroppedFixture: false,
+  };
+}
+
 async function doRefresh(matchId?: number) {
   // If a specific matchId is provided, load that match directly
   let currentMatch: any = null;
@@ -172,6 +214,12 @@ export async function GET() {
         },
       });
     }
+
+    await createMatchSnapshot({
+      matchId: currentMatch.id as number,
+      source: "pre_sync",
+      summary: "Before API sync",
+    });
 
     const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id));
 
@@ -248,16 +296,21 @@ export async function GET() {
     }
 
     const syncedAt = new Date().toISOString();
+    const {
+      live_summary: nextLiveSummary,
+      status: nextStatus,
+      preservedDroppedFixture,
+    } = resolveSummaryAndStatusAfterRefresh(currentMatch, payload);
 
     await supabaseAdmin
       .from("matches")
       .update({
-        status: payload.status || currentMatch.status,
+        status: nextStatus,
         fixture: payload.fixture || currentMatch.fixture,
         ...(payload.match_date ? { match_date: payload.match_date } : {}),
         venue: payload.venue ?? currentMatch.venue,
         toss_winner: payload.toss_winner ?? currentMatch.toss_winner,
-        live_summary: payload.live_summary ?? currentMatch.live_summary,
+        live_summary: nextLiveSummary,
         source_url: payload.source_url ?? currentMatch.source_url,
         last_synced_at: syncedAt,
         // Only overwrite squad data if we actually got something from the scorecard
@@ -267,8 +320,8 @@ export async function GET() {
       })
       .eq("id", currentMatch.id);
 
-    const resolvedStatus = String(payload.status || currentMatch.status || "");
-    const liveSum = payload.live_summary ?? currentMatch.live_summary ?? null;
+    const resolvedStatus = String(nextStatus || currentMatch.status || "");
+    const liveSum = nextLiveSummary ?? currentMatch.live_summary ?? null;
     const manualVoid = currentMatch.fantasy_voided === true;
     if (manualVoid || isPointsVoidedMatchStatus(resolvedStatus, liveSum)) {
       await supabaseAdmin.from("fantasy_players").update(VOIDED_MATCH_FANTASY_SCORES).eq("match_id", currentMatch.id);
@@ -285,11 +338,13 @@ export async function GET() {
           ? "Match is voided — fantasy scores cleared (manual void)."
           : "Match voided (washout / no result) — fantasy scores cleared for this fixture."
         : payload.players.length === 0
-          ? (payload.live_summary || "Scorecard not available from API — stats unchanged.")
+          ? preservedDroppedFixture
+            ? "Finished matches often disappear from the feed; your saved summary and player stats were not overwritten."
+            : (payload.live_summary || "Scorecard not available from API — stats unchanged.")
           : updatedRows > 0
           ? `Updated ${updatedRows} of ${selected.length} selected players.`
           : "Names in lineup didn't match the scorecard — check debug panel.",
-      live_summary: payload.live_summary,
+      live_summary: nextLiveSummary ?? payload.live_summary,
       debug: {
         matchId: currentMatch.id,
         externalMatchId: currentMatch.external_match_id,
@@ -343,6 +398,12 @@ export async function POST(req: Request) {
       const secondsUntilNext = Math.max(1, Math.ceil((minIntervalMs - (now - lastSyncedAt)) / 1000));
       return NextResponse.json({ ok: true, skipped: true, reason: `Using cached data. Try again in ${secondsUntilNext}s.` });
     }
+
+    await createMatchSnapshot({
+      matchId: currentMatch.id as number,
+      source: "pre_sync",
+      summary: "Before API sync",
+    });
 
     const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id));
 
@@ -407,20 +468,26 @@ export async function POST(req: Request) {
     }
 
     const syncedAt = new Date().toISOString();
+    const {
+      live_summary: nextLiveSummaryPost,
+      status: nextStatusPost,
+      preservedDroppedFixture: preservedDroppedPost,
+    } = resolveSummaryAndStatusAfterRefresh(currentMatch, payload);
+
     await supabaseAdmin.from("matches").update({
-      status: payload.status || currentMatch.status,
+      status: nextStatusPost,
       fixture: payload.fixture || currentMatch.fixture,
       ...(payload.match_date ? { match_date: payload.match_date } : {}),
       venue: payload.venue ?? currentMatch.venue,
       toss_winner: payload.toss_winner ?? currentMatch.toss_winner,
-      live_summary: payload.live_summary ?? currentMatch.live_summary,
+      live_summary: nextLiveSummaryPost,
       source_url: payload.source_url ?? currentMatch.source_url,
       last_synced_at: syncedAt,
       ...(payload.rosterNames.length > 0 ? { provider_squad_json: { squads: payload.squads, rosterNames: payload.rosterNames } } : {}),
     }).eq("id", currentMatch.id);
 
-    const resolvedStatus = String(payload.status || currentMatch.status || "");
-    const liveSum = payload.live_summary ?? currentMatch.live_summary ?? null;
+    const resolvedStatus = String(nextStatusPost || currentMatch.status || "");
+    const liveSum = nextLiveSummaryPost ?? currentMatch.live_summary ?? null;
     const manualVoid = currentMatch.fantasy_voided === true;
     if (manualVoid || isPointsVoidedMatchStatus(resolvedStatus, liveSum)) {
       await supabaseAdmin.from("fantasy_players").update(VOIDED_MATCH_FANTASY_SCORES).eq("match_id", currentMatch.id);
@@ -434,11 +501,13 @@ export async function POST(req: Request) {
           ? "Match is voided — fantasy scores cleared (manual void)."
           : "Match voided (washout / no result) — fantasy scores cleared for this fixture."
         : payload.players.length === 0
-        ? (payload.live_summary || "Scorecard not available from API — stats unchanged.")
-        : updatedRows > 0
+          ? preservedDroppedPost
+            ? "Finished matches often disappear from the feed; your saved summary and player stats were not overwritten."
+            : (payload.live_summary || "Scorecard not available from API — stats unchanged.")
+          : updatedRows > 0
           ? `Updated ${updatedRows} of ${selected.length} players.`
           : "Names in lineup didn't match the scorecard — check spelling.",
-      live_summary: payload.live_summary,
+      live_summary: nextLiveSummaryPost ?? payload.live_summary,
       debug: { matchId: currentMatch.id, selectedCount: selected.length, updatedRows, matched, unmatched, providerPlayersSample: summarizeNames(payload.players.map(p => p.name)), syncedAt },
     });
   } catch (error) {

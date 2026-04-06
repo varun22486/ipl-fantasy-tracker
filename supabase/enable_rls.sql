@@ -10,6 +10,7 @@ alter table if exists matches enable row level security;
 alter table if exists api_key_stats enable row level security;
 alter table if exists competitions enable row level security;
 alter table if exists fantasy_players enable row level security;
+alter table if exists match_state_snapshots enable row level security;
 
 -- No policies for anon / authenticated: default deny when RLS is on and no policy matches.
 -- (Do not publish policies that grant anon access unless you intentionally expose data.)

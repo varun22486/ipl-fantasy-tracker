@@ -193,6 +193,19 @@ alter table api_key_stats enable row level security;
 alter table competitions enable row level security;
 alter table fantasy_players enable row level security;
 
+-- Full match + all fantasy lineups/scores (all competitions) for undo / recovery
+create table if not exists match_state_snapshots (
+  id bigint generated always as identity primary key,
+  match_id bigint not null references matches(id) on delete cascade,
+  source text not null,
+  summary text,
+  payload jsonb not null,
+  created_at timestamp with time zone not null default now()
+);
+create index if not exists match_state_snapshots_match_created_idx
+  on match_state_snapshots (match_id, created_at desc);
+alter table match_state_snapshots enable row level security;
+
 -- Late lineup / manual score edits (after nominal match start + grace), for transparency
 create table if not exists fantasy_audit_events (
   id bigint generated always as identity primary key,

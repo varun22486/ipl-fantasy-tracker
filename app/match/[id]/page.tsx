@@ -11,6 +11,7 @@ import SyncButton from "@/components/SyncButton";
 import ScoreEditor from "@/components/ScoreEditor";
 import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
 import AuditTrailPanel from "@/components/AuditTrailPanel";
+import MatchSnapshotsPanel from "@/components/MatchSnapshotsPanel";
 import VoidMatchControl from "@/components/VoidMatchControl";
 import Link from "next/link";
 import type { CSSProperties } from "react";
@@ -479,6 +480,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
           </>
         )}
 
+        <MatchSnapshotsPanel matchId={matchId} />
         <AuditTrailPanel matchId={matchId} competitionId={cid} />
       </div>
     </main>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { formatUiDateTime } from "@/lib/ui-time";
 
 type AuditEvent = {
@@ -21,6 +22,17 @@ function formatDetail(detail: unknown): string {
   }
 }
 
+function manualScoreRestoreTarget(ev: AuditEvent): { auditEventId: number; playerId: number } | null {
+  if (ev.action !== "manual_score") return null;
+  const d = ev.detail as Record<string, unknown> | null;
+  if (!d || typeof d !== "object") return null;
+  const before = d.before;
+  if (before == null || typeof before !== "object") return null;
+  const playerId = Number(d.playerId);
+  if (!Number.isFinite(playerId) || playerId < 1) return null;
+  return { auditEventId: ev.id, playerId };
+}
+
 /**
  * Collapsible log of late lineup changes and manual score edits (see /api/lineup, /api/correct-score).
  */
@@ -31,10 +43,13 @@ export default function AuditTrailPanel({
   matchId: number | null | undefined;
   competitionId?: number | null;
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<number | null>(null);
+  const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setEvents([]);
@@ -98,7 +113,7 @@ export default function AuditTrailPanel({
       </button>
       <div style={{ fontSize: 11, color: "#a16207", marginTop: open ? 6 : 0, lineHeight: 1.4 }}>
         {open
-          ? "Logged when a lineup is saved or scores are edited manually after the match has started (or 5+ min past the scheduled start)."
+          ? "Logged when a lineup is saved or scores are edited manually after the match has started (or 5+ min past the scheduled start). You can restore a player’s stats from any “before” snapshot on manual score entries. Void/sync are not logged here — use ✏️ Edit if there is no audit row."
           : "Hidden until expanded."}
       </div>
       {open && (
@@ -106,12 +121,25 @@ export default function AuditTrailPanel({
           {loadError && (
             <div style={{ fontSize: 13, color: "#b45309", marginBottom: 8 }}>{loadError}</div>
           )}
+          {restoreMsg && (
+            <div
+              style={{
+                fontSize: 13,
+                marginBottom: 8,
+                color: /error|fail/i.test(restoreMsg) ? "#b45309" : "#15803d",
+              }}
+            >
+              {restoreMsg}
+            </div>
+          )}
           {!loadError && events.length === 0 && !loading && (
             <div style={{ fontSize: 13, color: "#92400e" }}>No late edits recorded for this match yet.</div>
           )}
           {events.length > 0 && (
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 12 }}>
-              {events.map((ev) => (
+              {events.map((ev) => {
+                const restoreTarget = manualScoreRestoreTarget(ev);
+                return (
                 <li
                   key={ev.id}
                   style={{
@@ -128,6 +156,48 @@ export default function AuditTrailPanel({
                     {ev.action === "lineup_change" ? "Lineup" : "Manual scores"}
                     {ev.side ? ` · ${ev.side}` : ""}
                   </div>
+                  {restoreTarget && (
+                    <div style={{ marginBottom: 8 }}>
+                      <button
+                        type="button"
+                        disabled={restoringId != null}
+                        onClick={async () => {
+                          setRestoreMsg(null);
+                          setRestoringId(ev.id);
+                          try {
+                            const res = await fetch("/api/restore-audit-scores", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ auditEventId: restoreTarget.auditEventId }),
+                            });
+                            const json = await res.json();
+                            if (json.ok) {
+                              setRestoreMsg(json.message ?? "Restored.");
+                              router.refresh();
+                              await load();
+                            } else {
+                              setRestoreMsg(json.error ?? "Restore failed.");
+                            }
+                          } catch {
+                            setRestoreMsg("Network error.");
+                          }
+                          setRestoringId(null);
+                        }}
+                        style={{
+                          padding: "6px 12px",
+                          borderRadius: 8,
+                          border: "1px solid #ca8a04",
+                          background: "#fff",
+                          color: "#713f12",
+                          fontWeight: 600,
+                          fontSize: 12,
+                          cursor: restoringId != null ? "wait" : "pointer",
+                        }}
+                      >
+                        {restoringId === ev.id ? "Restoring…" : "Restore player stats to “before”"}
+                      </button>
+                    </div>
+                  )}
                   <pre
                     style={{
                       margin: 0,
@@ -144,7 +214,8 @@ export default function AuditTrailPanel({
                     {formatDetail(ev.detail)}
                   </pre>
                 </li>
-              ))}
+              );
+              })}
             </ul>
           )}
         </div>

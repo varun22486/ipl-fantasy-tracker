@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { VOIDED_MATCH_FANTASY_SCORES } from "@/lib/match-void";
+import { createMatchSnapshot } from "@/lib/match-snapshot";
 
 export async function POST(req: Request) {
   try {
@@ -15,6 +16,12 @@ export async function POST(req: Request) {
     if (fetchErr || !row) {
       return NextResponse.json({ ok: false, error: "Match not found" }, { status: 404 });
     }
+
+    await createMatchSnapshot({
+      matchId,
+      source: voided ? "pre_void" : "pre_unvoid",
+      summary: voided ? "Before void (scores will be cleared)" : "Before remove void",
+    });
 
     const { error: upErr } = await supabaseAdmin.from("matches").update({ fantasy_voided: voided }).eq("id", matchId);
     if (upErr) {
