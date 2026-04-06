@@ -22,7 +22,7 @@ const MultiStatsClient = nextDynamic(() => import("@/components/MultiStatsClient
 });
 
 const HOME_MATCH_COLS =
-  "id, fixture, match_date, status, venue, is_current, external_match_id, live_summary";
+  "id, fixture, match_date, status, venue, is_current, external_match_id, live_summary, fantasy_voided";
 
 async function getData(competitionId: number | null) {
   // Use select("*") so the page still works if optional columns (runouts, stumpings, pts_runout, …)
@@ -77,8 +77,8 @@ async function getData(competitionId: number | null) {
 
   const voidedMatchIds = new Set<number>();
   for (const m of matches ?? []) {
-    const row = m as { id?: number; status?: string; live_summary?: string | null };
-    if (typeof row.id === "number" && isPointsVoidedMatchStatus(row.status, row.live_summary)) voidedMatchIds.add(row.id);
+    const row = m as { id?: number; status?: string; live_summary?: string | null; fantasy_voided?: boolean | null };
+    if (typeof row.id === "number" && isPointsVoidedMatchStatus(row.status, row.live_summary, row.fantasy_voided)) voidedMatchIds.add(row.id);
   }
 
   // Determine which side value means "player 1 / you"

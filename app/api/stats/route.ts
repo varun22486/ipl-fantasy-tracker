@@ -7,7 +7,7 @@ import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 export async function GET() {
   try {
     const [{ data: matches }, { data: allPlayers }, { data: settings }] = await Promise.all([
-      supabaseAdmin.from("matches").select("id,fixture,match_date,status,live_summary").order("id", { ascending: true }),
+      supabaseAdmin.from("matches").select("id,fixture,match_date,status,live_summary,fantasy_voided").order("id", { ascending: true }),
       supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
       supabaseAdmin.from("series_settings").select("opponent_name").limit(1).single(),
     ]);
@@ -16,8 +16,8 @@ export async function GET() {
 
     const voidedMatchIds = new Set<number>();
     for (const m of matches ?? []) {
-      const row = m as { id?: number; status?: string; live_summary?: string | null };
-      if (typeof row.id === "number" && isPointsVoidedMatchStatus(row.status, row.live_summary)) voidedMatchIds.add(row.id);
+      const row = m as { id?: number; status?: string; live_summary?: string | null; fantasy_voided?: boolean | null };
+      if (typeof row.id === "number" && isPointsVoidedMatchStatus(row.status, row.live_summary, row.fantasy_voided)) voidedMatchIds.add(row.id);
     }
 
     // Group players by match

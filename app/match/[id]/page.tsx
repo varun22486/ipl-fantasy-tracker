@@ -11,6 +11,7 @@ import SyncButton from "@/components/SyncButton";
 import ScoreEditor from "@/components/ScoreEditor";
 import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
 import AuditTrailPanel from "@/components/AuditTrailPanel";
+import VoidMatchControl from "@/components/VoidMatchControl";
 import Link from "next/link";
 import type { CSSProperties } from "react";
 
@@ -203,7 +204,9 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
       ? players.filter((p) => p.side !== "You")
       : players.filter((p) => p.side === opponentName);
 
-  const pointsVoided = isPointsVoidedMatchStatus(match.status, match.live_summary);
+  const matchRow = match as typeof match & { fantasy_voided?: boolean | null };
+  const pointsVoided = isPointsVoidedMatchStatus(match.status, match.live_summary, matchRow.fantasy_voided);
+  const manuallyVoided = matchRow.fantasy_voided === true;
 
   const yourTotal = pointsVoided
     ? 0
@@ -271,7 +274,9 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
             fontWeight: 600,
           }}
         >
-          Washout / no result — fantasy points for this match do not count. Sync scores to clear any stale stats in the database.
+          {manuallyVoided
+            ? "Manually voided — fantasy points do not count toward standings or stats; player rows are stored as zero."
+            : "Washout / no result — fantasy points for this match do not count. Sync scores to clear any stale stats in the database."}
         </div>
       ) : null}
 
@@ -296,8 +301,9 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
             {match.toss_winner && (
               <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Toss: {match.toss_winner}</div>
             )}
-            <div style={{ marginTop: 14 }}>
+            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
               <SyncButton matchId={matchId} lastSyncedAt={match.last_synced_at ?? null} />
+              <VoidMatchControl matchId={matchId} initialVoided={manuallyVoided} />
             </div>
             <div style={{ marginTop: 16 }}>
               <MatchDetailLineupEditor

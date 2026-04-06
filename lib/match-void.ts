@@ -22,8 +22,10 @@ function containsVoidOutcomeSignal(text: string): boolean {
 
 /**
  * True when this match must contribute zero fantasy points everywhere (DB is zeroed on sync; reads also guard stale rows).
+ * @param fantasyVoided — manual void from `matches.fantasy_voided` (user/admin).
  */
-export function isPointsVoidedMatchStatus(status?: unknown, liveSummary?: unknown): boolean {
+export function isPointsVoidedMatchStatus(status?: unknown, liveSummary?: unknown, fantasyVoided?: unknown): boolean {
+  if (fantasyVoided === true) return true;
   if (containsVoidOutcomeSignal(String(status ?? ""))) return true;
   const sum = String(liveSummary ?? "").trim();
   return Boolean(sum && containsVoidOutcomeSignal(sum));

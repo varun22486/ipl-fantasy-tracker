@@ -92,9 +92,9 @@ async function getData(competitionId: number | null) {
     playersByMatch[mid].push(p);
   }
 
-  const matchRows: HistoryMatchRow[] = (matches ?? []).map((m: { id: number; fixture?: string; match_date?: string; is_current?: boolean; status?: string; live_summary?: string | null }) => {
+  const matchRows: HistoryMatchRow[] = (matches ?? []).map((m: { id: number; fixture?: string; match_date?: string; is_current?: boolean; status?: string; live_summary?: string | null; fantasy_voided?: boolean | null }) => {
     const mp = playersByMatch[m.id] ?? [];
-    const voided = isPointsVoidedMatchStatus(m.status, m.live_summary);
+    const voided = isPointsVoidedMatchStatus(m.status, m.live_summary, m.fantasy_voided);
 
     if (isMulti) {
       const ptsByPlayer: Record<string, number> = {};
