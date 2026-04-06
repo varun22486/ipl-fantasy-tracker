@@ -3,7 +3,10 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { formatUiDateTime } from "@/lib/ui-time";
-import { MATCH_SNAPSHOT_MAX_PER_MATCH, MANUAL_SCORE_SNAPSHOT_COOLDOWN_MS } from "@/lib/match-snapshot";
+import {
+  MATCH_SNAPSHOT_MAX_PER_MATCH,
+  MANUAL_SCORE_SNAPSHOT_COOLDOWN_MS,
+} from "@/lib/match-snapshot-constants";
 
 type SnapshotRow = {
   id: number;
