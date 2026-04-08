@@ -13,7 +13,6 @@ import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
 import VoidMatchControl from "@/components/VoidMatchControl";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import type { CSSProperties } from "react";
 
 const MatchSnapshotsPanel = dynamic(() => import("@/components/MatchSnapshotsPanel"), {
   loading: () => <div className="detail-panel-skeleton" aria-hidden />,
@@ -55,6 +54,8 @@ type PageProps = {
 
 const MULTI_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#ea580c"];
 
+const TABLE_HEAD = ["Player", "Runs", "Wkts", "CT/RO/ST", "Bonuses", "Points", ""] as const;
+
 async function getData(matchId: number, competitionId: number | null) {
   const playersBase = supabaseAdmin.from("fantasy_players").select("*").eq("match_id", matchId).order("id", { ascending: true });
   const { data: players } =
@@ -74,7 +75,7 @@ async function getData(matchId: number, competitionId: number | null) {
     comp && Array.isArray(comp.players)
       ? comp.players
       : comp
-        ? [comp.player1_name, comp.player2_name].filter(Boolean) as string[]
+        ? ([comp.player1_name, comp.player2_name].filter(Boolean) as string[])
         : [];
 
   let yourName: string;
@@ -116,37 +117,33 @@ function PlayerRow({
 }) {
   const pts = playerPoints(p, rules);
   const counted = pointsVoided ? 0 : fantasyPointsCounted(p, rules);
+  const noBonuses =
+    !p.catches &&
+    !p.fifty_bonus &&
+    !p.hundred_bonus &&
+    !p.three_w_bonus &&
+    !p.five_w_bonus &&
+    !p.mom_bonus &&
+    !(p.runouts ?? 0) &&
+    !(p.stumpings ?? 0) &&
+    !p.captain;
+
   return (
-    <tr style={{ background: p.bench ? "#fafafa" : "white" }}>
-      <td style={td}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontWeight: 600 }}>{p.name}</span>
-          {p.captain && (
-            <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 6, background: "#fef9c3", color: "#92400e", fontWeight: 700 }}>★ Captain</span>
-          )}
-          {p.bench && (
-            <span style={{ fontSize: 11, padding: "2px 6px", borderRadius: 6, background: "#e0e7ff", color: "#3730a3", fontWeight: 700 }}>Super sub</span>
-          )}
+    <tr className={p.bench ? "match-detail-tr--bench" : "match-detail-tr--xi"}>
+      <td className="match-detail-td">
+        <div className="match-detail-player-row">
+          <span className="match-detail-player-name">{p.name}</span>
+          {p.captain && <span className="match-detail-badge match-detail-badge--captain">★ Captain</span>}
+          {p.bench && <span className="match-detail-badge match-detail-badge--bench">Super sub</span>}
         </div>
-        <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
-          <span
-            style={{
-              padding: "2px 6px",
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 600,
-              background: "#f1f5f9",
-              color: "#475569",
-            }}
-          >
-            {displaySide}
-          </span>
+        <div className="match-detail-side-meta">
+          <span className="match-detail-side-pill">{displaySide}</span>
         </div>
       </td>
-      <td style={{ ...td, color: "#475569" }}>{p.runs}</td>
-      <td style={{ ...td, color: "#475569" }}>{p.wickets}</td>
-      <td style={{ ...td, color: "#475569", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{formatCtRoSt(p)}</td>
-      <td style={{ ...td, color: "#64748b", fontSize: 12 }}>
+      <td className="match-detail-td match-detail-td--muted">{p.runs}</td>
+      <td className="match-detail-td match-detail-td--muted">{p.wickets}</td>
+      <td className="match-detail-td match-detail-td--muted match-detail-td--tabular">{formatCtRoSt(p)}</td>
+      <td className="match-detail-td match-detail-td--bonus">
         {p.catches > 0 && <div>Ct: +{p.catches * rules.catch}</div>}
         {p.fifty_bonus > 0 && <div>50+: +{rules.fifty}</div>}
         {p.hundred_bonus > 0 && <div>100: +{rules.hundred}</div>}
@@ -156,18 +153,32 @@ function PlayerRow({
         {(p.runouts ?? 0) > 0 && <div>RO: +{(p.runouts ?? 0) * rules.runout}</div>}
         {(p.stumpings ?? 0) > 0 && <div>ST: +{(p.stumpings ?? 0) * rules.stump}</div>}
         {p.captain && <div>Cap: ×2</div>}
-        {!p.catches && !p.fifty_bonus && !p.hundred_bonus && !p.three_w_bonus && !p.five_w_bonus && !p.mom_bonus && !(p.runouts ?? 0) && !(p.stumpings ?? 0) && !p.captain && <span style={{ color: "#cbd5e1" }}>—</span>}
+        {noBonuses && <span className="match-detail-dash">—</span>}
       </td>
-      <td style={{ ...td, fontWeight: 800, fontSize: 18, color: "#0f172a" }}>
+      <td className="match-detail-td match-detail-td--pts">
         {counted}
         {!pointsVoided && p.bench && pts.final > 0 && (
-          <div style={{ fontSize: 11, fontWeight: 500, color: "#94a3b8" }}>(would be {pts.final} if in XI)</div>
+          <div className="match-detail-bench-note">(would be {pts.final} if in XI)</div>
         )}
       </td>
-      <td style={td}>
+      <td className="match-detail-td">
         <ScoreEditor player={p} />
       </td>
     </tr>
+  );
+}
+
+function TableHead() {
+  return (
+    <thead>
+      <tr>
+        {TABLE_HEAD.map((h) => (
+          <th key={h} className="match-detail-th">
+            {h}
+          </th>
+        ))}
+      </tr>
+    </thead>
   );
 }
 
@@ -178,7 +189,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
   const matchId = parseInt(id, 10);
   if (isNaN(matchId)) {
     return (
-      <main className="page-main" style={{ maxWidth: 900 }}>
+      <main className="page-main match-detail match-detail--narrow">
         <NavBar title="Match Not Found" />
         <p>Invalid match ID.</p>
       </main>
@@ -189,16 +200,14 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
 
   const historyHref = cid != null ? `/history?c=${cid}` : "/history";
   const matchLiveHref =
-    cid != null
-      ? `/match?c=${encodeURIComponent(String(cid))}&m=${matchId}`
-      : `/match?m=${matchId}`;
+    cid != null ? `/match?c=${encodeURIComponent(String(cid))}&m=${matchId}` : `/match?m=${matchId}`;
 
   if (!match) {
     return (
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
+      <main className="page-main match-detail match-detail--narrow">
         <NavBar title="Match Not Found" />
-        <p style={{ color: "#64748b" }}>No match found with ID {matchId}.</p>
-        <Link href={historyHref} style={linkBack}>
+        <p style={{ color: "var(--text-muted)" }}>No match found with ID {matchId}.</p>
+        <Link href={historyHref} className="match-detail-link-back">
           ← Back to History
         </Link>
       </main>
@@ -207,20 +216,14 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
 
   const yourPlayers = cid == null ? players.filter((p) => p.side === "You") : players.filter((p) => p.side === yourName);
   const oppPlayers =
-    cid == null
-      ? players.filter((p) => p.side !== "You")
-      : players.filter((p) => p.side === opponentName);
+    cid == null ? players.filter((p) => p.side !== "You") : players.filter((p) => p.side === opponentName);
 
   const matchRow = match as typeof match & { fantasy_voided?: boolean | null };
   const pointsVoided = isPointsVoidedMatchStatus(match.status, match.live_summary, matchRow.fantasy_voided);
   const manuallyVoided = matchRow.fantasy_voided === true;
 
-  const yourTotal = pointsVoided
-    ? 0
-    : yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
-  const oppTotal = pointsVoided
-    ? 0
-    : oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+  const yourTotal = pointsVoided ? 0 : yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+  const oppTotal = pointsVoided ? 0 : oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
 
   const participantBlocks = isMulti
     ? compPlayers.map((name, i) => ({
@@ -258,61 +261,41 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     cid != null && compPlayers.length > 0 ? `${compPlayers.join(" · ")} · ${match.match_date ?? ""}` : match.match_date ?? undefined;
   const { rosterNames, squads, nameToId } = parseRoster(match);
 
+  const statusPillClass =
+    match.status === "LIVE" ? "match-detail-status-pill match-detail-status-pill--live" : "match-detail-status-pill match-detail-status-pill--default";
+
   return (
-    <main className="page-main" style={{ maxWidth: 1000 }}>
+    <main className="page-main match-detail">
       <NavBar title={fixtureName} subtitle={navSubtitle} />
 
-      <div style={{ marginBottom: 16 }}>
-        <Link href={historyHref} style={linkBack}>
+      <div className="match-detail-back-wrap">
+        <Link href={historyHref} className="match-detail-link-back">
           ← Match History
         </Link>
       </div>
 
       {pointsVoided ? (
-        <div
-          style={{
-            marginBottom: 16,
-            padding: "12px 16px",
-            borderRadius: 14,
-            background: "#fef3c7",
-            border: "1px solid #fcd34d",
-            color: "#78350f",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
+        <div className="match-detail-alert-void" role="status">
           {manuallyVoided
             ? "Manually voided — fantasy points do not count toward standings or stats; player rows are stored as zero."
             : "Washout / no result — fantasy points for this match do not count. Sync scores to clear any stale stats in the database."}
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gap: 20 }}>
-        <div
-          style={{
-            padding: "20px 24px",
-            background: "white",
-            border: "1px solid #e2e8f0",
-            borderRadius: 20,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-            flexWrap: "wrap",
-            gap: 16,
-          }}
-        >
+      <div className="match-detail-stack">
+        <div className="match-detail-hero">
           <div>
-            <div style={{ fontSize: 13, color: "#64748b" }}>{match.match_date}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, marginTop: 4, color: "#0f172a" }}>{fixtureName}</div>
-            {match.venue && <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>{match.venue}</div>}
+            <div className="match-detail-hero__meta">{match.match_date}</div>
+            <div className="match-detail-hero__title">{fixtureName}</div>
+            {match.venue && <div className="match-detail-hero__sub">{match.venue}</div>}
             {match.toss_winner && (
-              <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>Toss: {match.toss_winner}</div>
+              <div className="match-detail-hero__sub match-detail-hero__sub--tight">Toss: {match.toss_winner}</div>
             )}
-            <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="match-detail-hero__actions">
               <SyncButton matchId={matchId} lastSyncedAt={match.last_synced_at ?? null} />
               <VoidMatchControl matchId={matchId} initialVoided={manuallyVoided} />
             </div>
-            <div style={{ marginTop: 16 }}>
+            <div className="match-detail-hero__lineup">
               <MatchDetailLineupEditor
                 yourName={yourName}
                 opponentName={opponentName}
@@ -329,49 +312,38 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
               />
             </div>
           </div>
-          <span
-            style={{
-              padding: "4px 12px",
-              borderRadius: 999,
-              background: match.status === "LIVE" ? "#dcfce7" : "#f1f5f9",
-              color: match.status === "LIVE" ? "#16a34a" : "#64748b",
-              fontSize: 13,
-              fontWeight: 600,
-            }}
-          >
-            {match.status ?? "—"}
-          </span>
+          <span className={statusPillClass}>{match.status ?? "—"}</span>
         </div>
 
         {isMulti && participantBlocks ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
+          <div className="match-detail-stats-grid">
             {participantBlocks.map((b) => (
-              <div key={b.name} style={{ padding: "14px 18px", background: "white", border: "1px solid #e2e8f0", borderRadius: 16 }}>
-                <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>{b.name}</div>
-                <div style={{ fontSize: 26, fontWeight: 800, color: b.color, marginTop: 4 }}>{hasData ? b.total : "—"}</div>
-                <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>{b.players.length} picks</div>
+              <div key={b.name} className="match-detail-stat-card">
+                <div className="match-detail-stat-card__label">{b.name}</div>
+                <div className="match-detail-stat-card__value" style={{ color: b.color }}>
+                  {hasData ? b.total : "—"}
+                </div>
+                <div className="match-detail-stat-card__hint">{b.players.length} picks</div>
               </div>
             ))}
-            <div style={{ padding: "14px 18px", background: "white", border: "1px solid #e2e8f0", borderRadius: 16 }}>
-              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>Winner</div>
+            <div className="match-detail-stat-card">
+              <div className="match-detail-stat-card__label">Winner</div>
               <div
+                className="match-detail-stat-card__value match-detail-stat-card__value--md"
                 style={{
-                  fontSize: 22,
-                  fontWeight: 800,
                   color: winner === "Tie" ? "#92400e" : MULTI_COLORS[compPlayers.indexOf(winner ?? "") % MULTI_COLORS.length] || "#0f172a",
-                  marginTop: 4,
                 }}
               >
                 {winner ?? "No data"}
               </div>
             </div>
-            <div style={{ padding: "14px 18px", background: "white", border: "1px solid #e2e8f0", borderRadius: 16 }}>
-              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>Top margin</div>
-              <div style={{ fontSize: 26, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{hasData ? `${diff} pts` : "—"}</div>
+            <div className="match-detail-stat-card">
+              <div className="match-detail-stat-card__label">Top margin</div>
+              <div className="match-detail-stat-card__value">{hasData ? `${diff} pts` : "—"}</div>
             </div>
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
+          <div className="match-detail-stats-grid">
             {[
               { label: `${yourName}'s Points`, value: hasData ? yourTotal : "—", color: "#2563eb" },
               { label: `${opponentName}'s Points`, value: hasData ? oppTotal : "—", color: "#dc2626" },
@@ -382,22 +354,24 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
               },
               { label: "Points Diff", value: hasData ? `${diff} pts` : "—", color: "#0f172a" },
             ].map(({ label, value, color }) => (
-              <div key={label} style={{ padding: "14px 18px", background: "white", border: "1px solid #e2e8f0", borderRadius: 16 }}>
-                <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 1 }}>{label}</div>
-                <div style={{ fontSize: 26, fontWeight: 800, color, marginTop: 4 }}>{value}</div>
+              <div key={label} className="match-detail-stat-card">
+                <div className="match-detail-stat-card__label">{label}</div>
+                <div className="match-detail-stat-card__value" style={{ color }}>
+                  {value}
+                </div>
               </div>
             ))}
           </div>
         )}
 
         {!hasData ? (
-          <div style={{ textAlign: "center", padding: 40, background: "white", border: "1px solid #e2e8f0", borderRadius: 16, color: "#64748b" }}>
+          <div className="match-detail-empty">
             No player scores synced yet for this match.
             {match.is_current && (
               <>
                 <br />
                 <br />
-                <Link href={matchLiveHref} style={{ color: "#2563eb", textDecoration: "none", fontWeight: 600 }}>
+                <Link href={matchLiveHref} className="match-detail-empty__link">
                   → Go to Live Match to sync scores
                 </Link>
               </>
@@ -406,22 +380,14 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
         ) : isMulti && participantBlocks ? (
           <>
             {participantBlocks.map((b) => (
-              <div key={b.name} style={{ ...section, borderTop: `3px solid ${b.color}` }}>
-                <h3 style={{ margin: "0 0 4px", fontSize: 16, color: "#0f172a" }}>{b.name}&apos;s team</h3>
-                <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
+              <div key={b.name} className="match-detail-section" style={{ borderTop: `3px solid ${b.color}` }}>
+                <h3 className="match-detail-section__title">{b.name}&apos;s team</h3>
+                <div className="match-detail-section__meta">
                   Total: <strong style={{ color: b.color }}>{b.total} pts</strong> · {b.players.length} players
                 </div>
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr>
-                        {["Player", "Runs", "Wkts", "CT/RO/ST", "Bonuses", "Points", ""].map((h) => (
-                          <th key={h} style={th}>
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
+                <div className="match-detail-section__scroll">
+                  <table className="match-detail-table">
+                    <TableHead />
                     <tbody>
                       {b.players.map((p) => (
                         <PlayerRow key={p.id} p={p} rules={rules} displaySide={b.name} pointsVoided={pointsVoided} />
@@ -434,22 +400,14 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
           </>
         ) : (
           <>
-            <div style={section}>
-              <h3 style={{ margin: "0 0 4px", fontSize: 16, color: "#0f172a" }}>{yourName}&apos;s Team</h3>
-              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
+            <div className="match-detail-section">
+              <h3 className="match-detail-section__title">{yourName}&apos;s Team</h3>
+              <div className="match-detail-section__meta">
                 Total: <strong style={{ color: "#2563eb" }}>{yourTotal} pts</strong>
               </div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr>
-                      {["Player", "Runs", "Wkts", "CT/RO/ST", "Bonuses", "Points", ""].map((h) => (
-                        <th key={h} style={th}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
+              <div className="match-detail-section__scroll">
+                <table className="match-detail-table">
+                  <TableHead />
                   <tbody>
                     {yourPlayers.map((p) => (
                       <PlayerRow key={p.id} p={p} rules={rules} displaySide={yourName} pointsVoided={pointsVoided} />
@@ -459,22 +417,14 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
               </div>
             </div>
 
-            <div style={section}>
-              <h3 style={{ margin: "0 0 4px", fontSize: 16, color: "#0f172a" }}>{opponentName}&apos;s Team</h3>
-              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 14 }}>
+            <div className="match-detail-section">
+              <h3 className="match-detail-section__title">{opponentName}&apos;s Team</h3>
+              <div className="match-detail-section__meta">
                 Total: <strong style={{ color: "#dc2626" }}>{oppTotal} pts</strong>
               </div>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr>
-                      {["Player", "Runs", "Wkts", "CT/RO/ST", "Bonuses", "Points", ""].map((h) => (
-                        <th key={h} style={th}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
+              <div className="match-detail-section__scroll">
+                <table className="match-detail-table">
+                  <TableHead />
                   <tbody>
                     {oppPlayers.map((p) => (
                       <PlayerRow key={p.id} p={p} rules={rules} displaySide={opponentName} pointsVoided={pointsVoided} />
@@ -492,17 +442,3 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     </main>
   );
 }
-
-const section: CSSProperties = { background: "white", border: "1px solid #e2e8f0", borderRadius: 20, padding: 20 };
-const th: CSSProperties = {
-  textAlign: "left",
-  padding: "10px 12px",
-  borderBottom: "2px solid #e2e8f0",
-  color: "#475569",
-  fontSize: 12,
-  fontWeight: 600,
-  textTransform: "uppercase",
-  letterSpacing: 0.5,
-};
-const td: CSSProperties = { padding: "12px 12px", borderBottom: "1px solid #f1f5f9", fontSize: 14, verticalAlign: "top" };
-const linkBack: CSSProperties = { color: "#2563eb", textDecoration: "none", fontWeight: 500 };
