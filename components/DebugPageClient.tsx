@@ -216,6 +216,11 @@ export default function DebugPageClient({
             <code>/api/debug-roster?id=EXTERNAL_MATCH_UUID</code> — roster field scan (open in browser with a real id from
             your linked fixture).
           </li>
+          <li>
+            <code>GET /api/cron/auto-link-ipl</code> with header <code>Authorization: Bearer $CRON_SECRET</code> — daily
+            auto-link of IPL rows for the current IST calendar day (Vercel: <code>vercel.json</code> at 02:30 UTC ≈ 8:00
+            AM IST).
+          </li>
         </ul>
       </section>
     </div>
