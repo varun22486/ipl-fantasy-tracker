@@ -1,17 +1,30 @@
 import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
+import { effectiveScheduleDateKeyForMatch, iplCalendarTodayIso } from "@/lib/next-match";
 
 export { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
 
-/** All DB rows flagged as tracked for today; multiple allowed. Ordered by id desc. */
+type MatchDateFields = { id: number; match_date?: unknown; fixture?: unknown };
+
+function filterTrackedToIplToday<T extends MatchDateFields>(rows: T[]): T[] {
+  const today = iplCalendarTodayIso();
+  const onDay = rows.filter((r) => {
+    const d = effectiveScheduleDateKeyForMatch(r);
+    return d !== "" && d === today;
+  });
+  return onDay.length > 0 ? onDay : rows;
+}
+
+/** `is_current` rows for the IPL calendar day (IST), else all `is_current` if none have a usable date. Id desc. */
 export async function getActiveMatchIdsOrdered(): Promise<number[]> {
   const { data } = await supabaseAdmin
     .from("matches")
-    .select("id")
+    .select("id, match_date, fixture")
     .eq("is_current", true)
     .order("id", { ascending: false });
-  return (data ?? []).map((r: { id: number }) => r.id);
+  const rows = (data ?? []) as MatchDateFields[];
+  return filterTrackedToIplToday(rows).map((r) => r.id);
 }
 
 /**
@@ -30,25 +43,35 @@ export function pickShownMatchId(
   return activeIds[0] ?? null;
 }
 
-type Matchish = { id: number; is_current?: boolean };
+type Matchish = { id: number; is_current?: boolean; match_date?: unknown; fixture?: unknown };
 
 /**
  * `matchesDescending` — e.g. from DB ordered by id desc.
  * When no row has `is_current`, falls back to latest match (first row) for legacy DBs.
+ * Tabs use only fixtures on today's IPL calendar date when dates are known, so stale
+ * `is_current` rows from earlier days do not all appear as "matches today".
  */
 export function pickTrackedMatchRowFromList<T extends Matchish>(
   matchesDescending: T[],
   queryM: string | undefined,
   cookieVal: string | undefined | null
-): { activeTracked: T[]; shownRow: T | null } {
+): { activeTracked: T[]; activeTrackedForTabs: T[]; tabsAreTodayOnly: boolean; shownRow: T | null } {
   const activeTracked = matchesDescending.filter((m) => m.is_current).sort((a, b) => b.id - a.id);
   const activeIds = activeTracked.map((m) => m.id);
   if (activeIds.length === 0) {
-    return { activeTracked: [], shownRow: matchesDescending[0] ?? null };
+    return { activeTracked: [], activeTrackedForTabs: [], tabsAreTodayOnly: false, shownRow: matchesDescending[0] ?? null };
   }
-  const shownId = pickShownMatchId(activeIds, queryM, cookieVal);
-  const shownRow = matchesDescending.find((m) => m.id === shownId) ?? activeTracked[0] ?? null;
-  return { activeTracked, shownRow };
+  const today = iplCalendarTodayIso();
+  const onToday = activeTracked.filter((m) => {
+    const d = effectiveScheduleDateKeyForMatch(m);
+    return d !== "" && d === today;
+  });
+  const tabsAreTodayOnly = onToday.length > 0;
+  const activeTrackedForTabs = tabsAreTodayOnly ? onToday : activeTracked;
+  const tabIds = activeTrackedForTabs.map((m) => m.id);
+  const shownId = pickShownMatchId(tabIds, queryM, cookieVal);
+  const shownRow = matchesDescending.find((m) => m.id === shownId) ?? activeTrackedForTabs[0] ?? null;
+  return { activeTracked, activeTrackedForTabs, tabsAreTodayOnly, shownRow };
 }
 
 /** Default match id for lineup / roster / refresh when body omits matchId. */

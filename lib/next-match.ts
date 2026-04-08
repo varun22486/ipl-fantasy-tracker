@@ -47,7 +47,7 @@ function leagueMatchSortKey(m: MatchRow): number {
 }
 
 /** Prefer published league day for known 2026 match #s so bad provider/DB dates do not reorder the schedule. */
-function effectiveScheduleDateKey(m: MatchRow): string {
+export function effectiveScheduleDateKeyForMatch(m: MatchRow): string {
   const n = parseLeagueMatchNumberFromFixture(typeof m.fixture === "string" ? m.fixture : "");
   const canon = canonicalIstDayForIpl2026LeagueMatch(n);
   if (canon) return canon;
@@ -64,8 +64,8 @@ export function pickNextUnplayedMatch<T extends MatchRow>(matches: T[], matchIds
   const unplayed = matches.filter((m) => !matchIdsWithPlayers.has(m.id));
 
   const bySchedule = (a: T, b: T) => {
-    const da = effectiveScheduleDateKey(a);
-    const db = effectiveScheduleDateKey(b);
+    const da = effectiveScheduleDateKeyForMatch(a);
+    const db = effectiveScheduleDateKeyForMatch(b);
     const c = da.localeCompare(db);
     if (c !== 0) return c;
     const na = leagueMatchSortKey(a);
@@ -78,7 +78,7 @@ export function pickNextUnplayedMatch<T extends MatchRow>(matches: T[], matchIds
   if (live.length) return [...live].sort(bySchedule)[0] ?? null;
 
   const upcoming = unplayed.filter((m) => {
-    const d = effectiveScheduleDateKey(m);
+    const d = effectiveScheduleDateKeyForMatch(m);
     return d !== "" && d >= today;
   });
   if (upcoming.length) return [...upcoming].sort(bySchedule)[0] ?? null;
