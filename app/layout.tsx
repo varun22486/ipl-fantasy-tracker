@@ -1,11 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Plus_Jakarta_Sans, Syne } from "next/font/google";
 import "./globals.css";
 import AppShell from "@/components/AppShell";
 
 const fontSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-sans-var",
+  display: "swap",
+});
+
+/** Display / headlines — pairs with Jakarta for body (premier broadcast feel). */
+const fontDisplay = Syne({
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  variable: "--font-display-var",
   display: "swap",
 });
 
@@ -53,7 +61,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={fontSans.variable}>
+    <html lang="en" className={`${fontSans.variable} ${fontDisplay.variable}`}>
       <body className={fontSans.className}>
         <AppShell>{children}</AppShell>
       </body>

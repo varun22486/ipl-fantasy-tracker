@@ -10,11 +10,17 @@ import NavBar from "@/components/NavBar";
 import SyncButton from "@/components/SyncButton";
 import ScoreEditor from "@/components/ScoreEditor";
 import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
-import AuditTrailPanel from "@/components/AuditTrailPanel";
-import MatchSnapshotsPanel from "@/components/MatchSnapshotsPanel";
 import VoidMatchControl from "@/components/VoidMatchControl";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import type { CSSProperties } from "react";
+
+const MatchSnapshotsPanel = dynamic(() => import("@/components/MatchSnapshotsPanel"), {
+  loading: () => <div className="detail-panel-skeleton" aria-hidden />,
+});
+const AuditTrailPanel = dynamic(() => import("@/components/AuditTrailPanel"), {
+  loading: () => <div className="detail-panel-skeleton" aria-hidden />,
+});
 
 type SquadTeam = { teamName: string; players: string[] };
 
