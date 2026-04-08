@@ -7,6 +7,7 @@ import { readActiveCompetitionIdFromCookie } from "@/lib/competition-id";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  Bug,
   History,
   Home,
   Settings,
@@ -28,12 +29,14 @@ const NAV: NavItem[] = [
   { href: "/match", label: "Current Match", shortLabel: "Match", Icon: Activity },
   { href: "/history", label: "History", shortLabel: "History", Icon: History },
   { href: "/competitions", label: "Leagues", shortLabel: "Leagues", Icon: UsersRound },
+  { href: "/debug", label: "Debug", shortLabel: "Debug", Icon: Bug },
   { href: "/settings", label: "Settings", shortLabel: "Settings", Icon: Settings },
 ];
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   if (href === "/competitions") return pathname === "/competitions";
+  if (href === "/debug") return pathname === "/debug";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

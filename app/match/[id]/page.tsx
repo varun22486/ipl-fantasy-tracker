@@ -12,14 +12,6 @@ import ScoreEditor from "@/components/ScoreEditor";
 import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
 import VoidMatchControl from "@/components/VoidMatchControl";
 import Link from "next/link";
-import nextDynamic from "next/dynamic";
-
-const MatchSnapshotsPanel = nextDynamic(() => import("@/components/MatchSnapshotsPanel"), {
-  loading: () => <div className="detail-panel-skeleton" aria-hidden />,
-});
-const AuditTrailPanel = nextDynamic(() => import("@/components/AuditTrailPanel"), {
-  loading: () => <div className="detail-panel-skeleton" aria-hidden />,
-});
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -435,9 +427,6 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
             </div>
           </>
         )}
-
-        <MatchSnapshotsPanel matchId={matchId} />
-        <AuditTrailPanel matchId={matchId} competitionId={cid} />
       </div>
     </main>
   );

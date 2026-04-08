@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
 import { formatFixture } from "@/lib/format";
 import { formatUiCalendarDate, formatUiDateTime } from "@/lib/ui-time";
+import { recordSyncDebugClient } from "@/lib/sync-debug-storage";
 import ScoreCard from "@/components/ScoreCard";
 import PlayerTable from "@/components/PlayerTable";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
@@ -71,27 +72,6 @@ type Props = {
   currentMatch: CurrentMatch | null;
 };
 
-type DebugData = {
-  message?: string;
-  skipped?: boolean;
-  reason?: string;
-  live_summary?: string;
-  error?: string;
-  debug?: {
-    selectedCount?: number;
-    providerRowCount?: number;
-    updatedRows?: number;
-    unmatched?: string[];
-    matched?: Array<{ selected: string; provider: string }>;
-    providerPlayersSample?: string[];
-    lastSyncedAt?: string;
-    syncedAt?: string;
-    sourceUrl?: string | null;
-    status?: string;
-    rosterCount?: number;
-  };
-};
-
 function emptyPlayers() {
   return Array.from({ length: 4 }, () => ({ name: "", captain: false }));
 }
@@ -105,67 +85,6 @@ function withFallback(players: Player[]) {
     next[0].captain = true;
   }
   return next;
-}
-
-function DebugPanel({ info }: { info: DebugData | null }) {
-  const [open, setOpen] = useState(false);
-  if (!info) return null;
-  const details = info.debug;
-  return (
-    <div style={debugPanelStyle}>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        style={{ background: "none", border: "none", cursor: "pointer", fontWeight: 700, color: "#64748b", padding: 0, marginBottom: open ? 8 : 0 }}
-      >
-        {open ? "▾" : "▸"} Sync debug
-      </button>
-      {open && (
-        <>
-          <div style={{ color: info.error ? "#b91c1c" : "#334155", marginBottom: 10 }}>
-            {info.error || info.reason || info.message || "No details yet."}
-          </div>
-          {info.live_summary ? <div style={debugLineStyle}><strong>Live summary:</strong> {info.live_summary}</div> : null}
-          {typeof details?.updatedRows === "number" ? (
-            <div style={debugLineStyle}>
-              <strong>Matched selected players:</strong> {details.updatedRows} / {details.selectedCount ?? 0}
-            </div>
-          ) : null}
-          {typeof details?.providerRowCount === "number" ? (
-            <div style={debugLineStyle}>
-              <strong>Provider rows found:</strong> {details.providerRowCount}
-            </div>
-          ) : null}
-          {details?.status ? <div style={debugLineStyle}><strong>Provider status:</strong> {details.status}</div> : null}
-          {details?.syncedAt || details?.lastSyncedAt ? (
-            <div style={debugLineStyle}>
-              <strong>Sync time:</strong> {formatUiDateTime(String(details.syncedAt || details.lastSyncedAt))}
-            </div>
-          ) : null}
-          {details?.unmatched?.length ? (
-            <div style={debugLineStyle}>
-              <strong>Unmatched:</strong> {details.unmatched.join(", ")}
-            </div>
-          ) : null}
-          {details?.matched?.length ? (
-            <div style={debugLineStyle}>
-              <strong>Name matches:</strong> {details.matched.map((m) => `${m.selected} → ${m.provider}`).join(", ")}
-            </div>
-          ) : null}
-          {details?.providerPlayersSample?.length ? (
-            <div style={debugLineStyle}>
-              <strong>Provider sample:</strong> {details.providerPlayersSample.join(", ")}
-            </div>
-          ) : null}
-          {details?.sourceUrl ? (
-            <div style={debugLineStyle}>
-              <strong>Source URL:</strong> <a href={details.sourceUrl} target="_blank" rel="noreferrer">{details.sourceUrl}</a>
-            </div>
-          ) : null}
-        </>
-      )}
-    </div>
-  );
 }
 
 function QuotaBar({
@@ -246,7 +165,6 @@ export default function DashboardClient({
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
-  const [debugInfo, setDebugInfo] = useState<DebugData | null>(null);
   const [rival, setRival] = useState(opponentName || "Rahul");
   const [mine, setMine] = useState<Player[]>(withFallback(yourPlayers));
   const [theirs, setTheirs] = useState<Player[]>(withFallback(opponentPlayers));
@@ -325,7 +243,11 @@ export default function DashboardClient({
         body: JSON.stringify({ externalMatchId }),
       });
       const json = await res.json();
-      setDebugInfo(json);
+      const seedMid =
+        json.match && typeof json.match === "object" && json.match !== null && typeof (json.match as { id?: unknown }).id === "number"
+          ? (json.match as { id: number }).id
+          : null;
+      recordSyncDebugClient(seedMid, json as Record<string, unknown>, "dashboard-seed");
       setLinkChoices(null);
       addUsage(1);
       setMessage(json.ok ? "Match linked. Opening…" : json.error || "Could not link match.");
@@ -351,7 +273,7 @@ export default function DashboardClient({
     try {
       const res = await fetch("/api/matches/today");
       const json = await res.json();
-      setDebugInfo(json);
+      recordSyncDebugClient(null, json as Record<string, unknown>, "dashboard-matches-today");
       addUsage(2);
       if (!json.ok) {
         setMessage(json.error || "Could not load today's matches.");
@@ -415,7 +337,7 @@ export default function DashboardClient({
       const res = await fetch("/api/refresh", { method: "POST" });
       const json = await res.json();
       setSyncing(false);
-      setDebugInfo(json);
+      recordSyncDebugClient(null, json as Record<string, unknown>, "dashboard-refresh");
       if (!json.skipped) addUsage(1);
       if (json.ok) {
         setMessage(json.reason || json.message || (json.skipped ? "Using cached data." : "Scores updated!"));
@@ -673,8 +595,6 @@ export default function DashboardClient({
           keyStats={keyStats}
         />
 
-        {/* Sync debug — last, collapsed by default */}
-        <DebugPanel info={debugInfo} />
       </div>
     );
   }
@@ -990,7 +910,6 @@ export default function DashboardClient({
         </div>
       </div>
 
-      <DebugPanel info={debugInfo} />
     </div>
   );
 }
@@ -1003,20 +922,6 @@ const panelStyle: CSSProperties = {
   background: "white",
   padding: 20,
   boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-};
-
-const debugPanelStyle: CSSProperties = {
-  marginTop: 16,
-  border: "1px solid #dbeafe",
-  borderRadius: 16,
-  background: "#f8fbff",
-  padding: "12px 16px",
-};
-
-const debugLineStyle: CSSProperties = {
-  color: "#334155",
-  marginBottom: 8,
-  wordBreak: "break-word",
 };
 
 const syncBarStyle: CSSProperties = {

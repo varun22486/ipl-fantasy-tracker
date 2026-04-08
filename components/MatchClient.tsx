@@ -9,9 +9,9 @@ import ManualScorePanel from "@/components/ManualScorePanel";
 import SelectClient from "@/components/SelectClient";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
 import ApiMessage from "@/components/ApiMessage";
-import AuditTrailPanel from "@/components/AuditTrailPanel";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
+import { recordSyncDebugClient } from "@/lib/sync-debug-storage";
 
 const QUOTA_LIMIT = 1100; // 100/day × 11 API keys (CRICKET_API_KEY … _11)
 const QUOTA_WARN_AT = 640; // warn at 80% of 800
@@ -31,23 +31,6 @@ function saveQuota(count: number) {
 
 type MatchChoice = { externalMatchId?: string; fixture: string; status: string; venue?: string | null; match_date: string };
 type CurrentMatch = { fixture?: string; label?: string; status?: string; venue?: string | null; toss_winner?: string | null; live_summary?: string | null; last_synced_at?: string | null };
-
-type DebugData = {
-  message?: string; skipped?: boolean; reason?: string; live_summary?: string; error?: string;
-  debug?: {
-    selectedCount?: number;
-    providerRowCount?: number;
-    updatedRows?: number;
-    unmatched?: string[];
-    matched?: Array<{ selected: string; provider: string; matchedById?: boolean }>;
-    providerPlayersSample?: string[];
-    syncedAt?: string;
-    lastSyncedAt?: string;
-    sourceUrl?: string | null;
-    status?: string;
-    rosterCount?: number;
-  };
-};
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -73,43 +56,6 @@ type Props = {
   allParticipants?: { name: string; players: FantasyPlayer[] }[];
 };
 
-function DebugPanel({ info }: { info: DebugData | null }) {
-  const [open, setOpen] = useState(false);
-
-  if (!info) return null;
-  const d = info.debug;
-  return (
-    <div style={{ marginTop: 20, border: "1px solid #dbeafe", borderRadius: 14, background: "#f8fbff", padding: "10px 14px" }}>
-      <button type="button" onClick={() => setOpen((o) => !o)} style={{ background: "none", border: "none", cursor: "pointer", fontWeight: 600, color: "#64748b", padding: 0 }}>
-        {open ? "▾" : "▸"} Sync debug
-      </button>
-      {open && (
-        <div style={{ marginTop: 8, fontSize: 13, color: "#334155" }}>
-          <div style={{ marginBottom: 4 }}>{info.error || info.reason || info.message || "—"}</div>
-          {info.live_summary && <div><strong>Live:</strong> {info.live_summary}</div>}
-          {typeof d?.updatedRows === "number" && <div><strong>Updated:</strong> {d.updatedRows}/{d.selectedCount ?? 0} players</div>}
-          {d?.matched && d.matched.length > 0 && (
-            <div style={{ marginTop: 6 }}>
-              <strong>Matched:</strong>{" "}
-              <span style={{ wordBreak: "break-word" }}>
-                {d.matched.slice(0, 24).map((m) => `${m.selected} → ${m.provider}${m.matchedById ? " (id)" : ""}`).join(" · ")}
-                {d.matched.length > 24 ? ` … +${d.matched.length - 24} more` : ""}
-              </span>
-            </div>
-          )}
-          {d?.unmatched?.length ? <div style={{ marginTop: 6 }}><strong>Unmatched:</strong> {d.unmatched.join(", ")}</div> : null}
-          {d?.providerPlayersSample?.length ? <div><strong>Provider names:</strong> {d.providerPlayersSample.join(", ")}</div> : null}
-          {(d?.syncedAt || d?.lastSyncedAt) && (
-            <div>
-              <strong>Synced at:</strong> {formatUiDateTime(String(d.syncedAt || d.lastSyncedAt))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, matchId, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId, allParticipants }: Props) {
   const router = useRouter();
   const isMultiPlayer = (allParticipants?.length ?? 0) > 2;
@@ -132,7 +78,6 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     } catch {}
     return null;
   });
-  const [debugInfo, setDebugInfo] = useState<DebugData | null>(null);
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number } | null>(null);
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
@@ -211,7 +156,8 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
         body: JSON.stringify(matchId != null ? { matchId } : {}),
       });
       const json = await res.json();
-      setSyncing(false); setDebugInfo(json);
+      setSyncing(false);
+      recordSyncDebugClient(matchId ?? null, json as Record<string, unknown>, "match-detail");
 
       if (json.skipped) {
         // Cached response — show as info, no reload needed
@@ -553,8 +499,6 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
         );
       })()}
 
-      <DebugPanel info={debugInfo} />
-      <AuditTrailPanel matchId={matchId} competitionId={competitionId} />
     </div>
   );
 }
