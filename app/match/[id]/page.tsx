@@ -12,12 +12,12 @@ import ScoreEditor from "@/components/ScoreEditor";
 import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
 import VoidMatchControl from "@/components/VoidMatchControl";
 import Link from "next/link";
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic";
 
-const MatchSnapshotsPanel = dynamic(() => import("@/components/MatchSnapshotsPanel"), {
+const MatchSnapshotsPanel = nextDynamic(() => import("@/components/MatchSnapshotsPanel"), {
   loading: () => <div className="detail-panel-skeleton" aria-hidden />,
 });
-const AuditTrailPanel = dynamic(() => import("@/components/AuditTrailPanel"), {
+const AuditTrailPanel = nextDynamic(() => import("@/components/AuditTrailPanel"), {
   loading: () => <div className="detail-panel-skeleton" aria-hidden />,
 });
 
