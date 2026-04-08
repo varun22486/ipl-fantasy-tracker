@@ -4,7 +4,7 @@ import {
   splitRunOutFieldersFromText,
 } from "@/lib/runout-fielders";
 import { formatUiDateTimeLong } from "@/lib/ui-time";
-import { buildMomWebSearchQuery, searchWebForMom } from "@/lib/web-mom-search";
+import { searchWebForMomForFixture } from "@/lib/web-mom-search";
 
 const DEFAULT_BASE_URL = "https://api.cricapi.com";
 
@@ -2621,7 +2621,7 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   }
 
   if (!momName && looksFinished && fixtureQ) {
-    const fromSearch = await searchWebForMom(buildMomWebSearchQuery(fixtureQ, dateQ));
+    const fromSearch = await searchWebForMomForFixture(fixtureQ, dateQ);
     if (fromSearch) {
       const w = stripMomDecorators(fromSearch);
       momName = w && !isPlaceholderMomName(w) ? w : null;
@@ -2635,7 +2635,7 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
    * we still look up DDG + regex / optional AI — otherwise refresh never writes `mom_bonus`.
    */
   if (looksFinished && momName && !withMom.some((p) => (p.mom_bonus ?? 0) > 0) && fixtureQ) {
-    const fromSearch = await searchWebForMom(buildMomWebSearchQuery(fixtureQ, dateQ));
+    const fromSearch = await searchWebForMomForFixture(fixtureQ, dateQ);
     if (fromSearch) {
       const webMom = stripMomDecorators(fromSearch);
       if (webMom && !isPlaceholderMomName(webMom)) {

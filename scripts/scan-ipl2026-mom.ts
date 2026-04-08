@@ -2,7 +2,7 @@
  * One-off: run DuckDuckGo MoM fallback for listed IPL 2026 fixtures (same as app).
  * Usage: npx tsx scripts/scan-ipl2026-mom.ts
  */
-import { buildMomWebSearchQuery, searchWebForMom } from "../lib/web-mom-search";
+import { searchWebForMomForFixture } from "../lib/web-mom-search";
 
 /** League #, IST date, full fixture prefix (teams only — formatFixture parses vs). */
 const IPL_2026_THROUGH_MAR_31: { n: number; date: string; fixture: string }[] = [
@@ -19,9 +19,8 @@ function sleep(ms: number) {
 async function main() {
   console.log("IPL 2026 MoM scan (DDG fallback, same as production)\n");
   for (const m of IPL_2026_THROUGH_MAR_31) {
-    const q = buildMomWebSearchQuery(m.fixture, m.date);
-    process.stdout.write(`Match ${m.n} (${m.date}) ${q.slice(0, 72)}…\n  → `);
-    const mom = await searchWebForMom(q);
+    process.stdout.write(`Match ${m.n} (${m.date}) ${m.fixture.slice(0, 56)}…\n  → `);
+    const mom = await searchWebForMomForFixture(m.fixture, m.date);
     console.log(mom ?? "(no parseable MoM in top results)");
     await sleep(2500);
   }

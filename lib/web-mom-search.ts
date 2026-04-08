@@ -69,18 +69,97 @@ function extractMomFromFreeText(text: string): string | null {
   return null;
 }
 
+/**
+ * Recap lines like "Yashasvi Jaiswal slammed 32-ball 77" (no explicit MoM phrase).
+ * Only used when the merged text clearly describes a finished match and exactly one
+ * batter matches this pattern — avoids guessing when two heroes are mentioned.
+ */
+function looksLikeFinishedMatchRecap(merged: string): boolean {
+  const t = safeString(merged).toLowerCase();
+  if (!t) return false;
+  return (
+    /\b(?:won by|won the match|won their|defeated)\b/.test(t) ||
+    /\bbeat\b/.test(t) ||
+    /\bmatch ended\b/.test(t) ||
+    /\b(?:resounding|comprehensive|clinical)\s+win\b/.test(t)
+  );
+}
+
+/**
+ * Hero-batter lines in recaps (often no explicit MoM in snippets).
+ * Requires finished-match cues so we do not fire on previews.
+ */
+function extractMomFromBattingHighlights(merged: string): string | null {
+  const t = safeString(merged);
+  if (!t || !looksLikeFinishedMatchRecap(t)) return null;
+
+  const slamRe =
+    /\b([A-Z][a-z]+(?:\s+[A-Z][a-z.]+)+)\s+(?:slammed|smashed|blasted|hammered|crushed|powered)\s+(?:an?\s+)?\d+-ball/gi;
+  const found = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = slamRe.exec(t)) !== null) {
+    const n = safeString(m[1]);
+    if (n && !isPlaceholderMomName(n)) found.add(n);
+  }
+  if (found.size === 1) return [...found][0] ?? null;
+
+  /** e.g. "Jaiswal hit 77 off 32 balls" — only count strong innings to avoid many "12 off 8" lines */
+  const offBallsRe =
+    /\b([A-Z][a-z]+(?:\s+[A-Z][a-z.]+)+)\s+(?:hit|hits|scored|smacked|clubbed|muscle[ds]?)\s+(\d+)\s+off\s+\d+\s+balls?\b/gi;
+  const offFound = new Set<string>();
+  while ((m = offBallsRe.exec(t)) !== null) {
+    const runs = parseInt(safeString(m[2]), 10);
+    if (!Number.isFinite(runs) || runs < 35) continue;
+    const n = safeString(m[1]);
+    if (n && !isPlaceholderMomName(n)) offFound.add(n);
+  }
+  if (offFound.size === 1) return [...offFound][0] ?? null;
+
+  return null;
+}
+
+function tryMomFromDdgBlobs(blobs: string[]): string | null {
+  for (const blob of blobs) {
+    const mom = extractMomFromFreeText(blob);
+    if (mom) return mom;
+  }
+  const merged = blobs.join(" \n ").replace(/\s+/g, " ");
+  const fromPhrases = extractMomFromFreeText(merged);
+  if (fromPhrases) return fromPhrases;
+  return extractMomFromBattingHighlights(merged);
+}
+
 function extractDdgResultTexts(html: string): string[] {
+  const seen = new Set<string>();
   const texts: string[] = [];
-  const res = [/<a[^>]*class="[^"]*result__a[^"]*"[^>]*>([\s\S]*?)<\/a>/gi, /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi];
-  for (const re of res) {
+  const patterns = [
+    /<a[^>]*class="[^"]*result__a[^"]*"[^>]*>([\s\S]*?)<\/a>/gi,
+    /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi,
+    /<a[^>]*class="[^"]*result-link[^"]*"[^>]*>([\s\S]*?)<\/a>/gi,
+    /<a[^>]*class="[^"]*result__url[^"]*"[^>]*>([\s\S]*?)<\/a>/gi,
+    /<div[^>]*class="[^"]*web-result[^"]*"[^>]*>([\s\S]*?)<\/div>/gi,
+  ];
+  for (const re of patterns) {
     let m: RegExpExecArray | null;
     const r = new RegExp(re.source, "gi");
     while ((m = r.exec(html)) !== null) {
       const inner = stripHtml(m[1] ?? "").replace(/\s+/g, " ").trim();
-      if (inner.length > 12) texts.push(inner);
+      if (inner.length > 12 && !seen.has(inner)) {
+        seen.add(inner);
+        texts.push(inner);
+      }
     }
   }
   return texts;
+}
+
+function ddgHtmlLooksLikeResults(body: string): boolean {
+  return (
+    body.includes("result__a") ||
+    body.includes("result__snippet") ||
+    body.includes("result-link") ||
+    body.includes("web-result")
+  );
 }
 
 async function fetchDdgHtml(query: string): Promise<string | null> {
@@ -88,14 +167,10 @@ async function fetchDdgHtml(query: string): Promise<string | null> {
     "User-Agent": BROWSER_UA,
     Accept: "text/html",
     "Accept-Language": "en-US,en;q=0.9",
+    Referer: "https://duckduckgo.com/",
   };
-  const getUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-  let res = await fetch(getUrl, { cache: "no-store", headers, redirect: "follow" });
-  if (res.ok) {
-    const body = await res.text();
-    if (body.includes("result__a") || body.includes("result__snippet")) return body;
-  }
-  res = await fetch("https://html.duckduckgo.com/html/", {
+  // POST often returns fuller HTML from server-side fetchers (e.g. Vercel) than GET.
+  let res = await fetch("https://html.duckduckgo.com/html/", {
     method: "POST",
     cache: "no-store",
     headers: {
@@ -105,6 +180,12 @@ async function fetchDdgHtml(query: string): Promise<string | null> {
     body: new URLSearchParams({ q: query }).toString(),
     redirect: "follow",
   });
+  if (res.ok) {
+    const body = await res.text();
+    if (ddgHtmlLooksLikeResults(body)) return body;
+  }
+  const getUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  res = await fetch(getUrl, { cache: "no-store", headers, redirect: "follow" });
   if (!res.ok) return null;
   return res.text();
 }
@@ -121,19 +202,71 @@ export function buildMomWebSearchQuery(fixtureFull: string, isoDate: string): st
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
+/** Extra DDG queries when the primary one returns no explicit MoM phrase in snippets. */
+export function buildMomSearchQueryVariations(fixtureFull: string, isoDate: string): string[] {
+  const primary = buildMomWebSearchQuery(fixtureFull, isoDate);
+  const short = formatFixture(fixtureFull) || fixtureFull.trim();
+  const teamsOnly = stripMatchSuffix(short) || short;
+  const dateHuman = humanizeIsoDateForSearch(isoDate);
+  const extra = [
+    `${teamsOnly} ${dateHuman} IPL player of the match`.trim(),
+    `${teamsOnly} ${dateHuman} IPL POTM`.trim(),
+    `${teamsOnly} ${dateHuman} IPL man of the match winner`.trim(),
+    `${teamsOnly} ${dateHuman} IPL match report highlights`.trim(),
+  ].filter((q) => q.length > 8);
+  return [...new Set([primary, ...extra])];
+}
+
+/**
+ * Full MoM web path for a fixture: try several DDG queries, regex + recap headline heuristic, then optional AI.
+ */
+export async function searchWebForMomForFixture(fixtureFull: string, isoDate: string): Promise<string | null> {
+  const queries = buildMomSearchQueryVariations(fixtureFull, isoDate);
+  if (queries.length === 0) return null;
+  try {
+    const allBlobs: string[] = [];
+    const seenBlob = new Set<string>();
+
+    for (let i = 0; i < queries.length; i++) {
+      const q = queries[i]!;
+      const html = await fetchDdgHtml(q);
+      if (!html) continue;
+      const blobs = extractDdgResultTexts(html);
+      const mom = tryMomFromDdgBlobs(blobs);
+      if (mom) return mom;
+      for (const b of blobs) {
+        if (!seenBlob.has(b)) {
+          seenBlob.add(b);
+          allBlobs.push(b);
+        }
+      }
+      if (i < queries.length - 1) {
+        await new Promise((r) => setTimeout(r, 350));
+      }
+    }
+
+    if (allBlobs.length === 0) return null;
+    const mergedAll = allBlobs.join(" \n ").replace(/\s+/g, " ");
+    const fromPhrases = extractMomFromFreeText(mergedAll);
+    if (fromPhrases) return fromPhrases;
+    const fromHighlights = extractMomFromBattingHighlights(mergedAll);
+    if (fromHighlights) return fromHighlights;
+
+    return inferMomFromSnippetsWithAi({ searchQuery: queries[0]!, snippets: allBlobs });
+  } catch {
+    return null;
+  }
+}
+
+/** Single-query MoM search (used by scripts / callers that already built a query string). */
 export async function searchWebForMom(query: string): Promise<string | null> {
   if (!query.trim()) return null;
   try {
     const html = await fetchDdgHtml(query);
     if (!html) return null;
     const blobs = extractDdgResultTexts(html);
-    for (const blob of blobs) {
-      const mom = extractMomFromFreeText(blob);
-      if (mom) return mom;
-    }
-    const merged = blobs.join(" \n ").replace(/\s+/g, " ");
-    const fromMerge = extractMomFromFreeText(merged);
-    if (fromMerge) return fromMerge;
+    const mom = tryMomFromDdgBlobs(blobs);
+    if (mom) return mom;
     return inferMomFromSnippetsWithAi({ searchQuery: query, snippets: blobs });
   } catch {
     return null;
