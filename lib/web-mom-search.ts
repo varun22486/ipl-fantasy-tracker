@@ -52,7 +52,7 @@ function extractMomFromFreeText(text: string): string | null {
     /\bman\s+of\s+the\s+match\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bplayer\s+of\s+the\s+match\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bman\s+of\s+the\s+match\s+is\s+([^,.|]+?)(?:\s*[,.|]|$)/i,
-    /\bm\.?\s*o\.?\s*m\.?\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\bm\.?\s*o\.?\s*m\.?\b\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bnamed\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match[:\s,]+([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
     /\b(?:mom|potm)\s*[:-–—]\s*([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
     /\b([a-z][a-z]+(?:\s+[a-z][a-z.]+)+)\s+was\s+(?:named|awarded)\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match\b/i,
