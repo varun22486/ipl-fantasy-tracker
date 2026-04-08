@@ -55,6 +55,9 @@ function extractMomFromFreeText(text: string): string | null {
     /\bm\.?\s*o\.?\s*m\.?\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bnamed\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match[:\s,]+([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
     /\b(?:mom|potm)\s*[:-–—]\s*([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
+    /\b([a-z][a-z]+(?:\s+[a-z][a-z.]+)+)\s+was\s+(?:named|awarded)\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match\b/i,
+    /\b([a-z][a-z]+(?:\s+[a-z][a-z.]+)+)\s+was\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match\b/i,
+    /\b(?:player|man)\s+of\s+the\s+match\s*(?:is|goes\s+to|:)\s*([a-z][a-z\s.'-]+?)(?:\s*[,.|]|$)/i,
   ];
   for (const re of patterns) {
     const m = t.match(re);

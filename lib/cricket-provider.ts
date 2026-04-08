@@ -581,8 +581,20 @@ function safeString(value: unknown) {
 
 function parseStatus(text: string) {
   const lower = text.toLowerCase();
-  if (lower.includes("live") || lower.includes("need") || lower.includes("won toss")) return "LIVE";
-  if (lower.includes("won by") || lower.includes("beat") || lower.includes("drew") || lower.includes("tie")) return "COMPLETED";
+  // Definitive result first — feeds often prefix "Live:" even after "won by …" (e.g. rain-reduced games).
+  if (
+    lower.includes("won by") ||
+    lower.includes("won the match") ||
+    /\bbeat\b/.test(lower) ||
+    /\bdefeat(ed)?\b/.test(lower) ||
+    lower.includes("drew") ||
+    lower.includes("tie") ||
+    /\bmatch\s+(?:completed|ended)\b/.test(lower) ||
+    /\binnings\s+completed\b/.test(lower) ||
+    (/\b(?:completed|finished)\b/.test(lower) && !/\bnot\s+yet\s+(?:completed|finished)\b/.test(lower))
+  ) {
+    return "COMPLETED";
+  }
   // Washout / NR before "vs" — fixtures like "No result - KKR vs PBKS" must not become SCHEDULED.
   if (
     /\bno\s+result\b/.test(lower) ||
@@ -592,6 +604,7 @@ function parseStatus(text: string) {
   ) {
     return "NO_RESULT";
   }
+  if (lower.includes("live") || lower.includes("need") || lower.includes("won toss")) return "LIVE";
   if (lower.includes("tomorrow") || lower.includes("upcoming") || lower.includes("starts") || lower.includes("vs")) return "SCHEDULED";
   return text ? text.toUpperCase() : "LIVE";
 }
@@ -1108,6 +1121,10 @@ function extractMomFromFreeText(text: string): string | null {
     /\bm\.?\s*o\.?\s*m\.?\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
     /\bnamed\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match[:\s,]+([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
     /\b(?:mom|potm)\s*[:-–—]\s*([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
+    // Lowercase names (feeds often sentence-case: "yashasvi jaiswal was player of the match")
+    /\b([a-z][a-z]+(?:\s+[a-z][a-z.]+)+)\s+was\s+(?:named|awarded)\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match\b/i,
+    /\b([a-z][a-z]+(?:\s+[a-z][a-z.]+)+)\s+was\s+(?:the\s+)?(?:player|man)\s+of\s+the\s+match\b/i,
+    /\b(?:player|man)\s+of\s+the\s+match\s*(?:is|goes\s+to|:)\s*([a-z][a-z\s.'-]+?)(?:\s*[,.|]|$)/i,
   ];
   for (const re of patterns) {
     const m = t.match(re);
@@ -1128,14 +1145,19 @@ const MAN_OF_THE_MATCH_JSON_KEYS = [
   "man-of-the-match",
   "player-of-the-match",
   "playerOfMatch",
+  "playerOfTheMatch",
+  "playerofthematch",
   "player_of_the_match",
   "manOfTheMatch",
   "man_of_the_match",
   "manOfMatch",
   "man_of_match",
   "matchManOfTheMatch",
+  "matchPlayerOfTheMatch",
   "mom",
   "pom",
+  "potm",
+  "playerOfMatchAward",
 ] as const;
 
 /** Depth-first search for documented MoM keys anywhere in the API payload. */
@@ -1202,6 +1224,14 @@ function extractManOfTheMatchName(data: MaybeRecord, payloadRoot?: MaybeRecord):
         }
       }
     }
+    for (const block of [root.matchResult, root.result, root.summary, root.matchSummary, root.match_status]) {
+      if (block && typeof block === "object") {
+        for (const k of keys) {
+          const n = pickNameFromMomField((block as MaybeRecord)[k]);
+          if (n && !isPlaceholderMomName(n)) return n;
+        }
+      }
+    }
     return null;
   };
 
@@ -1223,6 +1253,9 @@ function extractManOfTheMatchName(data: MaybeRecord, payloadRoot?: MaybeRecord):
     safeString(data?.message),
     safeString((data as any)?.live_summary),
     safeString((data as any)?.liveSummary),
+    safeString((data as any)?.matchStatus),
+    safeString((data as any)?.match_status),
+    safeString((data as any)?.notes),
     payloadRoot ? safeString((payloadRoot as any).message) : "",
   ];
   for (const blob of textBlobs) {
