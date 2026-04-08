@@ -5,7 +5,7 @@ export const revalidate = 0;
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, fantasyPointsCounted, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
-import { isLiveMatchStatus } from "@/lib/next-match";
+import { effectiveScheduleDateKeyForMatch, iplCalendarTodayIso, isLiveMatchStatus } from "@/lib/next-match";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import NavBar from "@/components/NavBar";
 import Link from "next/link";
@@ -53,6 +53,20 @@ function includeInHistory(m: HistoryMatchRow): boolean {
   if (isFinishedMatchStatus(m.status)) return true;
   if (m.hasData) return true;
   return false;
+}
+
+function rowScheduleDayKey(m: HistoryMatchRow): string {
+  return effectiveScheduleDateKeyForMatch({
+    id: m.matchId,
+    match_date: m.date,
+    fixture: m.fixture,
+  });
+}
+
+/** In progress (not a final result), same cues as the match list pills. */
+function isActivelyLiveNotFinished(m: HistoryMatchRow): boolean {
+  if (isFinishedMatchStatus(m.status)) return false;
+  return isLiveMatchStatus(m.status) || (m.isCurrent && String(m.status ?? "").toUpperCase() === "LIVE");
 }
 
 async function getData(competitionId: number | null) {
@@ -183,7 +197,13 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
   const { matchRows, yourName, opponentName, competitionId: cid, isMulti, compPlayers, compName } = await getData(competitionId);
   const visibleRows = matchRows.filter(includeInHistory);
   const played = visibleRows.filter((m) => m.hasData);
-  const liveCount = visibleRows.filter((m) => m.isCurrent || isLiveMatchStatus(m.status)).length;
+  const todayIst = iplCalendarTodayIso();
+  const onCalendarToday = visibleRows.filter((m) => {
+    const d = rowScheduleDayKey(m);
+    return d !== "" && d === todayIst;
+  });
+  /** Stale `is_current` on old days was inflating this; scope to IST calendar today. */
+  const liveCount = onCalendarToday.filter((m) => isActivelyLiveNotFinished(m)).length;
 
   const subtitle = isMulti
     ? `${compPlayers?.join(" · ")} · ${played.length} with scores · live & finished only`
@@ -236,18 +256,25 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
             <div className="history-summary__card">
               <div className="history-summary__label">In history</div>
               <div className="history-summary__value">{visibleRows.length}</div>
-              <div className="history-summary__hint">live & finished</div>
+              <div className="history-summary__hint">live & finished (all season)</div>
             </div>
             <div className="history-summary__card">
               <div className="history-summary__label">With scores</div>
               <div className="history-summary__value">{played.length}</div>
-              <div className="history-summary__hint">synced matches</div>
+              <div className="history-summary__hint">synced (all season)</div>
             </div>
+            {onCalendarToday.length > 0 && (
+              <div className="history-summary__card">
+                <div className="history-summary__label">Today (IST)</div>
+                <div className="history-summary__value">{onCalendarToday.length}</div>
+                <div className="history-summary__hint">on this calendar day</div>
+              </div>
+            )}
             {liveCount > 0 && (
               <div className="history-summary__card history-summary__card--live">
                 <div className="history-summary__label">Live now</div>
                 <div className="history-summary__value">{liveCount}</div>
-                <div className="history-summary__hint">open from list</div>
+                <div className="history-summary__hint">in progress today (IST)</div>
               </div>
             )}
           </div>
