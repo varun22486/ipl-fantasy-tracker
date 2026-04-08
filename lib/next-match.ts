@@ -39,6 +39,28 @@ export function isLiveMatchStatus(status: unknown): boolean {
   return s === "live" || s.includes("live");
 }
 
+/** True only when the feed looks in-play, not a final (e.g. "Live: … won by …" → false). */
+export function isFinishedMatchStatusString(status: string): boolean {
+  const u = status.toUpperCase();
+  if (u === "COMPLETED") return true;
+  if (u === "ABANDONED") return true;
+  if (u === "NO_RESULT" || u.includes("NO RESULT")) return true;
+  const low = status.toLowerCase();
+  return (
+    low.includes("won by") ||
+    /\bbeat\b/.test(low) ||
+    low.includes("match tied") ||
+    low.includes("match drawn")
+  );
+}
+
+export function isMatchActivelyLive(status: unknown): boolean {
+  const s = String(status ?? "").trim();
+  if (!s) return false;
+  if (isFinishedMatchStatusString(s)) return false;
+  return isLiveMatchStatus(status);
+}
+
 export type MatchRow = { id: number; match_date?: unknown; status?: unknown; fixture?: unknown };
 
 function leagueMatchSortKey(m: MatchRow): number {

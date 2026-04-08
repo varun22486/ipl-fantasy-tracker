@@ -1,11 +1,15 @@
 import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
-import { effectiveScheduleDateKeyForMatch, iplCalendarTodayIso } from "@/lib/next-match";
+import {
+  effectiveScheduleDateKeyForMatch,
+  iplCalendarTodayIso,
+  isMatchActivelyLive,
+} from "@/lib/next-match";
 
 export { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
 
-type MatchDateFields = { id: number; match_date?: unknown; fixture?: unknown };
+type MatchDateFields = { id: number; match_date?: unknown; fixture?: unknown; status?: unknown };
 
 function filterTrackedToIplToday<T extends MatchDateFields>(rows: T[]): T[] {
   const today = iplCalendarTodayIso();
@@ -16,14 +20,16 @@ function filterTrackedToIplToday<T extends MatchDateFields>(rows: T[]): T[] {
   return onDay.length > 0 ? onDay : rows;
 }
 
-/** `is_current` rows for the IPL calendar day (IST), else all `is_current` if none have a usable date. Id desc. */
+/** Prefer truly live `is_current` rows; else same calendar-day filter as before. Id desc. */
 export async function getActiveMatchIdsOrdered(): Promise<number[]> {
   const { data } = await supabaseAdmin
     .from("matches")
-    .select("id, match_date, fixture")
+    .select("id, match_date, fixture, status")
     .eq("is_current", true)
     .order("id", { ascending: false });
   const rows = (data ?? []) as MatchDateFields[];
+  const live = rows.filter((r) => isMatchActivelyLive(r.status));
+  if (live.length > 0) return live.map((r) => r.id);
   return filterTrackedToIplToday(rows).map((r) => r.id);
 }
 
@@ -43,35 +49,45 @@ export function pickShownMatchId(
   return activeIds[0] ?? null;
 }
 
-type Matchish = { id: number; is_current?: boolean; match_date?: unknown; fixture?: unknown };
+type Matchish = { id: number; is_current?: boolean; match_date?: unknown; fixture?: unknown; status?: unknown };
 
 /**
- * `matchesDescending` — e.g. from DB ordered by id desc.
- * When no row has `is_current`, falls back to latest match (first row) for legacy DBs.
- * Tabs use only fixtures on today's IPL calendar date when dates are known, so stale
- * `is_current` rows from earlier days do not all appear as "matches today".
+ * Tabs list only **actively live** `is_current` matches (not finished, not stale tracked).
+ * Shown row prefers that set; if none are live, falls back to today (IST) then any `is_current`.
  */
 export function pickTrackedMatchRowFromList<T extends Matchish>(
   matchesDescending: T[],
   queryM: string | undefined,
   cookieVal: string | undefined | null
-): { activeTracked: T[]; activeTrackedForTabs: T[]; tabsAreTodayOnly: boolean; shownRow: T | null } {
+): { activeTracked: T[]; activeTrackedForTabs: T[]; shownRow: T | null } {
   const activeTracked = matchesDescending.filter((m) => m.is_current).sort((a, b) => b.id - a.id);
   const activeIds = activeTracked.map((m) => m.id);
   if (activeIds.length === 0) {
-    return { activeTracked: [], activeTrackedForTabs: [], tabsAreTodayOnly: false, shownRow: matchesDescending[0] ?? null };
+    return { activeTracked: [], activeTrackedForTabs: [], shownRow: matchesDescending[0] ?? null };
   }
+
+  const liveTracked = activeTracked.filter((m) => isMatchActivelyLive(m.status));
+  const activeTrackedForTabs = liveTracked;
+
   const today = iplCalendarTodayIso();
   const onToday = activeTracked.filter((m) => {
     const d = effectiveScheduleDateKeyForMatch(m);
     return d !== "" && d === today;
   });
-  const tabsAreTodayOnly = onToday.length > 0;
-  const activeTrackedForTabs = tabsAreTodayOnly ? onToday : activeTracked;
-  const tabIds = activeTrackedForTabs.map((m) => m.id);
-  const shownId = pickShownMatchId(tabIds, queryM, cookieVal);
-  const shownRow = matchesDescending.find((m) => m.id === shownId) ?? activeTrackedForTabs[0] ?? null;
-  return { activeTracked, activeTrackedForTabs, tabsAreTodayOnly, shownRow };
+  const fallbackPool = onToday.length > 0 ? onToday : activeTracked;
+
+  let shownRow: T | null = null;
+  if (liveTracked.length > 0) {
+    const tabIds = liveTracked.map((m) => m.id);
+    const shownId = pickShownMatchId(tabIds, queryM, cookieVal);
+    shownRow = matchesDescending.find((m) => m.id === shownId) ?? liveTracked[0] ?? null;
+  } else {
+    const fbIds = fallbackPool.map((m) => m.id);
+    const shownId = pickShownMatchId(fbIds, queryM, cookieVal);
+    shownRow = matchesDescending.find((m) => m.id === shownId) ?? fallbackPool[0] ?? null;
+  }
+
+  return { activeTracked, activeTrackedForTabs, shownRow };
 }
 
 /** Default match id for lineup / roster / refresh when body omits matchId. */

@@ -47,21 +47,27 @@ async function getData(queryM: string | undefined, cookieVal: string | undefined
   ]);
 
   const list = matches ?? [];
-  const { activeTrackedForTabs, tabsAreTodayOnly, shownRow } = pickTrackedMatchRowFromList(
-    list as { id: number; is_current?: boolean; match_date?: string | null; fixture?: string | null }[],
+  const { activeTrackedForTabs, shownRow } = pickTrackedMatchRowFromList(
+    list as {
+      id: number;
+      is_current?: boolean;
+      match_date?: string | null;
+      fixture?: string | null;
+      status?: string | null;
+    }[],
     queryM,
     cookieVal
   );
   const currentMatch = shownRow as (typeof list)[number] | null;
   const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
 
-  return { currentMatch, matchPlayers, settings, activeTrackedForTabs, tabsAreTodayOnly };
+  return { currentMatch, matchPlayers, settings, activeTrackedForTabs };
 }
 
 export default async function SelectPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const { m } = await searchParams;
   const cookieVal = await readActiveMatchCookieValue();
-  const { currentMatch, matchPlayers, settings, activeTrackedForTabs, tabsAreTodayOnly } = await getData(m, cookieVal);
+  const { currentMatch, matchPlayers, settings, activeTrackedForTabs } = await getData(m, cookieVal);
   const { rosterNames, squads, nameToId } = parseRosterFromMatch(currentMatch);
   const opponentName = settings?.opponent_name ?? "Rahul";
   const yourName = (settings as any)?.your_name ?? "Varun";
@@ -83,7 +89,6 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
       <NavBar title="Select Teams" subtitle={currentMatch?.fixture ? `Linked: ${currentMatch.fixture}` : "No match linked yet"} />
       <MatchActiveTabs
         matches={activeTrackedForTabs as { id: number; fixture?: string | null }[]}
-        tabsAreTodayOnly={tabsAreTodayOnly}
         selectedId={currentMatch?.id ?? 0}
         basePath="/select"
         competitionSuffix=""

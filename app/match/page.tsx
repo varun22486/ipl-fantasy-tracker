@@ -39,22 +39,28 @@ async function getData(queryM: string | undefined, cookieVal: string | undefined
   ]);
 
   const list = matches ?? [];
-  const { activeTrackedForTabs, tabsAreTodayOnly, shownRow } = pickTrackedMatchRowFromList(
-    list as { id: number; is_current?: boolean; match_date?: string | null; fixture?: string | null }[],
+  const { activeTrackedForTabs, shownRow } = pickTrackedMatchRowFromList(
+    list as {
+      id: number;
+      is_current?: boolean;
+      match_date?: string | null;
+      fixture?: string | null;
+      status?: string | null;
+    }[],
     queryM,
     cookieVal
   );
   const currentMatch = shownRow as (typeof list)[number] | null;
   const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
 
-  return { currentMatch, matchPlayers, settings, activeTrackedForTabs, tabsAreTodayOnly };
+  return { currentMatch, matchPlayers, settings, activeTrackedForTabs };
 }
 
 export default async function MatchPage({ searchParams }: { searchParams: Promise<{ c?: string; m?: string }> }) {
   const { c, m } = await searchParams;
   const competitionId = await resolveCompetitionId(c);
   const cookieVal = await readActiveMatchCookieValue();
-  const { currentMatch, matchPlayers, settings, activeTrackedForTabs, tabsAreTodayOnly } = await getData(m, cookieVal);
+  const { currentMatch, matchPlayers, settings, activeTrackedForTabs } = await getData(m, cookieVal);
 
   let yourName: string;
   let opponentName: string;
@@ -119,7 +125,6 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         selectedId={selectedTabId}
         basePath="/match"
         competitionSuffix={competitionSuffix}
-        tabsAreTodayOnly={tabsAreTodayOnly}
       />
       <MatchClient
         yourName={yourName}
