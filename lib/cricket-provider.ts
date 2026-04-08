@@ -1374,18 +1374,18 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
     return undefined;
   }
 
-  // CricAPI scorecard batting entry (both formats):
-  //   Old: { batsman: "Travis Head", r: 11, ct: 2, ... }   ← ct = catches taken in the field
-  //   New: { batsman: { id: "...", name: "Travis Head" }, r: 11, ... }
-  // "r" here = runs SCORED. ct/c = fielding catches (only present in old format).
-  const batsmanName = playerName(node.batsman);
-  if (batsmanName && "r" in node) {
+  // CricAPI scorecard bowling entry (both formats) — MUST run before batting:
+  //   Old: { bowler: "Krunal Pandya", w: 2, o: "4.0", r: 28 }
+  //   New: { bowler: { id: "...", name: "Krunal Pandya" }, w: 2, o: 4, r: 26 }
+  // "r" here = runs CONCEDED, not scored. Some feeds use `overs` instead of `o`.
+  const bowlerName = playerName(node.bowler);
+  if (bowlerName && ("w" in node || "o" in node || "overs" in node)) {
     bucket.push(bonusify({
-      id: playerId(node.batsman),
-      name: batsmanName,
-      runs: numberValue(node.r ?? node.runs),
-      wickets: 0,
-      catches: numberValue(node.ct ?? node.c ?? 0),
+      id: playerId(node.bowler),
+      name: bowlerName,
+      runs: 0,
+      wickets: numberValue(node.w ?? node.wickets ?? node.bowlWkts),
+      catches: 0,
       runouts: 0,
       stumpings: 0,
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
@@ -1393,18 +1393,26 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
     return; // leaf node — don't recurse further
   }
 
-  // CricAPI scorecard bowling entry (both formats):
-  //   Old: { bowler: "Krunal Pandya", w: 2, o: "4.0", r: 28 }
-  //   New: { bowler: { id: "...", name: "Krunal Pandya" }, w: 2, o: 4, r: 26 }
-  // "r" here = runs CONCEDED — must NOT be used as runs scored.
-  const bowlerName = playerName(node.bowler);
-  if (bowlerName && ("w" in node || "o" in node)) {
+  // CricAPI scorecard batting entry (both formats):
+  //   Old: { batsman: "Travis Head", r: 11, ct: 2, ... }   ← ct = catches taken in the field
+  //   New: { batsman: { id: "...", name: "Travis Head" }, r: 11, ... }
+  // Many scorecards use `runs` (or `score`) only — no `r`. If we required `"r" in node`,
+  // tail-end batters (e.g. Bumrah 5*) were skipped here and only picked up as bowlers → 0 runs.
+  const batsmanName = playerName(node.batsman);
+  const hasBattingRunField =
+    "r" in node ||
+    "runs" in node ||
+    "run" in node ||
+    "batRuns" in node ||
+    "batsmanRuns" in node ||
+    "score" in node;
+  if (batsmanName && hasBattingRunField) {
     bucket.push(bonusify({
-      id: playerId(node.bowler),
-      name: bowlerName,
-      runs: 0,
-      wickets: numberValue(node.w ?? node.wickets ?? node.bowlWkts),
-      catches: 0,
+      id: playerId(node.batsman),
+      name: batsmanName,
+      runs: numberValue(node.r ?? node.runs ?? node.run ?? node.batRuns ?? node.batsmanRuns ?? node.score),
+      wickets: 0,
+      catches: numberValue(node.ct ?? node.c ?? 0),
       runouts: 0,
       stumpings: 0,
       fifty_bonus: 0, hundred_bonus: 0, three_w_bonus: 0, five_w_bonus: 0,
