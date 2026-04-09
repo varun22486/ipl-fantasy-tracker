@@ -86,7 +86,14 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
 
   return (
     <main className="page-main">
-      <NavBar title="Select Teams" subtitle={currentMatch?.fixture ? `Linked: ${currentMatch.fixture}` : "No match linked yet"} />
+      <NavBar
+        title="Select Teams"
+        subtitle={
+          currentMatch?.fixture
+            ? `${currentMatch.fixture} · Save both lineups to open the match`
+            : "Link a match, then save each side's team to continue"
+        }
+      />
       <MatchActiveTabs
         matches={activeTrackedForTabs as { id: number; fixture?: string | null }[]}
         selectedId={currentMatch?.id ?? 0}

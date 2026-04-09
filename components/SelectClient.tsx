@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { formatFixture } from "@/lib/format";
 import { formatUiCalendarDate } from "@/lib/ui-time";
 import type { CSSProperties } from "react";
@@ -216,6 +216,13 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   const [theirs, setTheirs] = useState<Player[]>(() =>
     opponentPlayers.length ? rosterSlotsFromSaved(opponentPlayers) : emptyRosterSlots()
   );
+  /** Last successful server payload per side — current slots must match to count as “saved” for H2H navigation. */
+  const [mineBaseline, setMineBaseline] = useState(() =>
+    slotsToLineupPayload(yourPlayers.length ? rosterSlotsFromSaved(yourPlayers) : emptyRosterSlots())
+  );
+  const [theirsBaseline, setTheirsBaseline] = useState(() =>
+    slotsToLineupPayload(opponentPlayers.length ? rosterSlotsFromSaved(opponentPlayers) : emptyRosterSlots())
+  );
   const [activeSide, setActiveSide] = useState<"mine" | "theirs">("mine");
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
   const [pickedLinkId, setPickedLinkId] = useState("");
@@ -254,6 +261,20 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
 
   const canSaveMine = rosterSlotsCanSave(mine);
   const canSaveTheirs = rosterSlotsCanSave(theirs);
+
+  const minePayload = useMemo(() => slotsToLineupPayload(mine), [mine]);
+  const theirsPayload = useMemo(() => slotsToLineupPayload(theirs), [theirs]);
+  const h2hMineSynced =
+    rosterSlotsCanSave(mine) && JSON.stringify(minePayload) === JSON.stringify(mineBaseline);
+  const h2hTheirSynced =
+    rosterSlotsCanSave(theirs) && JSON.stringify(theirsPayload) === JSON.stringify(theirsBaseline);
+  const h2hBothSynced = h2hMineSynced && h2hTheirSynced;
+  const h2hMatchHref = useMemo(() => {
+    const p = new URLSearchParams();
+    if (competitionId != null) p.set("c", String(competitionId));
+    if (matchId != null) p.set("m", String(matchId));
+    return p.toString() ? `/match?${p.toString()}` : "/match";
+  }, [competitionId, matchId]);
 
   const hasRoster = rosterNames.length > 0 || squads.some((t) => t.players.length > 0);
 
@@ -352,17 +373,53 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       const json = await res.json();
       setSaving(null);
       if (json.ok) {
-        setApiMsg({ type: "success", title: `${side === "mine" ? yourName : rival}'s team saved! Taking you to the match…` });
-        let dest: string;
-        if (afterLineupSaveHref) {
-          dest = afterLineupSaveHref;
+        const minePay = slotsToLineupPayload(mine);
+        const theirsPay = slotsToLineupPayload(theirs);
+        let nextMineBl = mineBaseline;
+        let nextTheirsBl = theirsBaseline;
+        if (side === "mine") {
+          nextMineBl = minePay;
+          setMineBaseline(minePay);
         } else {
-          const params = new URLSearchParams();
-          if (competitionId != null) params.set("c", String(competitionId));
-          if (matchId != null) params.set("m", String(matchId));
-          dest = params.toString() ? `/match?${params.toString()}` : "/match";
+          nextTheirsBl = theirsPay;
+          setTheirsBaseline(theirsPay);
         }
-        window.setTimeout(() => { window.location.href = dest; }, 900);
+
+        const params = new URLSearchParams();
+        if (competitionId != null) params.set("c", String(competitionId));
+        if (matchId != null) params.set("m", String(matchId));
+        const matchDest = params.toString() ? `/match?${params.toString()}` : "/match";
+        const dest = afterLineupSaveHref ?? matchDest;
+
+        if (afterLineupSaveHref) {
+          setApiMsg({
+            type: "success",
+            title: `${side === "mine" ? yourName : rival}'s team saved! Taking you back…`,
+          });
+          window.setTimeout(() => {
+            window.location.href = dest;
+          }, 900);
+        } else {
+          const bothSynced =
+            rosterSlotsCanSave(mine) &&
+            rosterSlotsCanSave(theirs) &&
+            JSON.stringify(minePay) === JSON.stringify(nextMineBl) &&
+            JSON.stringify(theirsPay) === JSON.stringify(nextTheirsBl);
+          if (bothSynced) {
+            setApiMsg({ type: "success", title: "Both teams saved! Opening the match…" });
+            window.setTimeout(() => {
+              window.location.href = matchDest;
+            }, 900);
+          } else {
+            const other = side === "mine" ? rival : yourName;
+            setApiMsg({
+              type: "success",
+              title: `${side === "mine" ? yourName : rival}'s team saved`,
+              detail: `Save ${other}'s team here too — then you'll go to the match automatically.`,
+            });
+            setActiveSide(side === "mine" ? "theirs" : "mine");
+          }
+        }
       } else {
         showMsg(json.error || "Could not save.", "Save team");
       }
@@ -688,7 +745,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   }
 
   return (
-    <div style={{ display: "grid", gap: 20 }}>
+    <div className="select-page">
 
       {/* ── All keys blocked banner ────────────────────────────────────────── */}
       {allBlocked && (
@@ -720,11 +777,24 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       )}
 
       {/* ── Match control bar ─────────────────────────────────────────────── */}
-      <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, overflow: "hidden" }}>
-        <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-        <button onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit} style={btnDark}>
+      <div className="select-surface-card select-control-bar">
+        <div className="select-control-bar__row">
+        <button type="button" className="select-btn-primary" onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>
           {syncing ? "Loading…" : "Link IPL Match"}
         </button>
+        <div className="select-h2h-progress" aria-label="Save progress">
+          <span className={h2hMineSynced ? "select-h2h-pill select-h2h-pill--done" : "select-h2h-pill"}>
+            {h2hMineSynced ? "✓ " : ""}{yourName}
+          </span>
+          <span className={h2hTheirSynced ? "select-h2h-pill select-h2h-pill--done" : "select-h2h-pill"}>
+            {h2hTheirSynced ? "✓ " : ""}{rival}
+          </span>
+          {h2hBothSynced && (
+            <a className="select-btn-ghost" href={h2hMatchHref}>
+              View match →
+            </a>
+          )}
+        </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
           <span style={{
             fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999,
@@ -781,7 +851,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         </div>
         {/* Message row — always full-width, below the buttons */}
         {(apiMsg || message) && !linkChoices && (
-          <div style={{ padding: "0 16px 14px" }}>
+          <div className="select-control-bar__messages">
             {apiMsg
               ? <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />
               : <ApiMessage msg={classifyApiMsg(message)} onDismiss={() => setMessage("")} />
@@ -792,8 +862,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
 
       {/* ── Match picker ──────────────────────────────────────────────────── */}
       {linkChoices && linkChoices.length > 1 && (
-        <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 18, padding: 20 }}>
-          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Choose a match</div>
+        <div className="select-match-picker">
+          <div className="select-match-picker__title">Choose a match</div>
           {linkDateHint && <div style={{ color: "#64748b", fontSize: 13, marginBottom: 14 }}>Showing ±1 day (Eastern) · {linkDateHint}</div>}
           <div style={{ display: "grid", gap: 10 }}>
             {linkChoices.map((c) => {
@@ -828,28 +898,28 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       )}
 
       {/* ── Main two-column layout ─────────────────────────────────────────── */}
-        <div className="select-two-col" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) min(340px,100%)", gap: 20, alignItems: "start" }}>
+        <div className="select-two-col select-two-col--h2h">
 
         {/* LEFT — Player roster ─────────────────────────────────────────── */}
-        <div style={panel}>
+        <div className="select-roster-panel">
           {/* Panel header */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+          <div className="select-roster-panel__head">
             <div>
-              <div style={{ fontWeight: 800, fontSize: 16, color: "#0f172a" }}>Match Players</div>
-              <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
+              <div className="select-roster-panel__title">Match Players</div>
+              <div className="select-roster-panel__sub">
                 {hasRoster
                   ? "Tap a name to add to the selected team"
                   : hasLinkedMatch ? "Load the full squad roster from the API" : "Link a match first"}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div className="select-roster-panel__actions">
               {hasRoster && (
-                <button type="button" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing} style={btnSm}>
+                <button type="button" className="select-btn-secondary-sm" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>
                   {syncing ? "…" : "↺ Refresh roster"}
                 </button>
               )}
               {!hasLinkedMatch && (
-                <button type="button" onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit} style={btnSm}>
+                <button type="button" className="select-btn-secondary-sm" onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>
                   Link Match
                 </button>
               )}
@@ -858,14 +928,23 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
 
           {/* Active side switcher */}
           {hasRoster && (
-            <div style={{ display: "flex", gap: 0, borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", marginBottom: 16, width: "fit-content" }}>
+            <div className="select-side-segment" role="tablist" aria-label="Which lineup receives roster picks">
               {(["mine", "theirs"] as const).map((s) => (
-                <button key={s} type="button" onClick={() => setActiveSide(s)} style={{
-                  padding: "8px 18px", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, transition: "all 0.12s",
-                  background: activeSide === s ? sideColor(s) : "white",
-                  color: activeSide === s ? "white" : "#64748b",
-                }}>
-                  {s === "mine" ? `+ ${yourName}` : `+ ${rival}`}
+                <button
+                  key={s}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSide === s}
+                  onClick={() => setActiveSide(s)}
+                  className={
+                    activeSide === s
+                      ? s === "mine"
+                        ? "select-side-segment__btn select-side-segment__btn--active select-side-segment__btn--you"
+                        : "select-side-segment__btn select-side-segment__btn--active select-side-segment__btn--opp"
+                      : "select-side-segment__btn"
+                  }
+                >
+                  {s === "mine" ? yourName : rival}
                 </button>
               ))}
             </div>
@@ -873,21 +952,21 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
 
           {/* Roster content */}
           {!hasLinkedMatch ? (
-            <div style={{ textAlign: "center", padding: "40px 20px" }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>🏏</div>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: "#0f172a" }}>No match linked</div>
-              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>Link an IPL match to see the players.</div>
-              <button style={btnDark} onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>
+            <div className="select-empty-state">
+              <div className="select-empty-state__icon" aria-hidden>🏏</div>
+              <div className="select-empty-state__title">No match linked</div>
+              <div className="select-empty-state__text">Link an IPL match to load squads and build your lineups.</div>
+              <button type="button" className="select-btn-primary" onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>
                 Link IPL Match
               </button>
             </div>
           ) : !hasRoster ? (
-            <div style={{ textAlign: "center", padding: "40px 20px" }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
-              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: "#0f172a" }}>Roster not loaded yet</div>
-              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 20 }}>Usually available a few hours before the match starts.</div>
-              <button style={btnDark} onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>
-                {syncing ? "Loading…" : "Load Player Roster"}
+            <div className="select-empty-state">
+              <div className="select-empty-state__icon" aria-hidden>📋</div>
+              <div className="select-empty-state__title">Roster not loaded yet</div>
+              <div className="select-empty-state__text">Squads usually appear a few hours before the first ball.</div>
+              <button type="button" className="select-btn-primary" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>
+                {syncing ? "Loading…" : "Load player roster"}
               </button>
             </div>
           ) : (
@@ -994,10 +1073,10 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         </div>
 
         {/* RIGHT — Team lineup cards ────────────────────────────────────── */}
-        <div style={{ display: "grid", gap: 16 }}>
+        <div className="select-lineup-stack">
           {/* Tip */}
-          <div style={{ fontSize: 12, color: "#64748b", padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
-            💡 <strong>Independent saves</strong> — {yourName} and {rival} each save 4 for points + up to 3 super subs. Use ↑↓ to swap slots (e.g. bring a sub into the XI).
+          <div className="select-tip">
+            <strong>How it works</strong> — {yourName} and {rival} each pick 4 for points plus up to 3 super subs. Use ↑↓ to reorder. <strong>Save both teams</strong> to open the match screen.
           </div>
 
           {(["mine", "theirs"] as const).map((side) => {
@@ -1010,49 +1089,49 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             const bg = sideBg(side);
             const filled = rosterFilledCount(list);
             const startersOk = rosterStartersFilled(list);
+            const sideSynced = side === "mine" ? h2hMineSynced : h2hTheirSynced;
 
             return (
               <div
                 key={side}
-                style={{
-                  ...panel,
-                  border: isActive ? `2px solid ${color}` : "1px solid #e2e8f0",
-                  transition: "border 0.15s",
-                }}
+                className={
+                  "select-lineup-card" +
+                  (isActive ? " select-lineup-card--active" : "") +
+                  (side === "mine" ? " select-lineup-card--you" : " select-lineup-card--opp")
+                }
+                style={{ "--lineup-accent": color, "--lineup-accent-soft": bg } as React.CSSProperties}
               >
                 {/* Card header */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 999, background: color, flexShrink: 0 }} />
+                <div className="select-lineup-card__head">
+                  <div className="select-lineup-card__who">
+                    <div className="select-lineup-card__dot" style={{ background: color }} />
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: 15, color: "#0f172a" }}>{name}</div>
-                      <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>
-                        {filled}/{ROSTER_MAX_PLAYERS} · XI {startersOk}/{ROSTER_STARTING_COUNT} · 1 captain (XI only)
+                      <div className="select-lineup-card__name">{name}</div>
+                      <div className="select-lineup-card__meta">
+                        {filled}/{ROSTER_MAX_PLAYERS} picks · XI {startersOk}/{ROSTER_STARTING_COUNT} · one captain
+                        {sideSynced ? " · saved" : ""}
                       </div>
                     </div>
                   </div>
                   {!isActive && (
-                    <button type="button" onClick={() => setActiveSide(side)} style={{
-                      fontSize: 12, fontWeight: 600, padding: "5px 12px", borderRadius: 8,
-                      border: `1px solid ${color}`, background: "white", color, cursor: "pointer",
-                    }}>
-                      Select here
+                    <button type="button" className="select-lineup-card__pick" onClick={() => setActiveSide(side)} style={{ borderColor: color, color }}>
+                      Edit this side
                     </button>
                   )}
                   {isActive && (
-                    <span style={{ fontSize: 12, fontWeight: 700, color, background: bg, padding: "4px 10px", borderRadius: 999 }}>
-                      Active ✓
+                    <span className="select-lineup-card__active" style={{ color, background: bg }}>
+                      Building
                     </span>
                   )}
                 </div>
 
                 {/* Opponent name field */}
                 {side === "theirs" && (
-                  <div style={{ marginBottom: 14 }}>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.05, display: "block", marginBottom: 5 }}>
-                      Opponent name
+                  <div className="select-lineup-card__field">
+                    <label className="select-lineup-card__label" htmlFor="select-rival-name">
+                      Opponent display name
                     </label>
-                    <input value={rival} onChange={(e) => setRival(e.target.value)} style={inputStyle} placeholder="e.g. Rahul" />
+                    <input id="select-rival-name" value={rival} onChange={(e) => setRival(e.target.value)} className="select-input" placeholder="e.g. Rahul" />
                   </div>
                 )}
 
@@ -1126,17 +1205,23 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
 
                 {/* Save button */}
                 <button
+                  type="button"
+                  className={
+                    "select-save-lineup" +
+                    (sideSynced ? " select-save-lineup--synced" : "") +
+                    (!canSave || saving !== null ? " select-save-lineup--disabled" : "")
+                  }
                   onClick={() => void saveSide(side)}
                   disabled={!canSave || saving !== null}
-                  style={{
-                    width: "100%", padding: "12px", borderRadius: 12, border: "none",
-                    fontWeight: 700, fontSize: 14, cursor: canSave ? "pointer" : "not-allowed",
-                    background: canSave ? color : "#e2e8f0",
-                    color: canSave ? "white" : "#94a3b8",
-                    transition: "all 0.15s",
-                  }}
+                  style={{ "--lineup-accent": color } as React.CSSProperties}
                 >
-                  {isSaving ? "Saving…" : canSave ? `Save ${name}'s team →` : `Fill XI (${rosterStartersFilled(list)}/${ROSTER_STARTING_COUNT})`}
+                  {isSaving
+                    ? "Saving…"
+                    : sideSynced
+                      ? `Update ${name}'s team`
+                      : canSave
+                        ? `Save ${name}'s team`
+                        : `Fill XI (${rosterStartersFilled(list)}/${ROSTER_STARTING_COUNT})`}
                 </button>
               </div>
             );
@@ -1180,7 +1265,6 @@ const btnOutline: CSSProperties = {
   boxShadow: "var(--shadow-xs)",
 };
 const btnSm: CSSProperties = { padding: "7px 14px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", cursor: "pointer", fontWeight: 600, fontSize: 13 };
-const inputStyle: CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #cbd5e1", borderRadius: 10, boxSizing: "border-box", fontSize: 14, outline: "none" };
 const warnStyle: CSSProperties = { border: "2px solid #fcd34d", borderRadius: 16, background: "#fffbeb", padding: 16 };
 
 // Legacy aliases so any other file importing these still works
