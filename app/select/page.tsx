@@ -87,11 +87,11 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
   return (
     <main className="page-main page-main--select">
       <NavBar
-        title="Select Teams"
+        title="Lineup studio"
         subtitle={
           currentMatch?.fixture
-            ? `${currentMatch.fixture} · Save both lineups to open the match`
-            : "Link a match, then save each side's team to continue"
+            ? `${currentMatch.fixture} — complete both squads to enter the match view`
+            : "Link a fixture, load the squad, then build and save each lineup"
         }
       />
       <MatchActiveTabs

@@ -234,25 +234,27 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   // ── Inline team picker (no lineup yet, or "Change Team" requested) ─────────
   if (teamPickerOpen) {
     return (
-      <div className="select-page">
-        {/* Header strip */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", background: "white", border: "1px solid #e2e8f0", borderRadius: 14, flexWrap: "wrap", gap: 10 }}>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>
-              {needsSetup ? "Set up your teams" : "Change teams"}
+      <div className="select-page select-page--premium">
+        <div className="select-surface-card" style={{ marginBottom: 4 }}>
+          <div className="select-control-bar__row select-control-bar__row--spread">
+            <div>
+              <div className="select-roster-panel__title" style={{ marginBottom: 2 }}>
+                {needsSetup ? "Set up your teams" : "Change teams"}
+              </div>
+              <div className="select-roster-panel__sub" style={{ marginTop: 0 }}>
+                {fixtureName !== "No match linked" ? fixtureName : "Link a match first"}
+              </div>
             </div>
-            <div style={{ fontSize: 13, color: "#64748b", marginTop: 2 }}>
-              {fixtureName !== "No match linked" ? fixtureName : "Link a match first"}
-            </div>
+            {!needsSetup && (
+              <button
+                type="button"
+                className="select-btn-secondary-sm"
+                onClick={() => setTeamPickerOpen(false)}
+              >
+                Cancel
+              </button>
+            )}
           </div>
-          {!needsSetup && (
-            <button
-              onClick={() => setTeamPickerOpen(false)}
-              style={{ ...btnSecondary, padding: "7px 14px", fontSize: 13 }}
-            >
-              ✕ Cancel
-            </button>
-          )}
         </div>
         <SelectClient
           yourName={yourName}

@@ -36,6 +36,112 @@ function saveQuota(count: number) {
   try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: formatUiCalendarDate() })); } catch {}
 }
 
+type KeyStatRow = {
+  alias: string;
+  hits: number;
+  blocked?: boolean;
+  blockReason?: string | null;
+  resumesInMin?: number | null;
+  staleQuotaFlag?: boolean;
+};
+
+function SelectQuotaCluster({
+  apiUsed,
+  isAtLimit,
+  isNearLimit,
+  keyStats,
+  resettingBlocks,
+  setResettingBlocks,
+  setApiMsg,
+  refreshKeyStats,
+}: {
+  apiUsed: number;
+  isAtLimit: boolean;
+  isNearLimit: boolean;
+  keyStats: KeyStatRow[];
+  resettingBlocks: boolean;
+  setResettingBlocks: (v: boolean) => void;
+  setApiMsg: (m: ApiMsg | null) => void;
+  refreshKeyStats: () => void;
+}) {
+  return (
+    <div className="select-toolbar__api">
+      <span
+        className={
+          "select-quota-badge" +
+          (isAtLimit ? " select-quota-badge--limit" : isNearLimit ? " select-quota-badge--warn" : "")
+        }
+      >
+        {apiUsed}/{QUOTA_LIMIT} credits
+      </span>
+      {keyStats.some((k) => k.blocked) && (
+        <button
+          type="button"
+          className="select-btn-clear-blocks"
+          disabled={resettingBlocks}
+          title="Clear rate-limit blocks so all keys are retried"
+          onClick={async () => {
+            setResettingBlocks(true);
+            try {
+              const r = await fetch("/api/reset-key-blocks", { method: "POST" });
+              const j = await r.json();
+              setApiMsg({ type: j.ok ? "success" : "error", title: j.message || j.error || "Done" });
+              refreshKeyStats();
+            } catch {
+              setApiMsg({ type: "error", title: "Could not reset blocks" });
+            }
+            setResettingBlocks(false);
+          }}
+        >
+          {resettingBlocks ? "…" : "↺ Clear blocks"}
+        </button>
+      )}
+      <div className="select-key-meters">
+        {keyStats.map((k, i) => {
+          const pct = k.hits / KEY_LIMIT;
+          const blocked = k.blocked;
+          const isQuotaDone = k.blockReason === "quota_exhausted" && !k.staleQuotaFlag;
+          const isRateLimited = blocked && !isQuotaDone;
+          const barColor = isQuotaDone ? "#ef4444" : isRateLimited ? "#f59e0b" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
+          const tip = isQuotaDone
+            ? `K${i + 1}: daily quota reached (${k.hits}/100) — resets next UTC day (Eastern shown in UI)`
+            : isRateLimited
+            ? `K${i + 1}: rate-limited${k.resumesInMin ? ` — ~${k.resumesInMin} min remaining` : " — ~15 min"}`
+            : `K${i + 1}: ${k.hits}/100 hits today — available`;
+          return (
+            <div
+              key={k.alias}
+              title={tip}
+              className={blocked ? "select-key-meter select-key-meter--dim" : "select-key-meter"}
+            >
+              <span className="select-key-meter__label" style={blocked ? { color: barColor } : undefined}>
+                K{i + 1}
+              </span>
+              <div className="select-key-meter__track">
+                <div
+                  className="select-key-meter__fill"
+                  style={{ height: `${Math.min(100, pct * 100)}%`, background: barColor }}
+                />
+              </div>
+              <span className="select-key-meter__hits">{k.hits}</span>
+              {isQuotaDone && (
+                <span className="select-key-meter__flag" style={{ color: barColor }}>
+                  ✕
+                </span>
+              )}
+              {isRateLimited && (
+                <span className="select-key-meter__flag" style={{ color: barColor }}>
+                  ⏸
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Stable key so roster labels match stored lineup names (trim, case, Unicode NFC). */
 function rosterNameKey(n: string): string {
   const t = n.trim().toLowerCase();
@@ -58,20 +164,6 @@ function sortRosterByFirstName(names: string[]): string[] {
     return ta.localeCompare(tb, undefined, { sensitivity: "base" });
   });
 }
-
-/** Player chips when there is no squad split (single combined list) */
-const rosterPlayerGrid2: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 8,
-};
-
-/** One column of players stacked under each team header */
-const rosterPlayersBelowTeam: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr)",
-  gap: 8,
-};
 
 type Player = RosterSlotPlayer;
 type SquadTeam = { teamName: string; players: string[] };
@@ -567,100 +659,241 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     const canSave = rosterSlotsCanSave(activePicks);
 
     return (
-      <div style={{ display: "grid", gap: 20 }}>
-        {/* All-keys blocked banner */}
+      <div className="select-page select-page--premium">
         {allBlocked && (
-          <ApiMessage msg={{ type: "error", title: "All API keys are currently blocked", detail: "Rate-limited or quota exhausted. Wait before fetching rosters.", action: "View key usage", actionHref: "/api/key-stats" }} />
+          <ApiMessage
+            msg={{
+              type: "error",
+              title: "All API keys are currently blocked",
+              detail: minResume && minResume < 900
+                ? `Some keys are in a 15-min rate-limit window, earliest resumes in ~${minResume} min. Others may have hit the daily 100-hit cap (resets next provider day; times in Eastern). Any API action will fail until at least one key is available.`
+                : "All keys have hit their daily 100-hit limit until the next reset (UTC day; times shown in Eastern). You can still manually enter player scores using the ✏️ Edit button on each player.",
+              action: "View key usage",
+              actionHref: "/api/key-stats",
+            }}
+          />
         )}
-        {apiMsg && <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />}
 
-        {/* Top bar — link match + save progress */}
-        <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 18, overflow: "hidden" }}>
-          <div style={{ padding: "14px 20px", display: "flex", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-            <button onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit} style={btnDark}>{syncing ? "Loading…" : "Link IPL Match"}</button>
-            {/* Save progress pills */}
-            <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+        {pendingAction && (
+          <div style={warnStyle}>
+            <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 6 }}>⚠️ Low on API credits</div>
+            <div style={{ color: "#78350f", fontSize: 14, marginBottom: 12 }}>
+              {remaining} credit{remaining === 1 ? "" : "s"} left. This action uses {pendingAction.cost}. Continue?
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                style={btnDark}
+                onClick={() => {
+                  const a = pendingAction;
+                  setPendingAction(null);
+                  void a.fn();
+                }}
+              >
+                Yes, proceed
+              </button>
+              <button type="button" style={btnOutline} onClick={() => setPendingAction(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="select-surface-card select-control-bar">
+          <div className="select-control-bar__row">
+            <button
+              type="button"
+              className="select-btn-primary"
+              onClick={() => guardedRun(2, doStartLinkTodaysMatch)}
+              disabled={syncing || isAtLimit}
+            >
+              {syncing ? "Loading…" : "Link IPL Match"}
+            </button>
+            <div className="select-h2h-progress" aria-label="Save progress">
               {multiPlayers.map((name, i) => (
-                <span key={name} style={{
-                  fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
-                  background: savedSet.has(i) ? "#dcfce7" : "#f1f5f9",
-                  color: savedSet.has(i) ? "#15803d" : "#94a3b8",
-                }}>
-                  {savedSet.has(i) ? `✓ ${name}` : name}
+                <span
+                  key={name}
+                  className={savedSet.has(i) ? "select-h2h-pill select-h2h-pill--done" : "select-h2h-pill"}
+                >
+                  {savedSet.has(i) ? "✓ " : ""}
+                  {name}
                 </span>
               ))}
+              {savedSet.size > 0 && (
+                <button type="button" className="select-btn-ghost" onClick={() => window.location.reload()}>
+                  {savedSet.size >= multiPlayers.length
+                    ? "View scores →"
+                    : `View scores (${multiPlayers.length - savedSet.size} pending) →`}
+                </button>
+              )}
             </div>
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT}</span>
-            {/* Show scores button — available once any team is saved */}
-            {savedSet.size > 0 && (
-              <button
-                onClick={() => window.location.reload()}
-                style={{ padding: "7px 14px", borderRadius: 10, border: "1px solid #2563eb", background: "white", color: "#2563eb", cursor: "pointer", fontWeight: 700, fontSize: 13 }}
-              >
-                {savedSet.size >= multiPlayers.length ? "✓ View match scores →" : `View scores (${multiPlayers.length - savedSet.size} pending) →`}
-              </button>
-            )}
+            <SelectQuotaCluster
+              apiUsed={apiUsed}
+              isAtLimit={isAtLimit}
+              isNearLimit={isNearLimit}
+              keyStats={keyStats}
+              resettingBlocks={resettingBlocks}
+              setResettingBlocks={setResettingBlocks}
+              setApiMsg={setApiMsg}
+              refreshKeyStats={refreshKeyStats}
+            />
           </div>
+          {apiMsg && !linkChoices && (
+            <div className="select-control-bar__messages">
+              <ApiMessage msg={apiMsg} onDismiss={() => setApiMsg(null)} />
+            </div>
+          )}
         </div>
 
-        {/* Match picker */}
         {linkChoices && linkChoices.length > 1 && (
-          <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 18, padding: 20 }}>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 14 }}>Choose a match</div>
-            <div style={{ display: "grid", gap: 10 }}>
+          <div className="select-match-picker">
+            <div className="select-match-picker__title">Choose a match</div>
+            {linkDateHint && (
+              <div className="select-match-picker__hint">Showing ±1 day (Eastern) · {linkDateHint}</div>
+            )}
+            <div className="select-match-picker__grid">
               {linkChoices.map((c) => {
                 const picked = pickedLinkId === c.externalMatchId;
                 return (
-                  <label key={c.externalMatchId || c.fixture} style={{ display: "flex", gap: 14, alignItems: "center", padding: "14px 16px", borderRadius: 14, cursor: "pointer", border: picked ? "2px solid #2563eb" : "1px solid #e2e8f0", background: picked ? "#eff6ff" : "white" }}>
-                    <input type="radio" name="lp" checked={picked} onChange={() => setPickedLinkId(c.externalMatchId || "")} style={{ accentColor: "#2563eb" }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{formatFixture(c.fixture) || c.fixture}</div>
-                      <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>{c.status}{c.venue ? ` · ${c.venue}` : ""}{c.match_date ? ` · ${c.match_date}` : ""}</div>
+                  <label
+                    key={c.externalMatchId || c.fixture}
+                    className={picked ? "select-match-option select-match-option--picked" : "select-match-option"}
+                  >
+                    <input
+                      type="radio"
+                      name="lp"
+                      checked={picked}
+                      onChange={() => setPickedLinkId(c.externalMatchId || "")}
+                      style={{ accentColor: "#2563eb" }}
+                    />
+                    <div className="select-match-option__body">
+                      <div className="select-match-option__fixture">{formatFixture(c.fixture) || c.fixture}</div>
+                      <div className="select-match-option__meta">
+                        {c.status}
+                        {c.venue ? ` · ${c.venue}` : ""}
+                        {c.match_date ? ` · ${c.match_date}` : ""}
+                      </div>
                     </div>
-                    {picked && <span style={{ fontSize: 18 }}>✓</span>}
+                    {picked && <span aria-hidden style={{ fontSize: 18, color: "#1d4ed8" }}>✓</span>}
                   </label>
                 );
               })}
             </div>
-            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-              <button style={btnDark} onClick={() => void (guardedRun(1, () => doSubmitSeedLink(pickedLinkId)))} disabled={syncing || !pickedLinkId}>{syncing ? "Linking…" : "Link selected"}</button>
-              <button style={btnOutline} onClick={() => { setLinkChoices(null); setApiMsg(null); }}>Cancel</button>
+            <div className="select-match-picker__actions">
+              <button
+                type="button"
+                className="select-btn-primary"
+                onClick={() => void (guardedRun(1, () => doSubmitSeedLink(pickedLinkId)))}
+                disabled={syncing || !pickedLinkId}
+              >
+                {syncing ? "Linking…" : "Link selected"}
+              </button>
+              <button
+                type="button"
+                className="select-btn-secondary-sm"
+                onClick={() => {
+                  setLinkChoices(null);
+                  setApiMsg(null);
+                }}
+              >
+                Cancel
+              </button>
             </div>
           </div>
         )}
 
-        {/* Two-column: roster left, active participant card right */}
-        <div className="select-two-col" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) min(340px,100%)", gap: 20, alignItems: "start" }}>
-          {/* Roster panel */}
-          <div style={panel}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+        <div className="select-two-col select-two-col--h2h">
+          <div className="select-roster-panel">
+            <div className="select-roster-panel__head">
               <div>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>Match Players</div>
-                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{hasRoster ? "Picked players leave this list; clear a slot to bring one back" : "Load the full squad roster"}</div>
+                <div className="select-roster-panel__title">Match Players</div>
+                <div className="select-roster-panel__sub">
+                  {hasRoster
+                    ? "Picked players disappear here; remove someone from a slot to pick them again"
+                    : hasLinkedMatch
+                      ? "Load the full squad roster from the API"
+                      : "Link a match first"}
+                </div>
               </div>
-              {hasRoster && <button type="button" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing} style={btnSm}>{syncing ? "…" : "↺ Refresh roster"}</button>}
-            </div>
-            {/* Active participant switcher */}
-            {hasRoster && (
-              <div style={{ display: "flex", gap: 0, borderRadius: 12, overflow: "hidden", border: "1px solid #e2e8f0", marginBottom: 14, flexWrap: "wrap" }}>
-                {multiPlayers.map((name, i) => (
-                  <button key={name} type="button" onClick={() => setActiveMultiIdx(i)} style={{ flex: "1 1 auto", padding: "8px 12px", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 12, transition: "all 0.12s", background: activeMultiIdx === i ? COLORS[i % COLORS.length] : "white", color: activeMultiIdx === i ? "white" : "#64748b" }}>
-                    + {name}
+              <div className="select-roster-panel__actions">
+                {hasRoster && (
+                  <button
+                    type="button"
+                    className="select-btn-secondary-sm"
+                    onClick={() => guardedRun(1, doFetchRoster)}
+                    disabled={syncing}
+                  >
+                    {syncing ? "…" : "↺ Refresh roster"}
                   </button>
-                ))}
+                )}
+                {!hasLinkedMatch && (
+                  <button
+                    type="button"
+                    className="select-btn-secondary-sm"
+                    onClick={() => guardedRun(2, doStartLinkTodaysMatch)}
+                    disabled={syncing || isAtLimit}
+                  >
+                    Link Match
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {hasRoster && (
+              <div className="select-side-segment" role="tablist" aria-label="Which lineup receives roster picks">
+                {multiPlayers.map((name, i) => {
+                  const active = activeMultiIdx === i;
+                  return (
+                    <button
+                      key={name}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setActiveMultiIdx(i)}
+                      className={
+                        active
+                          ? "select-side-segment__btn select-side-segment__btn--active select-side-segment__btn--multi"
+                          : "select-side-segment__btn"
+                      }
+                      style={
+                        active
+                          ? ({ "--multi-segment-accent": COLORS[i % COLORS.length] } as React.CSSProperties)
+                          : undefined
+                      }
+                    >
+                      {name}
+                    </button>
+                  );
+                })}
               </div>
             )}
+
             {!hasLinkedMatch ? (
-              <div style={{ textAlign: "center", padding: "32px 16px" }}>
-                <div style={{ fontSize: 32, marginBottom: 10 }}>🏏</div>
-                <div style={{ fontWeight: 700, marginBottom: 16 }}>No match linked</div>
-                <button style={btnDark} onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>Link IPL Match</button>
+              <div className="select-empty-state">
+                <div className="select-empty-state__icon" aria-hidden>
+                  🏏
+                </div>
+                <div className="select-empty-state__title">No match linked</div>
+                <div className="select-empty-state__text">Link an IPL match to load squads and build every lineup.</div>
+                <button
+                  type="button"
+                  className="select-btn-primary"
+                  onClick={() => guardedRun(2, doStartLinkTodaysMatch)}
+                  disabled={syncing || isAtLimit}
+                >
+                  Link IPL Match
+                </button>
               </div>
             ) : !hasRoster ? (
-              <div style={{ textAlign: "center", padding: "32px 16px" }}>
-                <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
-                <div style={{ fontWeight: 700, marginBottom: 16 }}>Roster not loaded</div>
-                <button style={btnDark} onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>{syncing ? "Loading…" : "Load Roster"}</button>
+              <div className="select-empty-state">
+                <div className="select-empty-state__icon" aria-hidden>
+                  📋
+                </div>
+                <div className="select-empty-state__title">Roster not loaded yet</div>
+                <div className="select-empty-state__text">Squads usually appear a few hours before the first ball.</div>
+                <button type="button" className="select-btn-primary" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing}>
+                  {syncing ? "Loading…" : "Load player roster"}
+                </button>
               </div>
             ) : squads.length > 0 ? (
               <div
@@ -672,50 +905,65 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                   gridTemplateColumns: squads.length === 1 ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))",
                 }}
               >
-                {squads.map(team => {
-                  const avail = sortRosterByFirstName(team.players).filter((n) => !allTakenKeysMulti.has(rosterNameKey(n)));
+                {squads.map((team) => {
+                  const avail = sortRosterByFirstName(team.players).filter(
+                    (n) => !allTakenKeysMulti.has(rosterNameKey(n))
+                  );
+                  const ac = COLORS[activeMultiIdx % COLORS.length];
                   return (
-                  <div key={team.teamName} style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 12, color: "#334155", marginBottom: 10, borderBottom: "1px solid #f1f5f9", paddingBottom: 6 }}>
-                      {team.teamName}
-                      <span style={{ fontWeight: 600, color: "#94a3b8", marginLeft: 8 }}>{avail.length} available</span>
+                    <div key={team.teamName} style={{ minWidth: 0 }}>
+                      <div className="select-squad-head">
+                        <div className="select-squad-head__bar" aria-hidden />
+                        <span className="select-squad-head__name">{team.teamName}</span>
+                        <span className="select-squad-head__meta">
+                          {avail.length} available · {team.players.length} in squad
+                        </span>
+                      </div>
+                      <div className="select-roster-below-team">
+                        {avail.length === 0 ? (
+                          <p className="select-roster-empty-hint">All players from this squad are on a lineup</p>
+                        ) : (
+                          avail.map((name, i) => (
+                            <button
+                              key={`${team.teamName}-${name}`}
+                              type="button"
+                              onClick={() => applyMultiRoster(name)}
+                              className="select-roster-chip select-roster-chip--h2h"
+                              style={{ "--roster-accent": ac } as React.CSSProperties}
+                            >
+                              <span className="select-roster-chip__idx select-roster-chip__idx--h2h">{i + 1}</span>
+                              <span className="select-roster-chip__name">{name}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
                     </div>
-                    <div style={rosterPlayersBelowTeam}>
-                      {avail.length === 0 ? (
-                        <p className="select-roster-empty-hint">All players from this squad are on a lineup</p>
-                      ) : (
-                      avail.map((name, i) => (
-                          <button
-                            key={`${team.teamName}-${name}`}
-                            type="button"
-                            onClick={() => applyMultiRoster(name)}
-                            className="select-roster-chip select-roster-chip--multi"
-                          >
-                            <span className="select-roster-chip__idx">{i + 1}</span>
-                            <span className="select-roster-chip__name">{name}</span>
-                          </button>
-                      ))
-                      )}
-                    </div>
-                  </div>
                   );
                 })}
               </div>
             ) : (
-              <div style={rosterPlayerGrid2}>
+              <div className="select-roster-grid">
                 {(() => {
-                  const avail = sortRosterByFirstName(rosterNames).filter((n) => !allTakenKeysMulti.has(rosterNameKey(n)));
+                  const avail = sortRosterByFirstName(rosterNames).filter(
+                    (n) => !allTakenKeysMulti.has(rosterNameKey(n))
+                  );
+                  const ac = COLORS[activeMultiIdx % COLORS.length];
                   if (avail.length === 0) {
-                    return <p className="select-roster-empty-hint">Everyone is on a lineup — clear a slot to return someone here</p>;
+                    return (
+                      <p className="select-roster-empty-hint">
+                        Everyone is on a lineup — clear a slot to return someone here
+                      </p>
+                    );
                   }
                   return avail.map((name, i) => (
                     <button
                       key={name}
                       type="button"
                       onClick={() => applyMultiRoster(name)}
-                      className="select-roster-chip select-roster-chip--multi"
+                      className="select-roster-chip select-roster-chip--h2h"
+                      style={{ "--roster-accent": ac } as React.CSSProperties}
                     >
-                      <span className="select-roster-chip__idx">{i + 1}</span>
+                      <span className="select-roster-chip__idx select-roster-chip__idx--h2h">{i + 1}</span>
                       <span className="select-roster-chip__name">{name}</span>
                     </button>
                   ));
@@ -724,80 +972,155 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             )}
           </div>
 
-          {/* Active participant card */}
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ fontSize: 12, color: "#64748b", padding: "8px 12px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 10 }}>
-              💡 Each person picks 4 for points + up to 3 super subs. Use ↑↓ to swap slots. Tabs switch whose lineup you&apos;re editing.
+          <div className="select-lineup-stack">
+            <div className="select-tip">
+              <strong>How it works</strong> — Each person picks 4 for points plus up to 3 super subs. Use ↑↓ to reorder slots.
+              Switch tabs to edit another lineup. <strong>Save each team</strong> before viewing scores.
             </div>
             {multiPlayers.map((name, idx) => {
               const picks = allPicks[idx] ?? [];
               const filled = rosterFilledCount(picks);
+              const startersOk = rosterStartersFilled(picks);
               const canS = rosterSlotsCanSave(picks);
               const color = COLORS[idx % COLORS.length];
               const isActive = activeMultiIdx === idx;
               return (
-                <div key={name} style={{ ...panel, border: isActive ? `2px solid ${color}` : "1px solid #e2e8f0", opacity: isActive ? 1 : 0.7 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ width: 10, height: 10, borderRadius: 999, background: color }} />
-                      <span style={{ fontWeight: 800, fontSize: 14 }}>{name}</span>
-                      <span style={{ fontSize: 11, color: "#94a3b8" }}>{filled}/{ROSTER_MAX_PLAYERS}</span>
+                <div
+                  key={name}
+                  className={
+                    "select-lineup-card" + (isActive ? " select-lineup-card--active" : "")
+                  }
+                  style={{ "--lineup-accent": color } as React.CSSProperties}
+                >
+                  <div className="select-lineup-card__head">
+                    <div className="select-lineup-card__who">
+                      <div className="select-lineup-card__dot" style={{ background: color }} />
+                      <div>
+                        <div className="select-lineup-card__name">{name}</div>
+                        <div className="select-lineup-card__meta">
+                          {filled}/{ROSTER_MAX_PLAYERS} picks · XI {startersOk}/{ROSTER_STARTING_COUNT} · one captain
+                          {savedSet.has(idx) ? " · saved" : ""}
+                        </div>
+                      </div>
                     </div>
-                    {!isActive && <button type="button" onClick={() => setActiveMultiIdx(idx)} style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 8, border: `1px solid ${color}`, background: "white", color, cursor: "pointer" }}>Select</button>}
-                    {isActive && <span style={{ fontSize: 11, fontWeight: 700, color, background: `${color}20`, padding: "3px 8px", borderRadius: 999 }}>Active ✓</span>}
+                    {!isActive && (
+                      <button
+                        type="button"
+                        className="select-lineup-card__pick"
+                        onClick={() => setActiveMultiIdx(idx)}
+                        style={{ borderColor: color, color }}
+                      >
+                        Edit this lineup
+                      </button>
+                    )}
+                    {isActive && (
+                      <span
+                        className="select-lineup-card__active"
+                        style={{ color, background: `${color}18` }}
+                      >
+                        Building
+                      </span>
+                    )}
                   </div>
-                  <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+
+                  <div className="select-slot-grid">
                     {picks.map((player, slotIdx) => {
+                      const slotFilled = Boolean(player.name.trim());
+                      const isBench = slotIdx >= ROSTER_STARTING_COUNT;
                       const slotFlash =
                         lineupFlash?.kind === "multi" &&
                         lineupFlash.participantIdx === idx &&
                         lineupFlash.slotIdx === slotIdx;
+                      const slotClass = [
+                        "select-lineup-slot",
+                        "select-slot",
+                        slotFilled ? "select-slot--filled" : "select-slot--empty",
+                        slotFilled && player.captain ? "select-slot--captain" : "",
+                        isBench ? "select-slot--bench" : "",
+                        slotFlash ? "select-lineup-slot--flash" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ");
                       return (
-                      <div
-                        key={slotIdx}
-                        className={slotFlash ? "select-lineup-slot select-lineup-slot--flash" : "select-lineup-slot"}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10,
-                          background: player.name.trim() ? (player.captain ? "#fefce8" : "#f8fafc") : "#f8fafc",
-                          border: player.name.trim() ? (player.captain ? "1px solid #fde68a" : "1px solid #e2e8f0") : "1px dashed #cbd5e1",
-                          ...(slotFlash ? ({ "--slot-accent": color } as React.CSSProperties) : {}),
-                        }}
-                      >
-                        <div style={{ width: 22, height: 22, borderRadius: 999, background: player.name.trim() ? color : "#e2e8f0", color: player.name.trim() ? "white" : "#94a3b8", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{slotIdx + 1}</div>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: slotIdx < ROSTER_STARTING_COUNT ? "#15803d" : "#6366f1", width: 28, flexShrink: 0 }}>{slotIdx < ROSTER_STARTING_COUNT ? "XI" : "Sub"}</span>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
-                          <button type="button" title="Move up" disabled={slotIdx === 0} onClick={() => moveMultiSlot(idx, slotIdx, -1)} style={{ width: 22, height: 18, fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 4, background: "white", cursor: slotIdx === 0 ? "not-allowed" : "pointer" }}>↑</button>
-                          <button type="button" title="Move down" disabled={slotIdx >= ROSTER_MAX_PLAYERS - 1} onClick={() => moveMultiSlot(idx, slotIdx, 1)} style={{ width: 22, height: 18, fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 4, background: "white", cursor: slotIdx >= ROSTER_MAX_PLAYERS - 1 ? "not-allowed" : "pointer" }}>↓</button>
+                        <div
+                          key={slotIdx}
+                          className={slotClass}
+                          style={{ "--slot-accent": color } as React.CSSProperties}
+                        >
+                          <div className="select-slot__num">{slotIdx + 1}</div>
+                          <span className="select-slot__role">{isBench ? "Sub" : "XI"}</span>
+                          <div className="select-slot__moves">
+                            <button
+                              type="button"
+                              className="select-slot__nudge"
+                              title="Move up"
+                              disabled={slotIdx === 0}
+                              onClick={() => moveMultiSlot(idx, slotIdx, -1)}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="select-slot__nudge"
+                              title="Move down"
+                              disabled={slotIdx >= ROSTER_MAX_PLAYERS - 1}
+                              onClick={() => moveMultiSlot(idx, slotIdx, 1)}
+                            >
+                              ↓
+                            </button>
+                          </div>
+                          {slotFilled ? (
+                            <>
+                              <span className="select-slot__name">{player.name}</span>
+                              {slotIdx < ROSTER_STARTING_COUNT && (
+                                <button
+                                  type="button"
+                                  className={
+                                    "select-slot__cap" + (player.captain ? " select-slot__cap--on" : "")
+                                  }
+                                  onClick={() => updateMultiCaptain(idx, slotIdx)}
+                                  title="Set as captain (×2 pts)"
+                                >
+                                  ★ {player.captain ? "Captain" : "Cap?"}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="select-slot__remove"
+                                onClick={() => clearMultiSlot(idx, slotIdx)}
+                                aria-label="Remove player"
+                              >
+                                ✕
+                              </button>
+                            </>
+                          ) : (
+                            <span className="select-slot__placeholder">
+                              {isActive ? "← choose from the list on the left" : "empty"}
+                            </span>
+                          )}
                         </div>
-                        {player.name.trim() ? (
-                          <>
-                            <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{player.name}</span>
-                            {slotIdx < ROSTER_STARTING_COUNT && (
-                              <button type="button" onClick={() => updateMultiCaptain(idx, slotIdx)} style={{ fontSize: 11, padding: "2px 7px", borderRadius: 7, cursor: "pointer", border: player.captain ? "1px solid #d97706" : "1px solid #e2e8f0", background: player.captain ? "#fef9c3" : "white", color: player.captain ? "#d97706" : "#94a3b8", fontWeight: 700 }}>★</button>
-                            )}
-                            <button type="button" onClick={() => clearMultiSlot(idx, slotIdx)} style={{ width: 22, height: 22, borderRadius: 999, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>✕</button>
-                          </>
-                        ) : (
-                          <span style={{ flex: 1, color: "#94a3b8", fontSize: 12, fontStyle: "italic" }}>{isActive ? "← tap a name from the list" : "empty"}</span>
-                        )}
-                      </div>
-                    );
+                      );
                     })}
                   </div>
+
                   <button
+                    type="button"
+                    className={
+                      "select-save-lineup" +
+                      (savedSet.has(idx) ? " select-save-lineup--synced" : "") +
+                      (!canS || savingIdx !== null ? " select-save-lineup--disabled" : "")
+                    }
                     onClick={() => void saveParticipant(idx)}
                     disabled={!canS || savingIdx !== null}
-                    style={{
-                      width: "100%", padding: "10px", borderRadius: 10, border: "none",
-                      fontWeight: 700, fontSize: 13, cursor: canS && savingIdx === null ? "pointer" : "not-allowed",
-                      background: savedSet.has(idx) ? "#dcfce7" : canS ? color : "#e2e8f0",
-                      color: savedSet.has(idx) ? "#15803d" : canS ? "white" : "#94a3b8",
-                    }}
+                    style={{ "--lineup-accent": color } as React.CSSProperties}
                   >
-                    {savingIdx === idx ? "Saving…"
-                      : savedSet.has(idx) ? `✓ ${name}'s team saved — click to update`
-                      : canS ? `Save ${name}'s team →`
-                      : `Fill XI (${rosterStartersFilled(picks)}/${ROSTER_STARTING_COUNT})`}
+                    {savingIdx === idx
+                      ? "Saving…"
+                      : savedSet.has(idx)
+                        ? `Update ${name}'s team`
+                        : canS
+                          ? `Save ${name}'s team`
+                          : `Fill XI (${rosterStartersFilled(picks)}/${ROSTER_STARTING_COUNT})`}
                   </button>
                 </div>
               );
@@ -809,7 +1132,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   }
 
   return (
-    <div className="select-page">
+    <div className="select-page select-page--premium">
 
       {/* ── All keys blocked banner ────────────────────────────────────────── */}
       {allBlocked && (
@@ -859,59 +1182,16 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             </a>
           )}
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>
-          <span style={{
-            fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999,
-            background: isAtLimit ? "#fee2e2" : isNearLimit ? "#fef9c3" : "#f1f5f9",
-            color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#64748b",
-          }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
-          {/* Reset blocks button — shown when any key appears blocked */}
-          {keyStats.some((k) => k.blocked) && (
-            <button
-              type="button"
-              disabled={resettingBlocks}
-              title="Clear rate-limit blocks so all keys are retried"
-              onClick={async () => {
-                setResettingBlocks(true);
-                try {
-                  const r = await fetch("/api/reset-key-blocks", { method: "POST" });
-                  const j = await r.json();
-                  setApiMsg({ type: j.ok ? "success" : "error", title: j.message || j.error || "Done" });
-                  refreshKeyStats();
-                } catch { setApiMsg({ type: "error", title: "Could not reset blocks" }); }
-                setResettingBlocks(false);
-              }}
-              style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 999, border: "1px solid #fca5a5", background: "#fff1f2", color: "#be123c", cursor: "pointer" }}
-            >
-              {resettingBlocks ? "…" : "↺ Clear blocks"}
-            </button>
-          )}
-          <div style={{ display: "flex", gap: 6 }}>
-            {keyStats.map((k, i) => {
-              const pct = k.hits / KEY_LIMIT;
-              const blocked = k.blocked;
-              const isQuotaDone = k.blockReason === "quota_exhausted" && !k.staleQuotaFlag;
-              const isRateLimited = blocked && !isQuotaDone;
-              const barColor = isQuotaDone ? "#ef4444" : isRateLimited ? "#f59e0b" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
-              const tip = isQuotaDone
-                ? `K${i + 1}: daily quota reached (${k.hits}/100) — resets next UTC day (Eastern shown in UI)`
-                : isRateLimited
-                ? `K${i + 1}: rate-limited${k.resumesInMin ? ` — ~${k.resumesInMin} min remaining` : " — ~15 min"}`
-                : `K${i + 1}: ${k.hits}/100 hits today — available`;
-              return (
-                <div key={k.alias} title={tip} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, opacity: blocked ? 0.55 : 1 }}>
-                  <span style={{ fontSize: 10, color: blocked ? barColor : "#94a3b8", fontWeight: 600 }}>K{i + 1}</span>
-                  <div style={{ width: 6, height: 32, borderRadius: 4, background: "#e2e8f0", position: "relative", overflow: "hidden" }}>
-                    <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: `${Math.min(100, pct * 100)}%`, background: barColor, borderRadius: 4 }} />
-                  </div>
-                  <span style={{ fontSize: 10, color: "#94a3b8" }}>{k.hits}</span>
-                  {isQuotaDone && <span style={{ fontSize: 9, color: barColor, fontWeight: 700 }}>✕</span>}
-                  {isRateLimited && <span style={{ fontSize: 9, color: barColor, fontWeight: 700 }}>⏸</span>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <SelectQuotaCluster
+          apiUsed={apiUsed}
+          isAtLimit={isAtLimit}
+          isNearLimit={isNearLimit}
+          keyStats={keyStats}
+          resettingBlocks={resettingBlocks}
+          setResettingBlocks={setResettingBlocks}
+          setApiMsg={setApiMsg}
+          refreshKeyStats={refreshKeyStats}
+        />
         </div>
         {/* Message row — always full-width, below the buttons */}
         {(apiMsg || message) && !linkChoices && (
@@ -928,35 +1208,56 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       {linkChoices && linkChoices.length > 1 && (
         <div className="select-match-picker">
           <div className="select-match-picker__title">Choose a match</div>
-          {linkDateHint && <div style={{ color: "#64748b", fontSize: 13, marginBottom: 14 }}>Showing ±1 day (Eastern) · {linkDateHint}</div>}
-          <div style={{ display: "grid", gap: 10 }}>
+          {linkDateHint && (
+            <div className="select-match-picker__hint">Showing ±1 day (Eastern) · {linkDateHint}</div>
+          )}
+          <div className="select-match-picker__grid">
             {linkChoices.map((c) => {
               const picked = pickedLinkId === c.externalMatchId;
               return (
-                <label key={c.externalMatchId || c.fixture} style={{
-                  display: "flex", gap: 14, alignItems: "center", padding: "14px 16px",
-                  borderRadius: 14, cursor: "pointer",
-                  border: picked ? "2px solid #2563eb" : "1px solid #e2e8f0",
-                  background: picked ? "#eff6ff" : "white",
-                  transition: "all 0.12s",
-                }}>
-                  <input type="radio" name="lp" checked={picked} onChange={() => setPickedLinkId(c.externalMatchId || "")} style={{ accentColor: "#2563eb" }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>{formatFixture(c.fixture) || c.fixture}</div>
-                    <div style={{ fontSize: 12, color: "#64748b", marginTop: 3 }}>
-                      {c.status}{c.venue ? ` · ${c.venue}` : ""}{c.match_date ? ` · ${c.match_date}` : ""}
+                <label
+                  key={c.externalMatchId || c.fixture}
+                  className={picked ? "select-match-option select-match-option--picked" : "select-match-option"}
+                >
+                  <input
+                    type="radio"
+                    name="lp"
+                    checked={picked}
+                    onChange={() => setPickedLinkId(c.externalMatchId || "")}
+                    style={{ accentColor: "#2563eb" }}
+                  />
+                  <div className="select-match-option__body">
+                    <div className="select-match-option__fixture">{formatFixture(c.fixture) || c.fixture}</div>
+                    <div className="select-match-option__meta">
+                      {c.status}
+                      {c.venue ? ` · ${c.venue}` : ""}
+                      {c.match_date ? ` · ${c.match_date}` : ""}
                     </div>
                   </div>
-                  {picked && <span style={{ fontSize: 18 }}>✓</span>}
+                  {picked && <span aria-hidden style={{ fontSize: 18, color: "#1d4ed8" }}>✓</span>}
                 </label>
               );
             })}
           </div>
-          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-            <button style={btnDark} onClick={() => void (guardedRun(1, () => doSubmitSeedLink(pickedLinkId)))} disabled={syncing || !pickedLinkId}>
+          <div className="select-match-picker__actions">
+            <button
+              type="button"
+              className="select-btn-primary"
+              onClick={() => void (guardedRun(1, () => doSubmitSeedLink(pickedLinkId)))}
+              disabled={syncing || !pickedLinkId}
+            >
               {syncing ? "Linking…" : "Link selected match"}
             </button>
-            <button style={btnOutline} onClick={() => { setLinkChoices(null); setMessage(""); }}>Cancel</button>
+            <button
+              type="button"
+              className="select-btn-secondary-sm"
+              onClick={() => {
+                setLinkChoices(null);
+                setMessage("");
+              }}
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -1047,20 +1348,15 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                 >
                   {squads.map((team) => (
                     <div key={team.teamName} style={{ minWidth: 0 }}>
-                      {/* Team label */}
-                      <div style={{
-                        display: "flex", alignItems: "center", gap: 10, marginBottom: 10,
-                        paddingBottom: 8, borderBottom: "1px solid #f1f5f9", flexWrap: "wrap",
-                      }}>
-                        <div style={{ width: 3, height: 18, borderRadius: 2, background: "#0f172a", flexShrink: 0 }} />
-                        <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", letterSpacing: 0.2 }}>{team.teamName}</span>
-                        <span style={{ fontSize: 11, color: "#94a3b8" }}>
-                          {sortRosterByFirstName(team.players).filter((n) => !takenNames.has(rosterNameKey(n))).length} available
-                          <span style={{ color: "#cbd5e1", margin: "0 4px" }}>·</span>
-                          {team.players.length} in squad
+                      <div className="select-squad-head">
+                        <div className="select-squad-head__bar" aria-hidden />
+                        <span className="select-squad-head__name">{team.teamName}</span>
+                        <span className="select-squad-head__meta">
+                          {sortRosterByFirstName(team.players).filter((n) => !takenNames.has(rosterNameKey(n))).length}{" "}
+                          available · {team.players.length} in squad
                         </span>
                       </div>
-                      <div style={rosterPlayersBelowTeam}>
+                      <div className="select-roster-below-team">
                         {(() => {
                           const avail = sortRosterByFirstName(team.players).filter((n) => !takenNames.has(rosterNameKey(n)));
                           if (avail.length === 0) {
@@ -1085,7 +1381,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                   ))}
                 </div>
               ) : (
-                <div style={rosterPlayerGrid2}>
+                <div className="select-roster-grid">
                   {(() => {
                     const avail = sortRosterByFirstName(rosterNames).filter((n) => !takenNames.has(rosterNameKey(n)));
                     if (avail.length === 0) {
@@ -1174,72 +1470,82 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                   </div>
                 )}
 
-                {/* Player slots */}
-                <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>
+                <div className="select-slot-grid">
                   {list.map((player, index) => {
                     const filled = Boolean(player.name.trim());
+                    const isBench = index >= ROSTER_STARTING_COUNT;
                     const slotFlash =
                       lineupFlash?.kind === "h2h" &&
                       lineupFlash.side === side &&
                       lineupFlash.slotIdx === index;
+                    const slotClass = [
+                      "select-lineup-slot",
+                      "select-slot",
+                      filled ? "select-slot--filled" : "select-slot--empty",
+                      filled && player.captain ? "select-slot--captain" : "",
+                      isBench ? "select-slot--bench" : "",
+                      slotFlash ? "select-lineup-slot--flash" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ");
                     return (
                       <div
                         key={index}
-                        className={slotFlash ? "select-lineup-slot select-lineup-slot--flash" : "select-lineup-slot"}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 10,
-                          padding: "10px 12px", borderRadius: 12,
-                          background: filled ? (player.captain ? "#fefce8" : "#f8fafc") : "#f8fafc",
-                          border: filled
-                            ? player.captain ? "1px solid #fde68a" : "1px solid #e2e8f0"
-                            : "1px dashed #cbd5e1",
-                          minHeight: 48,
-                          ...(slotFlash ? ({ "--slot-accent": color } as React.CSSProperties) : {}),
-                        }}
+                        className={slotClass}
+                        style={{ "--slot-accent": color } as React.CSSProperties}
                       >
-                        {/* Slot number */}
-                        <div style={{
-                          width: 26, height: 26, borderRadius: 999, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                          background: filled ? color : "#e2e8f0", color: filled ? "white" : "#94a3b8",
-                          fontSize: 12, fontWeight: 700,
-                        }}>
-                          {index + 1}
-                        </div>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: index < ROSTER_STARTING_COUNT ? "#15803d" : "#6366f1", width: 30, flexShrink: 0 }}>{index < ROSTER_STARTING_COUNT ? "XI" : "Sub"}</span>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
-                          <button type="button" title="Move up" disabled={index === 0} onClick={() => moveH2hSlot(side, index, -1)} style={{ width: 24, height: 18, fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 4, background: "white", cursor: index === 0 ? "not-allowed" : "pointer" }}>↑</button>
-                          <button type="button" title="Move down" disabled={index >= ROSTER_MAX_PLAYERS - 1} onClick={() => moveH2hSlot(side, index, 1)} style={{ width: 24, height: 18, fontSize: 10, border: "1px solid #e2e8f0", borderRadius: 4, background: "white", cursor: index >= ROSTER_MAX_PLAYERS - 1 ? "not-allowed" : "pointer" }}>↓</button>
+                        <div className="select-slot__num">{index + 1}</div>
+                        <span className="select-slot__role">{isBench ? "Sub" : "XI"}</span>
+                        <div className="select-slot__moves">
+                          <button
+                            type="button"
+                            className="select-slot__nudge"
+                            title="Move up"
+                            disabled={index === 0}
+                            onClick={() => moveH2hSlot(side, index, -1)}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            className="select-slot__nudge"
+                            title="Move down"
+                            disabled={index >= ROSTER_MAX_PLAYERS - 1}
+                            onClick={() => moveH2hSlot(side, index, 1)}
+                          >
+                            ↓
+                          </button>
                         </div>
 
                         {filled ? (
                           <>
-                            <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: "#0f172a" }}>{player.name}</span>
+                            <span className="select-slot__name">{player.name}</span>
                             {index < ROSTER_STARTING_COUNT && (
                               <button
                                 type="button"
+                                className={
+                                  "select-slot__cap" + (player.captain ? " select-slot__cap--on" : "")
+                                }
                                 onClick={() => updateCaptain(side, index)}
                                 title="Set as captain (×2 pts)"
-                                style={{
-                                  fontSize: 13, padding: "3px 8px", borderRadius: 8, cursor: "pointer",
-                                  fontWeight: 700, transition: "all 0.12s",
-                                  border: player.captain ? "1px solid #d97706" : "1px solid #e2e8f0",
-                                  background: player.captain ? "#fef9c3" : "white",
-                                  color: player.captain ? "#d97706" : "#94a3b8",
-                                }}
                               >
                                 ★ {player.captain ? "Captain" : "Cap?"}
                               </button>
                             )}
                             <button
                               type="button"
-                              onClick={() => { clearSlot(side, index); ensureOneCaptain(side); }}
-                              style={{ width: 26, height: 26, borderRadius: 999, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 12, fontWeight: 700, flexShrink: 0 }}
+                              className="select-slot__remove"
+                              onClick={() => {
+                                clearSlot(side, index);
+                                ensureOneCaptain(side);
+                              }}
+                              aria-label="Remove player"
                             >
                               ✕
                             </button>
                           </>
                         ) : (
-                          <span style={{ flex: 1, color: "#94a3b8", fontSize: 13, fontStyle: "italic" }}>
+                          <span className="select-slot__placeholder">
                             {isActive ? "← choose from the list on the left" : "empty"}
                           </span>
                         )}
@@ -1309,7 +1615,6 @@ const btnOutline: CSSProperties = {
   fontSize: 14,
   boxShadow: "var(--shadow-xs)",
 };
-const btnSm: CSSProperties = { padding: "7px 14px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", color: "#0f172a", cursor: "pointer", fontWeight: 600, fontSize: 13 };
 const warnStyle: CSSProperties = { border: "2px solid #fcd34d", borderRadius: 16, background: "#fffbeb", padding: 16 };
 
 // Legacy aliases so any other file importing these still works

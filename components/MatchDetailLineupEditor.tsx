@@ -74,12 +74,16 @@ export default function MatchDetailLineupEditor({
   }
 
   return (
-    <div style={{ display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-        <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>Change teams for this match</div>
-        <button type="button" onClick={() => setOpen(false)} style={btnSecondary}>
-          ✕ Close
-        </button>
+    <div className="select-page select-page--premium" style={{ gap: 14, display: "grid" }}>
+      <div className="select-surface-card">
+        <div className="select-control-bar__row select-control-bar__row--spread">
+          <div className="select-roster-panel__title" style={{ marginBottom: 0 }}>
+            Change teams for this match
+          </div>
+          <button type="button" className="select-btn-secondary-sm" onClick={() => setOpen(false)}>
+            Close
+          </button>
+        </div>
       </div>
       <SelectClient
         yourName={yourName}

@@ -1,7 +1,7 @@
 /** Shown while `/select` RSC loads. */
 export default function SelectLoading() {
   return (
-    <main className="page-main" aria-busy="true">
+    <main className="page-main page-main--select" aria-busy="true">
       <div className="route-loading">
         <div className="route-loading__header">
           <div className="route-loading__line" />
