@@ -1247,6 +1247,109 @@ summary:focus-visible,
   box-shadow: none;
 }
 
+.select-lineup-slot {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.select-lineup-slot--flash {
+  animation: select-lineup-slot-flash 0.75s ease-out;
+}
+
+@keyframes select-lineup-slot-flash {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--slot-accent, #2563eb) 50%, transparent);
+  }
+  45% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--slot-accent, #2563eb) 18%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.select-roster-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  padding: 9px 12px;
+  min-height: var(--touch-target-min);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.select-roster-chip--h2h {
+  border-color: color-mix(in srgb, var(--roster-accent, #2563eb) 38%, var(--border));
+}
+.select-roster-chip--h2h:hover {
+  background: color-mix(in srgb, var(--roster-accent, #2563eb) 10%, var(--surface));
+}
+
+.select-roster-chip--multi {
+  gap: 8px;
+  padding: 8px 10px;
+  min-height: 40px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 10px;
+}
+
+.select-roster-chip__idx {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.select-roster-chip__idx--h2h {
+  background: var(--roster-accent, #2563eb);
+  color: #fff;
+}
+
+.select-roster-chip--multi .select-roster-chip__idx {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+}
+
+.select-roster-chip__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.select-roster-empty-hint {
+  margin: 0;
+  padding: 12px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .select-lineup-slot--flash {
+    animation: none;
+  }
+}
+
 /* ── Select teams two-column ─────────────────────────────────────────────── */
 .select-two-col { display: grid; gap: 20px; align-items: start; }
 

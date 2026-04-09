@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { formatFixture } from "@/lib/format";
 import { formatUiCalendarDate } from "@/lib/ui-time";
 import type { CSSProperties } from "react";
@@ -124,6 +124,25 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     return s;
   });
 
+  type LineupFlash =
+    | { kind: "h2h"; side: "mine" | "theirs"; slotIdx: number }
+    | { kind: "multi"; participantIdx: number; slotIdx: number };
+  const [lineupFlash, setLineupFlash] = useState<LineupFlash | null>(null);
+  const lineupFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleLineupFlash = useCallback((payload: LineupFlash) => {
+    if (lineupFlashTimerRef.current) clearTimeout(lineupFlashTimerRef.current);
+    setLineupFlash(payload);
+    lineupFlashTimerRef.current = setTimeout(() => {
+      setLineupFlash(null);
+      lineupFlashTimerRef.current = null;
+    }, 750);
+  }, []);
+
+  useEffect(() => () => {
+    if (lineupFlashTimerRef.current) clearTimeout(lineupFlashTimerRef.current);
+  }, []);
+
   async function saveParticipant(idx: number) {
     const picks = allPicks[idx];
     const name = multiPlayers[idx];
@@ -205,6 +224,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         i !== activeMultiIdx ? p : p.map((slot, j) => (j !== next ? slot : { ...slot, name, providerId }))
       )
     );
+    scheduleLineupFlash({ kind: "multi", participantIdx: activeMultiIdx, slotIdx: next });
   }
   function moveMultiSlot(idx: number, from: number, dir: -1 | 1) {
     const to = from + dir;
@@ -294,6 +314,17 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     if (matchId != null) p.set("m", String(matchId));
     return p.toString() ? `/match?${p.toString()}` : "/match";
   }, [competitionId, matchId]);
+
+  /** Every name on any multi-participant lineup (for hiding from roster). */
+  const allTakenKeysMulti = useMemo(() => {
+    const s = new Set<string>();
+    for (const row of allPicks) {
+      for (const p of row) {
+        if (p.name.trim()) s.add(rosterNameKey(p.name));
+      }
+    }
+    return s;
+  }, [allPicks]);
 
   const hasRoster = rosterNames.length > 0 || squads.some((t) => t.players.length > 0);
 
@@ -507,6 +538,11 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     }
     const providerId = nameToId[name.trim().toLowerCase()] || undefined;
     setter((prev) => prev.map((p, i) => (i === next ? { ...p, name, providerId } : p)));
+    scheduleLineupFlash({
+      kind: "h2h",
+      side: activeSide === "mine" ? "mine" : "theirs",
+      slotIdx: next,
+    });
     setMessage("");
   }
 
@@ -529,15 +565,6 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     const COLORS = ["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2"];
     const activePicks = allPicks[activeMultiIdx] ?? [];
     const canSave = rosterSlotsCanSave(activePicks);
-
-    // Players taken by OTHER participants (not the active one)
-    const takenByOthers = new Set(
-      allPicks.flatMap((picks, i) =>
-        i === activeMultiIdx ? [] : picks.filter((p) => p.name.trim()).map((p) => rosterNameKey(p.name))
-      )
-    );
-    // Players already in the ACTIVE participant's own lineup (must not add again)
-    const takenByActive = new Set(activePicks.filter((p) => p.name.trim()).map((p) => rosterNameKey(p.name)));
 
     return (
       <div style={{ display: "grid", gap: 20 }}>
@@ -609,7 +636,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 15 }}>Match Players</div>
-                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{hasRoster ? "Tap to add to the active participant" : "Load the full squad roster"}</div>
+                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{hasRoster ? "Picked players leave this list; clear a slot to bring one back" : "Load the full squad roster"}</div>
               </div>
               {hasRoster && <button type="button" onClick={() => guardedRun(1, doFetchRoster)} disabled={syncing} style={btnSm}>{syncing ? "…" : "↺ Refresh roster"}</button>}
             </div>
@@ -645,65 +672,54 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                   gridTemplateColumns: squads.length === 1 ? "minmax(0, 1fr)" : "repeat(2, minmax(0, 1fr))",
                 }}
               >
-                {squads.map(team => (
+                {squads.map(team => {
+                  const avail = sortRosterByFirstName(team.players).filter((n) => !allTakenKeysMulti.has(rosterNameKey(n)));
+                  return (
                   <div key={team.teamName} style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 12, color: "#334155", marginBottom: 10, borderBottom: "1px solid #f1f5f9", paddingBottom: 6 }}>{team.teamName}</div>
+                    <div style={{ fontWeight: 700, fontSize: 12, color: "#334155", marginBottom: 10, borderBottom: "1px solid #f1f5f9", paddingBottom: 6 }}>
+                      {team.teamName}
+                      <span style={{ fontWeight: 600, color: "#94a3b8", marginLeft: 8 }}>{avail.length} available</span>
+                    </div>
                     <div style={rosterPlayersBelowTeam}>
-                      {sortRosterByFirstName(team.players).map((name, i) => {
-                        const takenOther = takenByOthers.has(rosterNameKey(name));
-                        const takenSelf = takenByActive.has(rosterNameKey(name));
-                        const rosterLocked = takenOther || takenSelf;
-                        return (
+                      {avail.length === 0 ? (
+                        <p className="select-roster-empty-hint">All players from this squad are on a lineup</p>
+                      ) : (
+                      avail.map((name, i) => (
                           <button
                             key={`${team.teamName}-${name}`}
                             type="button"
-                            disabled={rosterLocked}
                             onClick={() => applyMultiRoster(name)}
-                            style={{
-                              display: "flex", alignItems: "center", gap: 8, textAlign: "left", padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 500,
-                              cursor: rosterLocked ? "not-allowed" : "pointer",
-                              border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1",
-                              background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white",
-                              color: takenOther ? "#fca5a5" : "#0f172a",
-                              textDecoration: takenOther ? "line-through" : "none",
-                              opacity: takenOther ? 0.6 : 1,
-                            }}
+                            className="select-roster-chip select-roster-chip--multi"
                           >
-                            <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 999, background: takenSelf ? "#2563eb" : "#e2e8f0", color: takenSelf ? "white" : "#64748b", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
-                            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{name}{takenOther ? " (taken)" : ""}</span>
+                            <span className="select-roster-chip__idx">{i + 1}</span>
+                            <span className="select-roster-chip__name">{name}</span>
                           </button>
-                        );
-                      })}
+                      ))
+                      )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div style={rosterPlayerGrid2}>
-                {sortRosterByFirstName(rosterNames).map((name, i) => {
-                  const takenOther = takenByOthers.has(rosterNameKey(name));
-                  const takenSelf = takenByActive.has(rosterNameKey(name));
-                  const rosterLocked = takenOther || takenSelf;
-                  return (
+                {(() => {
+                  const avail = sortRosterByFirstName(rosterNames).filter((n) => !allTakenKeysMulti.has(rosterNameKey(n)));
+                  if (avail.length === 0) {
+                    return <p className="select-roster-empty-hint">Everyone is on a lineup — clear a slot to return someone here</p>;
+                  }
+                  return avail.map((name, i) => (
                     <button
                       key={name}
                       type="button"
-                      disabled={rosterLocked}
                       onClick={() => applyMultiRoster(name)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 8, textAlign: "left", padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 500,
-                        cursor: rosterLocked ? "not-allowed" : "pointer",
-                        border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1",
-                        background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white",
-                        color: takenOther ? "#fca5a5" : "#0f172a",
-                        opacity: takenOther ? 0.6 : 1,
-                      }}
+                      className="select-roster-chip select-roster-chip--multi"
                     >
-                      <span style={{ flexShrink: 0, width: 22, height: 22, borderRadius: 999, background: takenSelf ? "#2563eb" : "#e2e8f0", color: takenSelf ? "white" : "#64748b", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{i + 1}</span>
-                      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
+                      <span className="select-roster-chip__idx">{i + 1}</span>
+                      <span className="select-roster-chip__name">{name}</span>
                     </button>
-                  );
-                })}
+                  ));
+                })()}
               </div>
             )}
           </div>
@@ -731,8 +747,22 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                     {isActive && <span style={{ fontSize: 11, fontWeight: 700, color, background: `${color}20`, padding: "3px 8px", borderRadius: 999 }}>Active ✓</span>}
                   </div>
                   <div style={{ display: "grid", gap: 6, marginBottom: 10 }}>
-                    {picks.map((player, slotIdx) => (
-                      <div key={slotIdx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, background: player.name.trim() ? (player.captain ? "#fefce8" : "#f8fafc") : "#f8fafc", border: player.name.trim() ? (player.captain ? "1px solid #fde68a" : "1px solid #e2e8f0") : "1px dashed #cbd5e1" }}>
+                    {picks.map((player, slotIdx) => {
+                      const slotFlash =
+                        lineupFlash?.kind === "multi" &&
+                        lineupFlash.participantIdx === idx &&
+                        lineupFlash.slotIdx === slotIdx;
+                      return (
+                      <div
+                        key={slotIdx}
+                        className={slotFlash ? "select-lineup-slot select-lineup-slot--flash" : "select-lineup-slot"}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10,
+                          background: player.name.trim() ? (player.captain ? "#fefce8" : "#f8fafc") : "#f8fafc",
+                          border: player.name.trim() ? (player.captain ? "1px solid #fde68a" : "1px solid #e2e8f0") : "1px dashed #cbd5e1",
+                          ...(slotFlash ? ({ "--slot-accent": color } as React.CSSProperties) : {}),
+                        }}
+                      >
                         <div style={{ width: 22, height: 22, borderRadius: 999, background: player.name.trim() ? color : "#e2e8f0", color: player.name.trim() ? "white" : "#94a3b8", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{slotIdx + 1}</div>
                         <span style={{ fontSize: 10, fontWeight: 700, color: slotIdx < ROSTER_STARTING_COUNT ? "#15803d" : "#6366f1", width: 28, flexShrink: 0 }}>{slotIdx < ROSTER_STARTING_COUNT ? "XI" : "Sub"}</span>
                         <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
@@ -748,10 +778,11 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                             <button type="button" onClick={() => clearMultiSlot(idx, slotIdx)} style={{ width: 22, height: 22, borderRadius: 999, border: "1px solid #fecaca", background: "#fff1f2", color: "#ef4444", cursor: "pointer", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>✕</button>
                           </>
                         ) : (
-                          <span style={{ flex: 1, color: "#94a3b8", fontSize: 12, fontStyle: "italic" }}>{isActive ? "← tap roster" : "empty"}</span>
+                          <span style={{ flex: 1, color: "#94a3b8", fontSize: 12, fontStyle: "italic" }}>{isActive ? "← tap a name from the list" : "empty"}</span>
                         )}
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                   <button
                     onClick={() => void saveParticipant(idx)}
@@ -941,7 +972,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
               <div className="select-roster-panel__title">Match Players</div>
               <div className="select-roster-panel__sub">
                 {hasRoster
-                  ? "Tap a name to add to the selected team"
+                  ? "Picked players disappear here; remove someone from a slot to pick them again"
                   : hasLinkedMatch ? "Load the full squad roster from the API" : "Link a match first"}
               </div>
             </div>
@@ -1023,93 +1054,57 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                       }}>
                         <div style={{ width: 3, height: 18, borderRadius: 2, background: "#0f172a", flexShrink: 0 }} />
                         <span style={{ fontWeight: 700, fontSize: 13, color: "#0f172a", letterSpacing: 0.2 }}>{team.teamName}</span>
-                        <span style={{ fontSize: 11, color: "#94a3b8" }}>{team.players.length} players</span>
+                        <span style={{ fontSize: 11, color: "#94a3b8" }}>
+                          {sortRosterByFirstName(team.players).filter((n) => !takenNames.has(rosterNameKey(n))).length} available
+                          <span style={{ color: "#cbd5e1", margin: "0 4px" }}>·</span>
+                          {team.players.length} in squad
+                        </span>
                       </div>
                       <div style={rosterPlayersBelowTeam}>
-                        {sortRosterByFirstName(team.players).map((name, i) => {
-                          const nk = rosterNameKey(name);
-                          const taken = takenNames.has(nk);
-                          const isTarget =
-                            activeSide === "mine"
-                              ? mine.some((p) => p.name.trim() && rosterNameKey(p.name) === nk)
-                              : theirs.some((p) => p.name.trim() && rosterNameKey(p.name) === nk);
+                        {(() => {
+                          const avail = sortRosterByFirstName(team.players).filter((n) => !takenNames.has(rosterNameKey(n)));
+                          if (avail.length === 0) {
+                            return <p className="select-roster-empty-hint">Everyone here is already on a lineup</p>;
+                          }
                           const ac = sideColor(activeSide);
-                          const ab = sideBg(activeSide);
-                          return (
+                          return avail.map((name, i) => (
                             <button
                               key={`${team.teamName}-${name}`}
                               type="button"
-                              disabled={taken}
                               onClick={() => applyRosterName(name)}
-                              style={{
-                                display: "flex", alignItems: "center", gap: 10, textAlign: "left",
-                                padding: "9px 12px", borderRadius: 12, fontSize: 13, fontWeight: 500,
-                                cursor: taken ? "not-allowed" : "pointer",
-                                border: isTarget
-                                  ? `2px solid ${ac}`
-                                  : taken ? "1px solid #e2e8f0" : "1px solid #cbd5e1",
-                                background: isTarget ? ab : taken ? "#f8fafc" : "white",
-                                color: taken ? "#94a3b8" : "#0f172a",
-                                textDecoration: taken && !isTarget ? "line-through" : "none",
-                                opacity: taken && !isTarget ? 0.55 : 1,
-                                transition: "all 0.1s",
-                              }}
+                              className="select-roster-chip select-roster-chip--h2h"
+                              style={{ "--roster-accent": ac } as React.CSSProperties}
                             >
-                              <span style={{
-                                flexShrink: 0, width: 26, height: 26, borderRadius: 999,
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                background: isTarget ? ac : taken ? "#e2e8f0" : "#f1f5f9",
-                                color: isTarget ? "white" : "#64748b",
-                                fontSize: 12, fontWeight: 700,
-                              }}>{i + 1}</span>
-                              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
+                              <span className="select-roster-chip__idx select-roster-chip__idx--h2h">{i + 1}</span>
+                              <span className="select-roster-chip__name">{name}</span>
                             </button>
-                          );
-                        })}
+                          ));
+                        })()}
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div style={rosterPlayerGrid2}>
-                  {sortRosterByFirstName(rosterNames).map((name, i) => {
-                    const nk = rosterNameKey(name);
-                    const taken = takenNames.has(nk);
+                  {(() => {
+                    const avail = sortRosterByFirstName(rosterNames).filter((n) => !takenNames.has(rosterNameKey(n)));
+                    if (avail.length === 0) {
+                      return <p className="select-roster-empty-hint">Everyone is on a lineup — clear a slot to return someone here</p>;
+                    }
                     const ac = sideColor(activeSide);
-                    const ab = sideBg(activeSide);
-                    const isTarget =
-                      activeSide === "mine"
-                        ? mine.some((p) => p.name.trim() && rosterNameKey(p.name) === nk)
-                        : theirs.some((p) => p.name.trim() && rosterNameKey(p.name) === nk);
-                    return (
+                    return avail.map((name, i) => (
                       <button
                         key={name}
                         type="button"
-                        disabled={taken}
                         onClick={() => applyRosterName(name)}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 10, textAlign: "left",
-                          padding: "9px 12px", borderRadius: 12, fontSize: 13, fontWeight: 500,
-                          cursor: taken ? "not-allowed" : "pointer",
-                          border: isTarget
-                            ? `2px solid ${ac}`
-                            : taken ? "1px solid #e2e8f0" : "1px solid #cbd5e1",
-                          background: isTarget ? ab : taken ? "#f8fafc" : "white",
-                          color: taken ? "#94a3b8" : "#0f172a",
-                          textDecoration: taken && !isTarget ? "line-through" : "none",
-                          opacity: taken && !isTarget ? 0.55 : 1,
-                        }}
+                        className="select-roster-chip select-roster-chip--h2h"
+                        style={{ "--roster-accent": ac } as React.CSSProperties}
                       >
-                        <span style={{
-                          flexShrink: 0, width: 26, height: 26, borderRadius: 999,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          background: isTarget ? ac : taken ? "#e2e8f0" : "#f1f5f9",
-                          color: isTarget ? "white" : "#64748b", fontSize: 12, fontWeight: 700,
-                        }}>{i + 1}</span>
-                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
+                        <span className="select-roster-chip__idx select-roster-chip__idx--h2h">{i + 1}</span>
+                        <span className="select-roster-chip__name">{name}</span>
                       </button>
-                    );
-                  })}
+                    ));
+                  })()}
                 </div>
               )}
             </>
@@ -1183,9 +1178,14 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                 <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>
                   {list.map((player, index) => {
                     const filled = Boolean(player.name.trim());
+                    const slotFlash =
+                      lineupFlash?.kind === "h2h" &&
+                      lineupFlash.side === side &&
+                      lineupFlash.slotIdx === index;
                     return (
                       <div
                         key={index}
+                        className={slotFlash ? "select-lineup-slot select-lineup-slot--flash" : "select-lineup-slot"}
                         style={{
                           display: "flex", alignItems: "center", gap: 10,
                           padding: "10px 12px", borderRadius: 12,
@@ -1194,6 +1194,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                             ? player.captain ? "1px solid #fde68a" : "1px solid #e2e8f0"
                             : "1px dashed #cbd5e1",
                           minHeight: 48,
+                          ...(slotFlash ? ({ "--slot-accent": color } as React.CSSProperties) : {}),
                         }}
                       >
                         {/* Slot number */}
@@ -1239,7 +1240,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                           </>
                         ) : (
                           <span style={{ flex: 1, color: "#94a3b8", fontSize: 13, fontStyle: "italic" }}>
-                            {isActive ? "← tap a player" : "empty"}
+                            {isActive ? "← choose from the list on the left" : "empty"}
                           </span>
                         )}
                       </div>
