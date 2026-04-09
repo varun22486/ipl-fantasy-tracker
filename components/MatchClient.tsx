@@ -234,7 +234,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   // ── Inline team picker (no lineup yet, or "Change Team" requested) ─────────
   if (teamPickerOpen) {
     return (
-      <div style={{ display: "grid", gap: 20 }}>
+      <div className="select-page">
         {/* Header strip */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", background: "white", border: "1px solid #e2e8f0", borderRadius: 14, flexWrap: "wrap", gap: 10 }}>
           <div>

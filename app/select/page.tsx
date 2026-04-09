@@ -85,7 +85,7 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
   }));
 
   return (
-    <main className="page-main">
+    <main className="page-main page-main--select">
       <NavBar
         title="Select Teams"
         subtitle={

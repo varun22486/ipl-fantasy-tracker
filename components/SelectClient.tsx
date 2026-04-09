@@ -36,6 +36,16 @@ function saveQuota(count: number) {
   try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: formatUiCalendarDate() })); } catch {}
 }
 
+/** Stable key so roster labels match stored lineup names (trim, case, Unicode NFC). */
+function rosterNameKey(n: string): string {
+  const t = n.trim().toLowerCase();
+  try {
+    return t.normalize("NFC");
+  } catch {
+    return t;
+  }
+}
+
 /** Sort A–Z by first name (first word), then full name */
 function sortRosterByFirstName(names: string[]): string[] {
   return [...names].sort((a, b) => {
@@ -174,13 +184,22 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     );
   }
   function applyMultiRoster(name: string) {
+    const key = rosterNameKey(name);
+    if (allPicks.some((row) => row.some((p) => p.name.trim() && rosterNameKey(p.name) === key))) {
+      setApiMsg({
+        type: "warning",
+        title: "Already picked",
+        detail: "Each player can only be on one lineup. Remove them from a slot first to move.",
+      });
+      return;
+    }
     const picks = allPicks[activeMultiIdx];
     const next = picks.findIndex((p) => !p.name.trim());
     if (next === -1) {
       setApiMsg({ type: "warning", title: "All 7 slots full", detail: "Remove a player first." });
       return;
     }
-    const providerId = nameToId[name.toLowerCase()] || undefined;
+    const providerId = nameToId[name.trim().toLowerCase()] || undefined;
     setAllPicks((prev) =>
       prev.map((p, i) =>
         i !== activeMultiIdx ? p : p.map((slot, j) => (j !== next ? slot : { ...slot, name, providerId }))
@@ -254,8 +273,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
 
   const takenNames = useMemo(() => {
     const s = new Set<string>();
-    for (const p of mine) if (p.name.trim()) s.add(p.name.trim().toLowerCase());
-    for (const p of theirs) if (p.name.trim()) s.add(p.name.trim().toLowerCase());
+    for (const p of mine) if (p.name.trim()) s.add(rosterNameKey(p.name));
+    for (const p of theirs) if (p.name.trim()) s.add(rosterNameKey(p.name));
     return s;
   }, [mine, theirs]);
 
@@ -467,6 +486,18 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     });
   }
   function applyRosterName(name: string) {
+    const key = rosterNameKey(name);
+    if (
+      mine.some((p) => p.name.trim() && rosterNameKey(p.name) === key) ||
+      theirs.some((p) => p.name.trim() && rosterNameKey(p.name) === key)
+    ) {
+      setApiMsg({
+        type: "warning",
+        title: "Already picked",
+        detail: "Each player can only be on one lineup. Remove them from a slot first.",
+      });
+      return;
+    }
     const list = activeSide === "mine" ? mine : theirs;
     const setter = activeSide === "mine" ? setMine : setTheirs;
     const next = list.findIndex((p) => !p.name.trim());
@@ -474,7 +505,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       setApiMsg({ type: "warning", title: "All 7 slots are full", detail: "Remove a player first, then tap again." });
       return;
     }
-    const providerId = nameToId[name.toLowerCase()] || undefined;
+    const providerId = nameToId[name.trim().toLowerCase()] || undefined;
     setter((prev) => prev.map((p, i) => (i === next ? { ...p, name, providerId } : p)));
     setMessage("");
   }
@@ -499,14 +530,14 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     const activePicks = allPicks[activeMultiIdx] ?? [];
     const canSave = rosterSlotsCanSave(activePicks);
 
-    // Players taken by OTHER participants (not the active one) — these chips are locked
+    // Players taken by OTHER participants (not the active one)
     const takenByOthers = new Set(
       allPicks.flatMap((picks, i) =>
-        i === activeMultiIdx ? [] : picks.filter(p => p.name.trim()).map(p => p.name.toLowerCase())
+        i === activeMultiIdx ? [] : picks.filter((p) => p.name.trim()).map((p) => rosterNameKey(p.name))
       )
     );
-    // Players already in the ACTIVE participant's own lineup (shown highlighted, re-tappable to no effect)
-    const takenByActive = new Set(activePicks.filter(p => p.name.trim()).map(p => p.name.toLowerCase()));
+    // Players already in the ACTIVE participant's own lineup (must not add again)
+    const takenByActive = new Set(activePicks.filter((p) => p.name.trim()).map((p) => rosterNameKey(p.name)));
 
     return (
       <div style={{ display: "grid", gap: 20 }}>
@@ -619,17 +650,18 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                     <div style={{ fontWeight: 700, fontSize: 12, color: "#334155", marginBottom: 10, borderBottom: "1px solid #f1f5f9", paddingBottom: 6 }}>{team.teamName}</div>
                     <div style={rosterPlayersBelowTeam}>
                       {sortRosterByFirstName(team.players).map((name, i) => {
-                        const takenOther = takenByOthers.has(name.toLowerCase());
-                        const takenSelf = takenByActive.has(name.toLowerCase());
+                        const takenOther = takenByOthers.has(rosterNameKey(name));
+                        const takenSelf = takenByActive.has(rosterNameKey(name));
+                        const rosterLocked = takenOther || takenSelf;
                         return (
                           <button
-                            key={name}
+                            key={`${team.teamName}-${name}`}
                             type="button"
-                            disabled={takenOther}
+                            disabled={rosterLocked}
                             onClick={() => applyMultiRoster(name)}
                             style={{
                               display: "flex", alignItems: "center", gap: 8, textAlign: "left", padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 500,
-                              cursor: takenOther ? "not-allowed" : "pointer",
+                              cursor: rosterLocked ? "not-allowed" : "pointer",
                               border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1",
                               background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white",
                               color: takenOther ? "#fca5a5" : "#0f172a",
@@ -649,17 +681,18 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             ) : (
               <div style={rosterPlayerGrid2}>
                 {sortRosterByFirstName(rosterNames).map((name, i) => {
-                  const takenOther = takenByOthers.has(name.toLowerCase());
-                  const takenSelf = takenByActive.has(name.toLowerCase());
+                  const takenOther = takenByOthers.has(rosterNameKey(name));
+                  const takenSelf = takenByActive.has(rosterNameKey(name));
+                  const rosterLocked = takenOther || takenSelf;
                   return (
                     <button
                       key={name}
                       type="button"
-                      disabled={takenOther}
+                      disabled={rosterLocked}
                       onClick={() => applyMultiRoster(name)}
                       style={{
                         display: "flex", alignItems: "center", gap: 8, textAlign: "left", padding: "8px 10px", borderRadius: 10, fontSize: 12, fontWeight: 500,
-                        cursor: takenOther ? "not-allowed" : "pointer",
+                        cursor: rosterLocked ? "not-allowed" : "pointer",
                         border: takenSelf ? "2px solid #2563eb" : takenOther ? "1px solid #fecaca" : "1px solid #cbd5e1",
                         background: takenSelf ? "#eff6ff" : takenOther ? "#fff1f2" : "white",
                         color: takenOther ? "#fca5a5" : "#0f172a",
@@ -994,10 +1027,12 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                       </div>
                       <div style={rosterPlayersBelowTeam}>
                         {sortRosterByFirstName(team.players).map((name, i) => {
-                          const taken = takenNames.has(name.trim().toLowerCase());
-                          const isTarget = activeSide === "mine"
-                            ? mine.some((p) => p.name === name)
-                            : theirs.some((p) => p.name === name);
+                          const nk = rosterNameKey(name);
+                          const taken = takenNames.has(nk);
+                          const isTarget =
+                            activeSide === "mine"
+                              ? mine.some((p) => p.name.trim() && rosterNameKey(p.name) === nk)
+                              : theirs.some((p) => p.name.trim() && rosterNameKey(p.name) === nk);
                           const ac = sideColor(activeSide);
                           const ab = sideBg(activeSide);
                           return (
@@ -1038,7 +1073,14 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
               ) : (
                 <div style={rosterPlayerGrid2}>
                   {sortRosterByFirstName(rosterNames).map((name, i) => {
-                    const taken = takenNames.has(name.trim().toLowerCase());
+                    const nk = rosterNameKey(name);
+                    const taken = takenNames.has(nk);
+                    const ac = sideColor(activeSide);
+                    const ab = sideBg(activeSide);
+                    const isTarget =
+                      activeSide === "mine"
+                        ? mine.some((p) => p.name.trim() && rosterNameKey(p.name) === nk)
+                        : theirs.some((p) => p.name.trim() && rosterNameKey(p.name) === nk);
                     return (
                       <button
                         key={name}
@@ -1049,18 +1091,20 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                           display: "flex", alignItems: "center", gap: 10, textAlign: "left",
                           padding: "9px 12px", borderRadius: 12, fontSize: 13, fontWeight: 500,
                           cursor: taken ? "not-allowed" : "pointer",
-                          border: taken ? "1px solid #e2e8f0" : "1px solid #cbd5e1",
-                          background: taken ? "#f8fafc" : "white",
+                          border: isTarget
+                            ? `2px solid ${ac}`
+                            : taken ? "1px solid #e2e8f0" : "1px solid #cbd5e1",
+                          background: isTarget ? ab : taken ? "#f8fafc" : "white",
                           color: taken ? "#94a3b8" : "#0f172a",
-                          textDecoration: taken ? "line-through" : "none",
-                          opacity: taken ? 0.55 : 1,
+                          textDecoration: taken && !isTarget ? "line-through" : "none",
+                          opacity: taken && !isTarget ? 0.55 : 1,
                         }}
                       >
                         <span style={{
                           flexShrink: 0, width: 26, height: 26, borderRadius: 999,
                           display: "flex", alignItems: "center", justifyContent: "center",
-                          background: taken ? "#e2e8f0" : "#f1f5f9",
-                          color: "#64748b", fontSize: 12, fontWeight: 700,
+                          background: isTarget ? ac : taken ? "#e2e8f0" : "#f1f5f9",
+                          color: isTarget ? "white" : "#64748b", fontSize: 12, fontWeight: 700,
                         }}>{i + 1}</span>
                         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
                       </button>

@@ -855,6 +855,19 @@ summary:focus-visible,
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
 /* ── Select teams (H2H) — layout & polish ──────────────────────────────── */
+.page-main--select {
+  position: relative;
+}
+.page-main--select::before {
+  content: "";
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  margin: -4px 0 20px;
+  background: linear-gradient(90deg, #2563eb, #0ea5e9, #dc2626);
+  opacity: 0.9;
+}
+
 .select-page {
   display: grid;
   gap: 22px;
