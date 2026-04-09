@@ -32,7 +32,7 @@ export default async function SettingsPage() {
         };
 
   return (
-    <main className="page-main" style={{ maxWidth: 720 }}>
+    <main className="page-main page-main--settings">
       <NavBar title="Settings" subtitle="Names, scoring, sync & league setup" />
       <SettingsClient settings={settings as any} cronLastRun={cronLastRun} />
     </main>
