@@ -28,6 +28,10 @@
   --comp-bar-h: 52px;
   --font-sans: var(--font-sans-var), system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: var(--font-display-var), var(--font-sans);
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-danger: #dc2626;
+  --touch-target-min: 44px;
 }
 
 /* ── Reset ───────────────────────────────────────────────────────────────── */
@@ -581,6 +585,7 @@ summary:focus-visible,
   align-items: center;
   justify-content: center;
   gap: 8px;
+  min-height: var(--touch-target-min);
   padding: 11px 22px;
   border-radius: 999px;
   background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
@@ -1840,6 +1845,24 @@ select:focus-visible {
   text-transform: uppercase;
   color: var(--text-muted);
 }
+.match-detail-hero__sync {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+.match-detail-hero__sync--muted {
+  font-style: italic;
+}
+.match-detail-hero__sync-sep {
+  opacity: 0.65;
+}
+.match-detail-hero__sync-abs {
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 12px;
+}
 .match-detail-hero__title {
   font-family: var(--font-display);
   font-size: clamp(1.2rem, 3.5vw, 1.65rem);
@@ -2272,6 +2295,69 @@ select:focus-visible {
   font-weight: 600;
 }
 
+/* ── Settings: sync & data panel ─────────────────────────────────────────── */
+.settings-sync-panel {
+  padding: 20px 22px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: linear-gradient(165deg, var(--surface) 0%, var(--surface-muted) 100%);
+  box-shadow: var(--shadow-xs);
+}
+.settings-sync-panel__title {
+  margin: 0 0 14px;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+.settings-sync-panel__list {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+.settings-sync-panel__list li + li {
+  margin-top: 10px;
+}
+.settings-sync-panel__list strong {
+  color: var(--text);
+}
+.settings-sync-panel__code {
+  font-size: 12px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.settings-sync-panel__cron {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.settings-sync-panel__cron-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.settings-sync-panel__cron-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.5;
+}
+.settings-sync-panel__cron-value--muted {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
 /* ── System dark mode (tokens + key surfaces) ───────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root {
@@ -2286,6 +2372,9 @@ select:focus-visible {
     --accent: #60a5fa;
     --accent-glow: rgba(96, 165, 250, 0.35);
     --gold-soft: rgba(250, 204, 21, 0.2);
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-danger: #f87171;
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
     --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.45);

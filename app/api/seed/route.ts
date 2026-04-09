@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMatchSeedByExternalIdForToday } from "@/lib/cricket-provider";
 import { persistSeededMatch } from "@/lib/persist-seeded-match";
+import { seedPostSchema } from "@/lib/api-schemas";
 
 /** Manual link: POST with externalMatchId. Scheduled auto-link: GET /api/cron/auto-link-ipl (Bearer CRON_SECRET). */
 export async function GET() {
@@ -16,23 +17,18 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    let externalMatchId = "";
+    let raw: unknown;
     try {
-      const body = await req.json();
-      externalMatchId = typeof body?.externalMatchId === "string" ? body.externalMatchId.trim() : "";
+      raw = await req.json();
     } catch {
-      // invalid or empty body
+      raw = {};
     }
-
-    if (!externalMatchId) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: "Missing externalMatchId. Pick a fixture from the list, then link the match.",
-        },
-        { status: 400 }
-      );
+    const parsed = seedPostSchema.safeParse(raw);
+    if (!parsed.success) {
+      const msg = parsed.error.issues[0]?.message ?? "Invalid request body";
+      return NextResponse.json({ ok: false, error: msg, code: "VALIDATION" }, { status: 400 });
     }
+    const externalMatchId = parsed.data.externalMatchId;
 
     const discovered = await getMatchSeedByExternalIdForToday(externalMatchId);
     if (!discovered) {

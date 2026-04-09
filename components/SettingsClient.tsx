@@ -36,7 +36,22 @@ const SCORING_RULES = [
   { key: "pts_mom",      label: "Man of the Match", emoji: "🏆" },
 ] as const;
 
-export default function SettingsClient({ settings }: { settings: Settings }) {
+type CronLastRunSummary = {
+  finishedLabel: string;
+  ok: boolean;
+  linkedCount: number | null;
+  errorCount: number | null;
+  istDate: string | null;
+  errorMessage: string | null;
+};
+
+export default function SettingsClient({
+  settings,
+  cronLastRun,
+}: {
+  settings: Settings;
+  cronLastRun?: CronLastRunSummary | null;
+}) {
   const [yourName, setYourName] = useState(settings.your_name ?? "Varun");
   const [opponentName, setOpponentName] = useState(settings.opponent_name ?? "Rahul");
   const [pts, setPts] = useState<Record<string, number>>({
@@ -156,6 +171,8 @@ export default function SettingsClient({ settings }: { settings: Settings }) {
         ⚠️ <strong>Note:</strong> Changing scoring rules updates future calculations but does <em>not</em> retroactively re-sync past match stats from the API — existing raw stats (runs, wickets, catches) will be re-scored automatically with the new values.
       </div>
 
+      <SyncAndDataPanel cronLastRun={cronLastRun ?? null} />
+
       {/* Competitions */}
       <CompetitionsPanel />
     </div>
@@ -163,6 +180,56 @@ export default function SettingsClient({ settings }: { settings: Settings }) {
 }
 
 type Competition = { id: number; name: string; player1_name: string; player2_name: string };
+
+function SyncAndDataPanel({ cronLastRun }: { cronLastRun: CronLastRunSummary | null }) {
+  return (
+    <div className="settings-sync-panel">
+      <h2 className="settings-sync-panel__title">Sync &amp; data</h2>
+      <ul className="settings-sync-panel__list">
+        <li>
+          <strong>Live scores</strong> come from your configured cricket API. Each <strong>Sync scores</strong> action uses API
+          credits (see the quota bar on the home / match screens). If keys are rate-limited or the daily quota is used, wait
+          for the time shown in the error message (often ~15 minutes or until the next UTC day).
+        </li>
+        <li>
+          <strong>Link match</strong> loads today&apos;s IPL fixtures from the feed, then saves the fixture you pick. A scheduled
+          job can auto-link today&apos;s IPL rows if you deploy with <code className="settings-sync-panel__code">vercel.json</code>{" "}
+          cron and set <code className="settings-sync-panel__code">CRON_SECRET</code> (see Debug → API diagnostics).
+        </li>
+        <li>
+          Optional env <code className="settings-sync-panel__code">CRICKET_HTTP_TIMEOUT_MS</code> (8000–120000, default 28000)
+          caps how long each provider HTTP call may run before timing out.
+        </li>
+      </ul>
+      <div className="settings-sync-panel__cron" role="status">
+        <span className="settings-sync-panel__cron-label">Last IPL auto-link (cron)</span>
+        {cronLastRun == null ? (
+          <span className="settings-sync-panel__cron-value settings-sync-panel__cron-value--muted">
+            No run recorded yet — run the migration for <code>cron_job_runs</code> if you use scheduled auto-link.
+          </span>
+        ) : (
+          <>
+            <span className="settings-sync-panel__cron-value">
+              {cronLastRun.finishedLabel}
+              {cronLastRun.ok ? (
+                <>
+                  {" "}
+                  · linked {cronLastRun.linkedCount ?? "—"}
+                  {cronLastRun.errorCount != null && cronLastRun.errorCount > 0
+                    ? ` · ${cronLastRun.errorCount} error(s)`
+                    : ""}
+                  {cronLastRun.istDate ? ` · IST ${cronLastRun.istDate}` : ""}
+                </>
+              ) : (
+                <> · failed{cronLastRun.errorMessage ? `: ${cronLastRun.errorMessage}` : ""}</>
+              )}
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function CompetitionsPanel() {
   const [competitions, setCompetitions] = useState<Competition[]>([]);

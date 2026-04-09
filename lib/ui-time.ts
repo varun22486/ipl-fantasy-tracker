@@ -43,3 +43,19 @@ export function formatUiDateTimeLong(ms: number): string {
     timeZoneName: "short",
   });
 }
+
+/** Short relative label for “last synced” (wall clock skew safe for typical use). */
+export function formatRelativeTimeAgo(iso: string | Date, nowMs: number = Date.now()): string {
+  const t = typeof iso === "string" ? new Date(iso).getTime() : iso.getTime();
+  if (!Number.isFinite(t)) return "unknown";
+  const sec = Math.round((nowMs - t) / 1000);
+  if (sec < 0) return "just now";
+  if (sec < 15) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}

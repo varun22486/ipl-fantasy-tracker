@@ -3,6 +3,7 @@ import { getIplMatchChoicesForToday, sortMatchSeedsLikeHistory } from "@/lib/cri
 import { persistSeededMatch } from "@/lib/persist-seeded-match";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { iplCalendarTodayIso, normalizeMatchDateKey } from "@/lib/next-match";
+import { CRON_JOB_AUTO_LINK_IPL, recordCronJobRun } from "@/lib/cron-job-runs";
 
 export const dynamic = "force-dynamic";
 
@@ -45,17 +46,36 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      ok: true,
+    const body = {
+      ok: true as const,
       istDate: today,
       feedTotalRaw: totalRaw,
       iplChoicesInFeed: rawChoices.length,
       todaysFixtures: todays.length,
       linked,
       errors,
+    };
+    console.info(
+      JSON.stringify({
+        event: "cron_auto_link_ipl",
+        ok: true,
+        linked: linked.length,
+        errors: errors.length,
+        istDate: today,
+      })
+    );
+    await recordCronJobRun(CRON_JOB_AUTO_LINK_IPL, true, {
+      istDate: today,
+      linkedCount: linked.length,
+      errorCount: errors.length,
+      todaysFixtures: todays.length,
+      dbIds: linked.map((l) => l.dbId),
     });
+    return NextResponse.json(body);
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Auto-link failed";
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    console.error(JSON.stringify({ event: "cron_auto_link_ipl", ok: false, error: msg }));
+    await recordCronJobRun(CRON_JOB_AUTO_LINK_IPL, false, { error: msg });
+    return NextResponse.json({ ok: false, error: msg, code: "CRON_FAILED" }, { status: 500 });
   }
 }

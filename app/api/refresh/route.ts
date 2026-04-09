@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { refreshMatchFromProvider } from "@/lib/cricket-provider";
+import { refreshPostSchema } from "@/lib/api-schemas";
 import { getDefaultActiveMatchRowForSync } from "@/lib/active-match";
 import { VOIDED_MATCH_FANTASY_SCORES, isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { createMatchSnapshot } from "@/lib/match-snapshot";
@@ -374,11 +375,20 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    let matchId: number | undefined;
+    let raw: unknown = {};
     try {
-      const body = await req.json();
-      if (body?.matchId) matchId = Number(body.matchId);
-    } catch { /* no body or not JSON — that's fine */ }
+      raw = await req.json();
+    } catch {
+      /* no body */
+    }
+    const parsed = refreshPostSchema.safeParse(raw);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid matchId in request body.", code: "VALIDATION" },
+        { status: 400 }
+      );
+    }
+    const matchId = parsed.data.matchId;
 
     const currentMatch = await doRefresh(matchId);
 

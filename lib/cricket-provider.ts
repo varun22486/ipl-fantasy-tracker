@@ -347,6 +347,12 @@ function buildNoKeysAvailableMessage(keys: string[], local: Record<string, KeySt
   return `Cricket API error: all ${keys.length} key(s) unavailable. ${formatRetryHints(keys, local, today, nowMs)}`;
 }
 
+const CRICKET_HTTP_TIMEOUT_MS = (() => {
+  const n = Number(process.env.CRICKET_HTTP_TIMEOUT_MS);
+  if (Number.isFinite(n) && n >= 8_000 && n <= 120_000) return Math.floor(n);
+  return 28_000;
+})();
+
 /**
  * Tries API keys using Cricket Data `info` as source of truth for hits/limit.
  * DB stores last `info` + 15‑min / daily flags so we do not call blocked keys early.
@@ -428,7 +434,22 @@ async function fetchJson(path: string) {
 
     const requestPath = isCricapiBase(baseUrl) ? injectKey(path, key) : path;
     const headers = buildHeaders(key);
-    const response = await fetch(`${baseUrl}${requestPath}`, { headers, cache: "no-store" });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}${requestPath}`, {
+        headers,
+        cache: "no-store",
+        signal: AbortSignal.timeout(CRICKET_HTTP_TIMEOUT_MS),
+      });
+    } catch (e) {
+      const name = e instanceof Error ? e.name : "";
+      if (name === "TimeoutError" || name === "AbortError") {
+        lastError = `Request timed out after ${Math.round(CRICKET_HTTP_TIMEOUT_MS / 1000)}s`;
+      } else {
+        lastError = e instanceof Error ? e.message : String(e);
+      }
+      continue;
+    }
     if (!response.ok) {
       lastError = `HTTP ${response.status}`;
       continue;
@@ -981,6 +1002,7 @@ async function getLegacySeedMatch(baseUrl: string): Promise<MatchSeed | null> {
   const response = await fetch(baseUrl, {
     headers: authHeaders(),
     next: { revalidate: 0 },
+    signal: AbortSignal.timeout(CRICKET_HTTP_TIMEOUT_MS),
   });
 
   if (!response.ok) {

@@ -219,7 +219,11 @@ export default function DebugPageClient({
           <li>
             <code>GET /api/cron/auto-link-ipl</code> with header <code>Authorization: Bearer $CRON_SECRET</code> — daily
             auto-link of IPL rows for the current IST calendar day (Vercel: <code>vercel.json</code> at 02:30 UTC ≈ 8:00
-            AM IST).
+            AM IST). Last run is stored in <code>cron_job_runs</code> and shown on Settings.
+          </li>
+          <li>
+            <code>CRICKET_HTTP_TIMEOUT_MS</code> — optional per-request timeout for provider HTTP calls (8000–120000 ms,
+            default 28000).
           </li>
         </ul>
       </section>

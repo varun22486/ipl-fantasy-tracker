@@ -12,6 +12,7 @@ import ScoreEditor from "@/components/ScoreEditor";
 import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
 import VoidMatchControl from "@/components/VoidMatchControl";
 import Link from "next/link";
+import { formatRelativeTimeAgo, formatUiDateTime } from "@/lib/ui-time";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -278,6 +279,15 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
         <div className="match-detail-hero">
           <div>
             <div className="match-detail-hero__meta">{match.match_date}</div>
+            {match.last_synced_at ? (
+              <p className="match-detail-hero__sync" title={formatUiDateTime(String(match.last_synced_at))}>
+                Last synced {formatRelativeTimeAgo(String(match.last_synced_at))}
+                <span className="match-detail-hero__sync-sep"> · </span>
+                <span className="match-detail-hero__sync-abs">{formatUiDateTime(String(match.last_synced_at))}</span>
+              </p>
+            ) : (
+              <p className="match-detail-hero__sync match-detail-hero__sync--muted">Not synced from the API yet</p>
+            )}
             <div className="match-detail-hero__title">{fixtureName}</div>
             {match.venue && <div className="match-detail-hero__sub">{match.venue}</div>}
             {match.toss_winner && (

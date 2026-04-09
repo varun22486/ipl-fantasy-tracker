@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "smoke:ipl": "python3 scripts/smoke_ipl.py",
     "verify:runout": "npx --yes tsx scripts/verify-runout-example.ts"
   },
@@ -16,12 +18,14 @@
     "next": "latest",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "recharts": "^2.15.0"
+    "recharts": "^2.15.0",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
   }
 }
