@@ -139,6 +139,17 @@ function isPriorApiFailureBanner(summary: unknown): boolean {
 
 type RefreshPayload = Awaited<ReturnType<typeof refreshMatchFromProvider>>;
 
+function userMessageWhenNoProviderPlayerRows(payload: RefreshPayload, preservedDroppedFixture: boolean): string {
+  if (preservedDroppedFixture) {
+    return "Finished matches often disappear from the feed; your saved summary and player stats were not overwritten.";
+  }
+  const sum = String(payload.live_summary || "");
+  if (/\bneed\s+\d+\s+runs\b/i.test(sum)) {
+    return "Live status updated, but the API returned no scorecard player rows — fantasy stats were not changed. Try sync again in a few minutes, confirm your CricAPI plan includes IPL scorecards, or use Edit to enter stats manually.";
+  }
+  return sum || "Scorecard not available from API — stats unchanged.";
+}
+
 function resolveSummaryAndStatusAfterRefresh(
   currentMatch: { live_summary?: string | null; status?: string | null },
   payload: RefreshPayload
@@ -339,9 +350,7 @@ export async function GET() {
           ? "Match is voided — fantasy scores cleared (manual void)."
           : "Match voided (washout / no result) — fantasy scores cleared for this fixture."
         : payload.players.length === 0
-          ? preservedDroppedFixture
-            ? "Finished matches often disappear from the feed; your saved summary and player stats were not overwritten."
-            : (payload.live_summary || "Scorecard not available from API — stats unchanged.")
+          ? userMessageWhenNoProviderPlayerRows(payload, preservedDroppedFixture)
           : updatedRows > 0
           ? `Updated ${updatedRows} of ${selected.length} selected players.`
           : "Names in lineup didn't match the scorecard — check debug panel.",
@@ -511,9 +520,7 @@ export async function POST(req: Request) {
           ? "Match is voided — fantasy scores cleared (manual void)."
           : "Match voided (washout / no result) — fantasy scores cleared for this fixture."
         : payload.players.length === 0
-          ? preservedDroppedPost
-            ? "Finished matches often disappear from the feed; your saved summary and player stats were not overwritten."
-            : (payload.live_summary || "Scorecard not available from API — stats unchanged.")
+          ? userMessageWhenNoProviderPlayerRows(payload, preservedDroppedPost)
           : updatedRows > 0
           ? `Updated ${updatedRows} of ${selected.length} players.`
           : "Names in lineup didn't match the scorecard — check spelling.",

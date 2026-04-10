@@ -1978,6 +1978,21 @@ function mergePlayers(rows: PlayerStats[]) {
   return Array.from(byName.values());
 }
 
+function pickBatsmanRunsFromLiveObj(obj: unknown): { name: string; runs: number } | null {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const o = obj as MaybeRecord;
+  const name = safeString(
+    o.name ||
+      o.playerName ||
+      o.shortName ||
+      (typeof o.batsman === "string" ? o.batsman : "") ||
+      (o.batsman && typeof o.batsman === "object" ? safeString((o.batsman as MaybeRecord).name) : "")
+  );
+  const runs = numberValue(o.r ?? o.runs ?? o.run ?? o.batRuns ?? o.batsmanRuns ?? o.score);
+  if (!name) return null;
+  return { name, runs };
+}
+
 function parseSimpleLiveScore(data: MaybeRecord): PlayerStats[] {
   const rows: PlayerStats[] = [];
 
@@ -2037,7 +2052,95 @@ function parseSimpleLiveScore(data: MaybeRecord): PlayerStats[] {
     }
   }
 
-  return rows;
+  for (const key of ["striker", "nonStriker", "batsmanStriker", "batsmanNonStriker", "strikerBatsman", "nonStrikerBatsman"] as const) {
+    const hit = pickBatsmanRunsFromLiveObj(data[key]);
+    if (hit) {
+      rows.push(bonusify({
+        name: hit.name,
+        runs: hit.runs,
+        wickets: 0,
+        catches: 0,
+        runouts: 0,
+        stumpings: 0,
+        fifty_bonus: 0,
+        hundred_bonus: 0,
+        three_w_bonus: 0,
+        five_w_bonus: 0,
+      }));
+    }
+  }
+
+  const bat = data.batsman;
+  if (bat && typeof bat === "object" && !Array.isArray(bat)) {
+    const br = bat as MaybeRecord;
+    for (const key of ["striker", "nonStriker", "striking", "nonStriking", "bat1", "bat2", "first", "second"] as const) {
+      const hit = pickBatsmanRunsFromLiveObj(br[key]);
+      if (hit) {
+        rows.push(bonusify({
+          name: hit.name,
+          runs: hit.runs,
+          wickets: 0,
+          catches: 0,
+          runouts: 0,
+          stumpings: 0,
+          fifty_bonus: 0,
+          hundred_bonus: 0,
+          three_w_bonus: 0,
+          five_w_bonus: 0,
+        }));
+      }
+    }
+  }
+
+  for (const key of ["bowlerOne", "bowlerTwo"] as const) {
+    const b = data[key];
+    if (b && typeof b === "object" && !Array.isArray(b)) {
+      const name = safeString((b as MaybeRecord).name || (b as MaybeRecord).bowler);
+      const w = numberValue((b as MaybeRecord).w ?? (b as MaybeRecord).wickets);
+      if (name) {
+        rows.push(bonusify({
+          name,
+          runs: 0,
+          wickets: w,
+          catches: 0,
+          runouts: 0,
+          stumpings: 0,
+          fifty_bonus: 0,
+          hundred_bonus: 0,
+          three_w_bonus: 0,
+          five_w_bonus: 0,
+        }));
+      }
+    }
+  }
+
+  const bow = data.bowler;
+  if (bow && typeof bow === "object" && !Array.isArray(bow)) {
+    const br = bow as MaybeRecord;
+    for (const key of ["bowler", "current", "striker"] as const) {
+      const o = br[key];
+      if (o && typeof o === "object" && !Array.isArray(o)) {
+        const name = safeString((o as MaybeRecord).name || (o as MaybeRecord).bowler);
+        const w = numberValue((o as MaybeRecord).w ?? (o as MaybeRecord).wickets);
+        if (name) {
+          rows.push(bonusify({
+            name,
+            runs: 0,
+            wickets: w,
+            catches: 0,
+            runouts: 0,
+            stumpings: 0,
+            fifty_bonus: 0,
+            hundred_bonus: 0,
+            three_w_bonus: 0,
+            five_w_bonus: 0,
+          }));
+        }
+      }
+    }
+  }
+
+  return mergePlayers(rows);
 }
 
 /** Merge all playerIdMap entries across squads into one flat map */
@@ -2542,6 +2645,69 @@ function squadsFromProviderPlayerRows(players: PlayerStats[] | undefined | null)
   return [withIdMap("Players (from match feed)", names, idMap)];
 }
 
+/**
+ * When `match_scorecard` is empty/not found, `match_info` often still has the chase line but no card.
+ * The same fixture in `currentMatches` frequently carries striker/bowler + thin scorecard keys — merge those in.
+ * Costs one extra API hit per sync on CricAPI.
+ */
+function mergeMatchDataWithLiveFeedRow(base: MaybeRecord, feed: MaybeRecord): MaybeRecord {
+  const out: MaybeRecord = { ...base };
+  const takeKeys = [
+    "batsmanOne",
+    "batsmanTwo",
+    "batsmanOneRun",
+    "batsmanTwoRun",
+    "bowlerOne",
+    "bowlerTwo",
+    "bowlerOneWickets",
+    "bowlerTwoWicket",
+    "batsman",
+    "bowler",
+    "score",
+    "teamScore",
+    "liveScore",
+    "run",
+    "wicket",
+    "over",
+    "overs",
+  ];
+  for (const k of takeKeys) {
+    const v = feed[k];
+    if (v != null && v !== "") out[k] = v;
+  }
+  if (Array.isArray(feed.scorecard) && feed.scorecard.length > 0 && (!Array.isArray(out.scorecard) || (out.scorecard as unknown[]).length === 0)) {
+    out.scorecard = feed.scorecard;
+  }
+  if (Array.isArray(feed.batting) && feed.batting.length > 0 && (!Array.isArray(out.batting) || (out.batting as unknown[]).length === 0)) {
+    out.batting = feed.batting;
+  }
+  if (Array.isArray((feed as any).bowling) && (feed as any).bowling.length > 0 && (!Array.isArray((out as any).bowling) || (out as any).bowling.length === 0)) {
+    (out as any).bowling = (feed as any).bowling;
+  }
+  if (Array.isArray((feed as any).innings) && (feed as any).innings.length > 0 && (!Array.isArray((out as any).innings) || (out as any).innings.length === 0)) {
+    (out as any).innings = (feed as any).innings;
+  }
+  return out;
+}
+
+async function fetchCricapiCurrentMatchRowById(externalMatchId: string): Promise<MaybeRecord | null> {
+  const want = cleanEnvText(externalMatchId);
+  if (!want || !isCricapiBase(envBaseUrl())) return null;
+  try {
+    const p = await fetchJson("/v1/currentMatches?offset=0");
+    const raw = p?.data;
+    const arr: MaybeRecord[] = Array.isArray(raw)
+      ? raw
+      : raw && typeof raw === "object" && Array.isArray((raw as MaybeRecord).matches)
+        ? ((raw as MaybeRecord).matches as MaybeRecord[])
+        : [];
+    const hit = arr.find((m) => safeString(m?.id || m?.matchId || m?.match_id) === want);
+    return hit && typeof hit === "object" ? hit : null;
+  } catch {
+    return null;
+  }
+}
+
 async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<SquadTeam[]> {
   if (!isCricapiBase(envBaseUrl())) return [];
   const paths = [
@@ -2710,7 +2876,16 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
     };
   }
 
-  const data = payload.data || payload;
+  let data = (payload.data || payload) as MaybeRecord;
+  if (isCricapiBase(envBaseUrl())) {
+    try {
+      const feedRow = await fetchCricapiCurrentMatchRowById(id);
+      if (feedRow) data = mergeMatchDataWithLiveFeedRow(data, feedRow);
+    } catch {
+      /* ignore */
+    }
+  }
+
   const rows: PlayerStats[] = [];
   collectPlayerRows(data, rows);
   // Add wicket-fielder catches (newer CricAPI format) into the raw rows first
