@@ -96,7 +96,12 @@ function SelectQuotaCluster({
           {resettingBlocks ? "…" : "↺ Clear blocks"}
         </button>
       )}
-      <div className="select-key-meters">
+      <div className="select-key-cluster">
+        <div className="select-key-cluster__head">
+          <span className="select-key-cluster__title">Keys</span>
+          <span className="select-key-cluster__hint">hits today / 100</span>
+        </div>
+        <div className="select-key-meters">
         {keyStats.map((k, i) => {
           const pct = k.hits / KEY_LIMIT;
           const blocked = k.blocked;
@@ -137,6 +142,7 @@ function SelectQuotaCluster({
             </div>
           );
         })}
+        </div>
       </div>
     </div>
   );
