@@ -74,7 +74,7 @@ export default function MatchDetailLineupEditor({
   }
 
   return (
-    <div className="select-embed-shell" style={{ gap: 14 }}>
+    <div className="select-embed-shell select-studio-root" style={{ gap: 14 }}>
       <div className="select-surface-card">
         <div className="select-control-bar__row select-control-bar__row--spread">
           <div className="select-roster-panel__title" style={{ marginBottom: 0 }}>

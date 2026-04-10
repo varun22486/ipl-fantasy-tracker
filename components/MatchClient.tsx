@@ -234,7 +234,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   // ── Inline team picker (no lineup yet, or "Change Team" requested) ─────────
   if (teamPickerOpen) {
     return (
-      <div className="select-embed-shell">
+      <div className="select-embed-shell select-studio-root">
         <div className="select-surface-card">
           <div className="select-control-bar__row select-control-bar__row--spread">
             <div>

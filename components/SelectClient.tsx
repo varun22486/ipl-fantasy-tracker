@@ -665,7 +665,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     const canSave = rosterSlotsCanSave(activePicks);
 
     return (
-      <div className="select-page select-page--premium">
+      <div className="select-studio-root select-page select-page--premium">
         {allBlocked && (
           <ApiMessage
             msg={{
@@ -1138,7 +1138,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   }
 
   return (
-    <div className="select-page select-page--premium">
+    <div className="select-studio-root select-page select-page--premium">
 
       {/* ── All keys blocked banner ────────────────────────────────────────── */}
       {allBlocked && (
