@@ -5,6 +5,13 @@ import {
 } from "@/lib/runout-fielders";
 import { formatUiDateTimeLong } from "@/lib/ui-time";
 import { searchWebForMomForFixture } from "@/lib/web-mom-search";
+import {
+  extractProviderMatchDate,
+  formatDateInTimeZone,
+  IPL_TZ,
+  pickIplSeriesMatchesForFeedWindow,
+  todayIsoInIplTZ,
+} from "@/lib/ipl-series-feed";
 
 const DEFAULT_BASE_URL = "https://api.cricapi.com";
 
@@ -494,73 +501,6 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** IPL calendar day for filtering double-headers and completed games. */
-const IPL_TZ = "Asia/Kolkata";
-
-function formatDateInTimeZone(d: Date, tz: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d);
-  const y = parts.find((p) => p.type === "year")?.value;
-  const m = parts.find((p) => p.type === "month")?.value;
-  const day = parts.find((p) => p.type === "day")?.value;
-  if (y && m && day) return `${y}-${m}-${day}`;
-  return d.toISOString().slice(0, 10);
-}
-
-function todayIsoInIplTZ(): string {
-  return formatDateInTimeZone(new Date(), IPL_TZ);
-}
-
-/**
- * IPL listing day in Asia/Kolkata. Prefer epoch / full ISO instants over plain `date` — CricAPI `dateTimeGMT`
- * must be converted to IST (slicing the UTC YYYY-MM-DD prefix is wrong around midnight IST).
- */
-function extractProviderMatchDate(match: MaybeRecord): string | null {
-  const ms =
-    typeof match.ms === "number" && match.ms > 0
-      ? match.ms
-      : typeof match.dateTime === "number" && match.dateTime > 0
-        ? match.dateTime
-        : NaN;
-  if (Number.isFinite(ms)) return formatDateInTimeZone(new Date(ms), IPL_TZ);
-
-  const fromScheduleString = (raw: string): string | null => {
-    const s = raw.trim();
-    if (!s) return null;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-    const t = Date.parse(s);
-    if (!Number.isNaN(t)) return formatDateInTimeZone(new Date(t), IPL_TZ);
-    const head = s.slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
-    return null;
-  };
-
-  for (const s of [
-    safeString(match.dateTimeGMT),
-    safeString(match.startedAt),
-    safeString(match.startDate),
-  ]) {
-    const d = fromScheduleString(s);
-    if (d) return d;
-  }
-
-  const tp = match.timeAndPlace;
-  if (tp && typeof tp === "object") {
-    const d = fromScheduleString(safeString((tp as any).date));
-    if (d) return d;
-  }
-
-  for (const s of [
-    safeString(match.date),
-    safeString(match.matchDate),
-    safeString(match.match_date),
-  ]) {
-    const head = s.trim().slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
-  }
-
-  return null;
-}
-
 /**
  * One CricAPI match_info call — for home/next-match display without scanning the full feed.
  * Uses the same matchToSeed / extractProviderMatchDate path as seeding.
@@ -806,46 +746,19 @@ const KNOWN_IPL_SERIES_IDS = [
 ];
 
 /**
- * Fetches IPL matches for a 3-day window: yesterday, today, tomorrow (IST).
- * This lets users link yesterday's completed match or pre-link tomorrow's upcoming one.
- * Costs 1 API credit.
+ * Fetches IPL matches from `series_info` for a wide IST window, always merging in-play rows,
+ * with larger fallbacks when schedule fields are missing. Costs 1 API credit.
  */
 async function fetchIplSeriesMatchesForToday(seriesId: string): Promise<MaybeRecord[]> {
   const payload = await fetchJson(`/v1/series_info?id=${encodeURIComponent(seriesId)}`);
-  const matchList: MaybeRecord[] = Array.isArray(payload?.data?.matchList) ? payload.data.matchList : [];
+  const matchList: MaybeRecord[] = Array.isArray(payload?.data?.matchList)
+    ? payload.data.matchList
+    : Array.isArray(payload?.data?.matches)
+      ? payload.data.matches
+      : [];
   if (matchList.length === 0) return [];
 
-  const nowMs = Date.now();
-  const today = formatDateInTimeZone(new Date(nowMs), IPL_TZ);
-  // ±3 day window so gaps between matches still show the adjacent fixture
-  const dayMs = 86_400_000;
-  const windowDates = new Set(
-    [-3, -2, -1, 0, 1, 2, 3].map((d) => formatDateInTimeZone(new Date(nowMs + d * dayMs), IPL_TZ))
-  );
-
-  const inWindow = matchList.filter((m) => {
-    const d = extractProviderMatchDate(m);
-    return d && windowDates.has(d);
-  });
-  if (inWindow.length > 0) return inWindow;
-
-  // Fallback: up to 3 most recent past matches (so users can re-link completed games)
-  const past = matchList
-    .filter((m) => {
-      const d = extractProviderMatchDate(m);
-      return d && d <= today;
-    })
-    .sort((a, b) => (extractProviderMatchDate(b) ?? "").localeCompare(extractProviderMatchDate(a) ?? ""));
-  if (past.length > 0) return past.slice(0, 3);
-
-  // Fallback: next 3 upcoming matches
-  const upcoming = matchList
-    .filter((m) => {
-      const d = extractProviderMatchDate(m);
-      return d && d > today;
-    })
-    .sort((a, b) => (extractProviderMatchDate(a) ?? "").localeCompare(extractProviderMatchDate(b) ?? ""));
-  return upcoming.slice(0, 3);
+  return pickIplSeriesMatchesForFeedWindow(matchList, Date.now()) as MaybeRecord[];
 }
 
 async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
@@ -2188,6 +2101,192 @@ function normalizeScorecardInningsArray(data: MaybeRecord): unknown[] {
   return [];
 }
 
+/** True when the string looks like a live / score snippet rather than a static toss decision. */
+function isLiveOrScoreLikeLine(text: string): boolean {
+  const s = text.trim();
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (/\d+\s*\/\s*\d/.test(s)) return true;
+  if (/\(\d+(?:\.\d+)?\s*ov/i.test(s)) return true;
+  if (/\bneed\s+\d+/i.test(s)) return true;
+  if (/\btrail(s|ing)?\s+by\s+\d+/i.test(s)) return true;
+  if (/\blead(s|ing)?\s+by\s+\d+/i.test(s)) return true;
+  if (/\b\d+(?:\.\d+)?\s*overs?\b/i.test(s)) return true;
+  if (/\binnings?\s+break\b/.test(lower) || /\bdrinks\b/.test(lower) || /\bstrategic\s+timeout\b/.test(lower)) return true;
+  if (lower.includes("live:") || /^live\b/.test(lower)) return true;
+  if (/\bwon\s+by\b/i.test(lower) || /\bbeat\b/.test(lower) || /\bmatch\s+ended\b/i.test(lower)) return true;
+  return false;
+}
+
+/** Stale toss/decision blurb — must not override an in-progress innings when the scorecard has real state. */
+function looksLikeTossOrDecisionOnly(text: string): boolean {
+  const s = text.toLowerCase().trim();
+  if (!s) return false;
+  if (isLiveOrScoreLikeLine(text)) return false;
+  return (
+    /won\s+the\s+toss/.test(s) ||
+    /\bopt(?:ed)?\s+to\s+bat\b/.test(s) ||
+    /\bopt(?:ed)?\s+to\s+bowl\b/.test(s) ||
+    /\bch[oo]se\s+to\s+bat\b/.test(s) ||
+    /\bch[oo]se\s+to\s+bowl\b/.test(s) ||
+    /\bch[oo]sing\s+to\s+bat\b/.test(s) ||
+    /\bch[oo]sing\s+to\s+bowl\b/.test(s) ||
+    /\bde?cided\s+to\s+bat\b/.test(s) ||
+    /\bde?cided\s+to\s+bowl\b/.test(s) ||
+    (/\btoss\b/.test(s) && (s.includes("bat") || s.includes("bowl") || s.includes("field")))
+  );
+}
+
+/**
+ * CricAPI splits narrative across `update`, `status`, `live`, etc. Prefer a line that actually
+ * describes play — not an earlier team's toss when the other side is already batting.
+ */
+function pickBestApiSummaryLine(data: MaybeRecord, payloadRoot: MaybeRecord): string {
+  const candidates: string[] = [];
+  const push = (v: unknown) => {
+    const s = safeString(v);
+    if (s && !candidates.includes(s)) candidates.push(s);
+  };
+  push(data.update);
+  push((data as any).live);
+  push((data as any).shortStatus);
+  push(data.matchStatus);
+  push((data as any).match_status);
+  push(data.status);
+  push(data.note);
+  push(payloadRoot.message);
+
+  for (const c of candidates) {
+    if (isLiveOrScoreLikeLine(c)) return c;
+  }
+  for (const c of candidates) {
+    if (!looksLikeTossOrDecisionOnly(c)) return c;
+  }
+  return candidates[0] || "";
+}
+
+/** CricAPI often sets `update` / `status` to "Innings break" while scorecard rows still hold totals. */
+function isShortIntermissionStatus(text: string): boolean {
+  const s = text.toLowerCase().trim();
+  if (!s || /\d/.test(s)) return false;
+  return (
+    /\binnings?\s+break\b/.test(s) ||
+    /\bdrinks\b/.test(s) ||
+    /\bstrategic\s+timeout\b/.test(s) ||
+    /\b(tea|lunch)\s+break\b/.test(s) ||
+    s === "stumps" ||
+    /\brain\s+(delay|stopped)\b/.test(s) ||
+    /\bbad\s+light\b/.test(s)
+  );
+}
+
+function extractInningsScoreParts(inn: MaybeRecord): { r: string; w: string; o: string } | null {
+  const nested = inn.score;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const o = nested as MaybeRecord;
+    const r = o.r ?? o.runs ?? o.run;
+    const w = o.w ?? o.wickets ?? o.wicket;
+    const ov = o.o ?? o.overs ?? o.over;
+    if (r != null && w != null) {
+      return { r: String(r), w: String(w), o: ov != null ? String(ov) : "" };
+    }
+  }
+
+  const runStr = inn.run ?? inn.runs ?? inn.totalRuns;
+  const wStr = inn.wicket ?? inn.wickets ?? inn.wk;
+  if (typeof runStr === "string" && /\d\s*\/\s*\d/.test(runStr)) {
+    const p = runStr.trim().match(/^(\d+)\s*\/\s*(\d+)/);
+    if (p) {
+      const ov = inn.over ?? inn.overs ?? inn.o;
+      return { r: p[1], w: p[2], o: ov != null ? String(ov) : "" };
+    }
+  }
+  if (runStr != null && wStr != null) {
+    const ov = inn.over ?? inn.overs ?? inn.o;
+    return { r: String(runStr), w: String(wStr), o: ov != null ? String(ov) : "" };
+  }
+
+  return null;
+}
+
+function formatSingleInningsBannerLine(inn: MaybeRecord): string | null {
+  const team = parseInningBattingSideName(inn);
+  const pre = safeString(inn.teamScore ?? inn.teamStats ?? inn.summary);
+  if (pre && /\d\s*\/\s*\d/.test(pre)) {
+    return team ? `${team} ${pre}` : pre;
+  }
+  const parts = extractInningsScoreParts(inn);
+  if (!parts) return null;
+  const ovbit = parts.o.trim() ? ` (${parts.o} ov)` : "";
+  const core = `${parts.r}/${parts.w}`;
+  return `${team ? `${team} ` : ""}${core}${ovbit}`.trim();
+}
+
+function summarizeScorecardInningsForBanner(data: MaybeRecord): string | null {
+  const lines: string[] = [];
+  for (const raw of normalizeScorecardInningsArray(data)) {
+    const line = formatSingleInningsBannerLine(raw as MaybeRecord);
+    if (line) lines.push(line);
+  }
+  return lines.length ? lines.join(" · ") : null;
+}
+
+function formatTopLevelBatsmenSnippet(data: MaybeRecord): string | null {
+  const b1 = safeString(data.batsmanOne);
+  const b2 = safeString(data.batsmanTwo);
+  const r1 = numberValue(data.batsmanOneRun);
+  const r2 = numberValue(data.batsmanTwoRun);
+  const bits: string[] = [];
+  if (b1) bits.push(`${b1} ${r1}`);
+  if (b2) bits.push(`${b2} ${r2}`);
+  if (bits.length === 0) return null;
+  const tscore = safeString(data.teamScore ?? data.score);
+  if (tscore && /\d/.test(tscore)) return `${bits.join(", ")} · ${tscore}`;
+  return bits.join(", ");
+}
+
+/** Join scorecard-derived text with the API narrative without duplicating when one already contains the other. */
+function mergeRichWithApiLine(apiLine: string, richContext: string): string {
+  const a = apiLine.trim();
+  const r = richContext.trim();
+  if (!a) return r;
+  if (!r) return a;
+  const al = a.toLowerCase();
+  const rl = r.toLowerCase();
+  if (rl.length > 12 && al.includes(rl)) return a;
+  if (al.length > 12 && rl.includes(al)) return r;
+  return `${r} — ${a}`;
+}
+
+/** Prefer API line unless it is a generic break; then prepend score context from the card. */
+function buildDisplayLiveSummary(data: MaybeRecord, payloadRoot: MaybeRecord, apiLine: string): string | null {
+  const api = apiLine.trim();
+  const fromCard = summarizeScorecardInningsForBanner(data);
+  const fromBat = formatTopLevelBatsmenSnippet(data);
+  const looseScore = safeString(data.score ?? data.teamScore ?? data.liveScore);
+  const extra = looseScore && /\d+\s*\/\s*\d/.test(looseScore) ? looseScore : "";
+
+  const richBits: string[] = [];
+  if (fromCard) richBits.push(fromCard);
+  if (fromBat) richBits.push(fromBat);
+  if (extra && !richBits.some((b) => b.includes(extra))) richBits.push(extra);
+  const rich = richBits.length ? richBits.join(" · ") : "";
+
+  if (isShortIntermissionStatus(api)) {
+    if (rich) return mergeRichWithApiLine(api, rich);
+    return api || null;
+  }
+
+  if (looksLikeTossOrDecisionOnly(api) && rich) {
+    return rich;
+  }
+
+  if (api && rich) return mergeRichWithApiLine(api, rich);
+  if (api) return api;
+  if (rich) return rich;
+  return safeString(payloadRoot.message) || null;
+}
+
 /** Batting stat rows for one innings (`batting`, `batsman`, or `batsmen`). */
 function scorecardInningsBattingRows(inn: unknown): unknown[] {
   const o = inn as MaybeRecord;
@@ -2632,7 +2731,9 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   const mergedOrLive = mergedWithStumps.length > 0 ? mergedWithStumps : parseSimpleLiveScore(data);
 
   const dataRec = data as MaybeRecord;
-  const statusBlob = safeString(data.update || data.status || (payload as MaybeRecord).status || "");
+  const pickedApiLine = pickBestApiSummaryLine(dataRec, payload as MaybeRecord);
+  const statusBlob =
+    pickedApiLine || safeString(data.update || data.status || (payload as MaybeRecord).status || "");
   const statusEarly = parseStatus(statusBlob);
   /** Web MoM fallback is allowed when the match looks done, including when the feed mentions the award but `parseStatus` is still loose. */
   const looksFinished =
@@ -2708,9 +2809,10 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
   }
 
   const metaDate = extractProviderMatchDate(dataRec);
+  const statusForParse = pickedApiLine || safeString((payload as MaybeRecord).status || data.status || "LIVE");
   return {
-    status: parseStatus(safeString(data.update || data.status || payload.status || "LIVE")),
-    live_summary: safeString(data.update || data.status || payload.message || "") || null,
+    status: parseStatus(statusForParse),
+    live_summary: buildDisplayLiveSummary(dataRec, payload as MaybeRecord, pickedApiLine),
     fixture: safeString(data.title || data.fixture || data.name || "") || undefined,
     match_date: metaDate || undefined,
     venue: safeString(data.venue || data.ground || "") || null,
