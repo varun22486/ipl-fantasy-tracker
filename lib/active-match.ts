@@ -53,7 +53,8 @@ type Matchish = { id: number; is_current?: boolean; match_date?: unknown; fixtur
 
 /**
  * Tabs list only **actively live** `is_current` matches (not finished, not stale tracked).
- * Shown row prefers that set; if none are live, falls back to today (IST) then any `is_current`.
+ * Shown row: `?m=` always wins when that id exists in the DB list (history / deep links), even if the
+ * match is not `is_current` or not in the live tab set — otherwise cookie / live pool fallback.
  */
 export function pickTrackedMatchRowFromList<T extends Matchish>(
   matchesDescending: T[],
@@ -61,13 +62,21 @@ export function pickTrackedMatchRowFromList<T extends Matchish>(
   cookieVal: string | undefined | null
 ): { activeTracked: T[]; activeTrackedForTabs: T[]; shownRow: T | null } {
   const activeTracked = matchesDescending.filter((m) => m.is_current).sort((a, b) => b.id - a.id);
+  const liveTracked = activeTracked.filter((m) => isMatchActivelyLive(m.status));
+  const activeTrackedForTabs = liveTracked;
+
+  const q = queryM?.trim() ? parseInt(queryM.trim(), 10) : NaN;
+  if (Number.isFinite(q)) {
+    const explicit = matchesDescending.find((m) => m.id === q);
+    if (explicit) {
+      return { activeTracked, activeTrackedForTabs, shownRow: explicit };
+    }
+  }
+
   const activeIds = activeTracked.map((m) => m.id);
   if (activeIds.length === 0) {
     return { activeTracked: [], activeTrackedForTabs: [], shownRow: matchesDescending[0] ?? null };
   }
-
-  const liveTracked = activeTracked.filter((m) => isMatchActivelyLive(m.status));
-  const activeTrackedForTabs = liveTracked;
 
   const today = iplCalendarTodayIso();
   const onToday = activeTracked.filter((m) => {
@@ -79,11 +88,11 @@ export function pickTrackedMatchRowFromList<T extends Matchish>(
   let shownRow: T | null = null;
   if (liveTracked.length > 0) {
     const tabIds = liveTracked.map((m) => m.id);
-    const shownId = pickShownMatchId(tabIds, queryM, cookieVal);
+    const shownId = pickShownMatchId(tabIds, undefined, cookieVal);
     shownRow = matchesDescending.find((m) => m.id === shownId) ?? liveTracked[0] ?? null;
   } else {
     const fbIds = fallbackPool.map((m) => m.id);
-    const shownId = pickShownMatchId(fbIds, queryM, cookieVal);
+    const shownId = pickShownMatchId(fbIds, undefined, cookieVal);
     shownRow = matchesDescending.find((m) => m.id === shownId) ?? fallbackPool[0] ?? null;
   }
 
