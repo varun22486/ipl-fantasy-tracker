@@ -29,6 +29,7 @@ export async function GET() {
       process.env.CRICKET_API_KEY_9,
       process.env.CRICKET_API_KEY_10,
       process.env.CRICKET_API_KEY_11,
+      process.env.CRICKET_API_KEY_12,
     ].filter(Boolean).length;
 
     const nowMs = Date.now();

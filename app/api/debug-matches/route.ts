@@ -18,6 +18,7 @@ export async function GET() {
     (process.env.CRICKET_API_KEY_9 || "").trim(),
     (process.env.CRICKET_API_KEY_10 || "").trim(),
     (process.env.CRICKET_API_KEY_11 || "").trim(),
+    (process.env.CRICKET_API_KEY_12 || "").trim(),
   ].filter(Boolean);
 
   if (keys.length === 0) {

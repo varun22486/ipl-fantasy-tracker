@@ -24,11 +24,11 @@ IPL_TEAMS = (
 
 
 def load_cricket_keys() -> list[tuple[str, str]]:
-    """All CRICKET_API_KEY … CRICKET_API_KEY_11 from .env.local (order preserved)."""
+    """All CRICKET_API_KEY … CRICKET_API_KEY_12 from .env.local (order preserved)."""
     if not ENV_LOCAL.is_file():
         print("No .env.local", file=sys.stderr)
         sys.exit(1)
-    names = ["CRICKET_API_KEY"] + [f"CRICKET_API_KEY_{i}" for i in range(2, 12)]
+    names = ["CRICKET_API_KEY"] + [f"CRICKET_API_KEY_{i}" for i in range(2, 13)]
     text = ENV_LOCAL.read_text().splitlines()
     out: list[tuple[str, str]] = []
     for name in names:

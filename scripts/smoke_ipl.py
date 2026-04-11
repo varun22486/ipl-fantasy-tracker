@@ -38,11 +38,11 @@ IPL_CODES = ["csk", "mi", "kkr", "rcb", "rr", "dc", "srh", "pbks", "gt", "lsg"]
 
 
 def load_cricket_keys() -> list[tuple[str, str]]:
-    """CRICKET_API_KEY … CRICKET_API_KEY_11 in order."""
+    """CRICKET_API_KEY … CRICKET_API_KEY_12 in order."""
     if not ENV_LOCAL.is_file():
         print("FAIL: .env.local not found (need CRICKET_API_KEY)")
         sys.exit(1)
-    names = ["CRICKET_API_KEY"] + [f"CRICKET_API_KEY_{i}" for i in range(2, 12)]
+    names = ["CRICKET_API_KEY"] + [f"CRICKET_API_KEY_{i}" for i in range(2, 13)]
     text = ENV_LOCAL.read_text().splitlines()
     out: list[tuple[str, str]] = []
     for name in names:

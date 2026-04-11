@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
  * Debug endpoint: raw API samples + automated scan for playing-XI-related fields.
  * Usage: GET /api/debug-roster?id=MATCH_UUID
  *
- * Rotates CRICKET_API_KEY … CRICKET_API_KEY_11 like the app. Surfaces:
+ * Rotates CRICKET_API_KEY … CRICKET_API_KEY_12 like the app. Surfaces:
  * - Union of keys on player-shaped objects (name + id) under each payload
  * - Any object keys whose names look like playing XI / bench / impact (heuristic walk)
  */
@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
     process.env.CRICKET_API_KEY_9,
     process.env.CRICKET_API_KEY_10,
     process.env.CRICKET_API_KEY_11,
+    process.env.CRICKET_API_KEY_12,
   ]
     .map((k) => (typeof k === "string" ? k.replace(/[\u200B-\u200D\uFEFF]/g, "").trim() : ""))
     .filter(Boolean);
