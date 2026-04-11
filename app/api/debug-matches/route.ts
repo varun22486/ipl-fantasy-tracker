@@ -69,10 +69,13 @@ export async function GET() {
     return n.includes("ipl") || n.includes("indian premier");
   });
 
-  // Test the hardcoded series ID
-  const knownSeriesId = "87c62aac-bc3c-4738-ab93-19da0690488f";
+  // Same fallbacks as lib/cricket-provider.ts KNOWN_IPL_SERIES_IDS (+ env override)
+  const knownIplSeriesIds = [
+    "87c62aac-bc3c-4738-ab93-19da0690488f", // IPL 2026
+    "3cd88acd-53c7-4eda-8968-c07b6f2bed53",
+  ];
   const envSeriesId = (process.env.CRICKET_IPL_SERIES_ID || "").trim();
-  const seriesIdToTest = envSeriesId || knownSeriesId;
+  const seriesIdToTest = envSeriesId || knownIplSeriesIds[0];
   const seriesInfoRaw = await fetchRaw(`/v1/series_info?id=${encodeURIComponent(seriesIdToTest)}`);
   const matchList: any[] = seriesInfoRaw?.data?.matchList ?? [];
 
@@ -91,6 +94,7 @@ export async function GET() {
     ok: true,
     keyTests,
     seriesIdTested: seriesIdToTest,
+    knownIplSeriesIds,
     iplSeriesInFeed: iplSeries.map((s: any) => ({ id: s.id, name: s.name })),
     seriesMatchListCount: matchList.length,
     seriesMatchListSample: matchList.slice(0, 5).map(summarize),

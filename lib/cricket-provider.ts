@@ -177,8 +177,20 @@ export type ProviderRefresh = {
   /** Flat name→id map across all squads for lineup-save ID capture */
   nameToId: Record<string, string>;
   raw?: MaybeRecord;
+  /**
+   * After merging `payload.data` with `currentMatches` feed row (CricAPI only).
+   * Same object tree passed to collectPlayerRows — use for debugging vs `raw`.
+   */
+  mergedParseTree?: MaybeRecord;
+  /** Candidate path that produced `raw` (e.g. `/v1/match_scorecard?...`). */
+  providerFetchPath?: string;
   /** When true, refresh should overwrite fantasy_players.mom_bonus from provider */
   manOfTheMatchSynced?: boolean;
+};
+
+export type RefreshMatchFromProviderOptions = {
+  /** If true, include mergedParseTree (larger payload; intended for /api/debug-scorecard). */
+  includeMergedParseTree?: boolean;
 };
 
 function cleanEnvText(value: string | undefined | null) {
@@ -745,6 +757,7 @@ async function fetchMatchArray(path: string): Promise<MaybeRecord[]> {
 // or just add the new ID here.
 const KNOWN_IPL_SERIES_IDS = [
   "87c62aac-bc3c-4738-ab93-19da0690488f", // IPL 2026
+  "3cd88acd-53c7-4eda-8968-c07b6f2bed53",
 ];
 
 /**
@@ -2782,7 +2795,10 @@ export async function fetchMatchRoster(externalMatchId: string): Promise<{ squad
   return { squads: best, rosterNames: uniqueRosterNames(best), nameToId: buildNameToId(best) };
 }
 
-export async function refreshMatchFromProvider(externalMatchId: string): Promise<ProviderRefresh> {
+export async function refreshMatchFromProvider(
+  externalMatchId: string,
+  options?: RefreshMatchFromProviderOptions
+): Promise<ProviderRefresh> {
   const id = externalMatchId;
   const candidatePaths = isCricapiBase(envBaseUrl())
     ? [
@@ -2801,6 +2817,7 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
       ];
 
   let payload: MaybeRecord | null = null;
+  let providerFetchPath = "";
   let scorecardFailed = false;
   let lastFailReason = "";
 
@@ -2823,10 +2840,14 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
       const sq = extractSquadsFromPayload(p as MaybeRecord);
       if (probe.length > 0 || squadPlayerCount(sq) > 0) {
         payload = p as MaybeRecord;
+        providerFetchPath = path;
         break;
       }
       // Response is valid but empty — keep it as a fallback and try next path
-      if (!payload) payload = p as MaybeRecord;
+      if (!payload) {
+        payload = p as MaybeRecord;
+        providerFetchPath = path;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg) lastFailReason = msg;
@@ -2874,6 +2895,8 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
       rosterNames: [],
       nameToId: {},
       raw: undefined,
+      mergedParseTree: undefined,
+      providerFetchPath: undefined,
       manOfTheMatchSynced: false,
     };
   }
@@ -3000,6 +3023,8 @@ export async function refreshMatchFromProvider(externalMatchId: string): Promise
     rosterNames,
     nameToId: buildNameToId(squads),
     raw: payload,
+    mergedParseTree: options?.includeMergedParseTree ? (dataRec as MaybeRecord) : undefined,
+    providerFetchPath: providerFetchPath || undefined,
     manOfTheMatchSynced,
   };
 }
