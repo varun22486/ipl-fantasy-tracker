@@ -18,7 +18,7 @@ import {
   FALLBACK_QUOTA_CAP,
   type KeyStatsApiResponse,
 } from "@/lib/combined-quota";
-import { confirmRefreshDespiteCooldown, isWithinRefreshCooldown } from "@/lib/refresh-cooldown";
+import { isWithinRefreshCooldown, minutesUntilRefreshAllowed } from "@/lib/refresh-cooldown";
 
 const QUOTA_KEY = "cricapi_quota";
 
@@ -93,6 +93,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   const [apiUsed, setApiUsed] = useState(0);
   const [quotaCap, setQuotaCap] = useState(FALLBACK_QUOTA_CAP);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number } | null>(null);
+  const [showRefreshCooldownPrompt, setShowRefreshCooldownPrompt] = useState(false);
 
   const refreshKeyStatsBundle = useCallback(() => {
     fetch("/api/key-stats")
@@ -178,12 +179,18 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     void fn();
   }
 
-  async function doRefreshNow(opts?: { force?: boolean }) {
-    let force = opts?.force === true;
-    if (!force && isWithinRefreshCooldown(currentMatch?.last_synced_at)) {
-      if (!confirmRefreshDespiteCooldown()) return;
-      force = true;
+  /** User clicked Sync — may open in-app cooldown gate instead of calling the API immediately. */
+  async function beginUserSyncScores() {
+    if (isWithinRefreshCooldown(currentMatch?.last_synced_at)) {
+      setShowRefreshCooldownPrompt(true);
+      return;
     }
+    await doRefreshNow();
+  }
+
+  async function doRefreshNow(opts?: { force?: boolean }) {
+    const force = opts?.force === true;
+    setShowRefreshCooldownPrompt(false);
     setSyncing(true);
     setApiMsg({ type: "loading", title: "Syncing scores…" });
     try {
@@ -423,10 +430,10 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       {/* Sync bar */}
       <div style={{ background: "white", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden" }}>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "12px 14px" }}>
-          <button onClick={() => guardedRun(1, doRefreshNow)} disabled={syncing || isAtLimit} style={{ ...btnPrimary, flex: "1 1 auto", textAlign: "center" as const }}>
+          <button onClick={() => guardedRun(1, beginUserSyncScores)} disabled={syncing} style={{ ...btnPrimary, flex: "1 1 auto", textAlign: "center" as const }}>
             {syncing ? "Syncing…" : "⟳ Sync Scores"}
           </button>
-          <button onClick={() => guardedRun(2, doStartLinkMatch)} disabled={syncing || isAtLimit} style={{ ...btnSecondary, flex: "1 1 auto", textAlign: "center" as const }}>
+          <button onClick={() => guardedRun(2, doStartLinkMatch)} disabled={syncing} style={{ ...btnSecondary, flex: "1 1 auto", textAlign: "center" as const }}>
             {syncing ? "Loading…" : "Link Match"}
           </button>
           <div style={{ width: "100%", display: "flex", justifyContent: "space-between", fontSize: 11, color: "#94a3b8", padding: "0 2px" }}>
@@ -452,6 +459,45 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           <div style={{ display: "flex", gap: 10 }}>
             <button style={btnPrimary} onClick={() => { const a = pendingAction; setPendingAction(null); void a.fn(); }}>Yes, use {pendingAction.cost}</button>
             <button style={btnSecondary} onClick={() => setPendingAction(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {showRefreshCooldownPrompt && (
+        <div style={{ border: "2px solid #bfdbfe", borderRadius: 14, background: "#f0f9ff", padding: 14 }}>
+          <div style={{ fontWeight: 700, color: "#1e40af", marginBottom: 8 }}>Recent sync</div>
+          <div style={{ fontSize: 14, color: "#1e3a8a", marginBottom: 12 }}>
+            Last refresh was less than 15 minutes ago. API keys are limited — sync again only if you really need the latest scores.
+            {(() => {
+              const m = minutesUntilRefreshAllowed(currentMatch?.last_synced_at);
+              return m != null ? ` You can sync without this prompt in about ${m} minute${m === 1 ? "" : "s"}.` : "";
+            })()}
+          </div>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              style={btnPrimary}
+              onClick={() => {
+                setShowRefreshCooldownPrompt(false);
+                void doRefreshNow({ force: true });
+              }}
+            >
+              Yes, refresh anyway
+            </button>
+            <button
+              type="button"
+              style={btnSecondary}
+              onClick={() => {
+                setShowRefreshCooldownPrompt(false);
+                setApiMsg({
+                  type: "info",
+                  title: "Sync skipped",
+                  detail: 'Scores were already synced recently. Use "Yes, refresh anyway" when you need updated stats.',
+                });
+              }}
+            >
+              No, keep current data
+            </button>
           </div>
         </div>
       )}

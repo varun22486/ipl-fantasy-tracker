@@ -4,23 +4,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatUiDateTime } from "@/lib/ui-time";
 import { recordSyncDebugClient } from "@/lib/sync-debug-storage";
-import { confirmRefreshDespiteCooldown, isWithinRefreshCooldown } from "@/lib/refresh-cooldown";
+import { isWithinRefreshCooldown, minutesUntilRefreshAllowed } from "@/lib/refresh-cooldown";
 
 function isManualEditHint(msg: string) {
-  return /✏️|manual|paid|plan|subscri|not available/i.test(msg);
+  return /\u270f|manual|paid|plan|subscri|not available/i.test(msg);
 }
 
 export default function SyncButton({ matchId, lastSyncedAt }: { matchId: number; lastSyncedAt?: string | null }) {
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "warn" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [showCooldownPrompt, setShowCooldownPrompt] = useState(false);
 
-  async function sync() {
-    let force = false;
-    if (isWithinRefreshCooldown(lastSyncedAt)) {
-      if (!confirmRefreshDespiteCooldown()) return;
-      force = true;
-    }
+  async function runSync(force: boolean) {
+    setShowCooldownPrompt(false);
     setStatus("loading");
     setMessage("");
     try {
@@ -47,6 +44,14 @@ export default function SyncButton({ matchId, lastSyncedAt }: { matchId: number;
     }
   }
 
+  function onSyncClick() {
+    if (isWithinRefreshCooldown(lastSyncedAt)) {
+      setShowCooldownPrompt(true);
+      return;
+    }
+    void runSync(false);
+  }
+
   const lastSynced = lastSyncedAt ? formatUiDateTime(lastSyncedAt) : null;
   const showEditHint = (status === "warn" || status === "error") && isManualEditHint(message);
 
@@ -62,21 +67,49 @@ export default function SyncButton({ matchId, lastSyncedAt }: { matchId: number;
     status === "ok" ? "match-sync__msg match-sync__msg--ok" :
     "match-sync__msg";
 
+  const minsLeft = minutesUntilRefreshAllowed(lastSyncedAt);
+
   return (
     <div className="match-sync">
       <div className="match-sync__toolbar">
-        <button type="button" className="match-sync__btn" onClick={sync} disabled={status === "loading"}>
-          {status === "loading" ? "Syncing…" : "⟳ Sync scores"}
+        <button type="button" className="match-sync__btn" onClick={onSyncClick} disabled={status === "loading"}>
+          {status === "loading" ? "Syncing…" : "\u21bb Sync scores"}
         </button>
         {lastSynced ? <span className="match-sync__stamp">Last synced: {lastSynced}</span> : null}
       </div>
+
+      {showCooldownPrompt && (
+        <div className="match-sync__banner match-sync__banner--warn" style={{ marginTop: 10 }}>
+          <p className="match-sync__msg match-sync__msg--warn" style={{ marginBottom: 12 }}>
+            Last refresh was less than 15 minutes ago. API keys are limited — sync again only if you really need the latest scores.
+            {minsLeft != null ? ` You can sync without this prompt in about ${minsLeft} minute${minsLeft === 1 ? "" : "s"}.` : ""}
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button type="button" className="match-sync__btn" onClick={() => void runSync(true)}>
+              Yes, refresh anyway
+            </button>
+            <button
+              type="button"
+              className="match-sync__btn"
+              style={{ opacity: 0.85 }}
+              onClick={() => {
+                setShowCooldownPrompt(false);
+                setStatus("idle");
+                setMessage("Sync skipped — last refresh was under 15 minutes ago.");
+              }}
+            >
+              No, keep current data
+            </button>
+          </div>
+        </div>
+      )}
 
       {message ? (
         <div className={bannerClass}>
           <p className={msgClass}>{message}</p>
           {showEditHint ? (
             <div className="match-sync__hint">
-              Use the <strong>✏️ Edit</strong> control next to each player row to enter stats manually.
+              Use the <strong>Edit</strong> control next to each player row to enter stats manually.
               <span className="match-sync__hint-sub">
                 Tip: sync while the match is <strong>live</strong> to auto-populate stats when the API allows.
               </span>

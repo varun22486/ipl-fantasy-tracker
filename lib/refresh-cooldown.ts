@@ -9,10 +9,12 @@ export function isWithinRefreshCooldown(lastSyncedAtIso: string | null | undefin
   return Date.now() - t < REFRESH_COOLDOWN_MS;
 }
 
-/** @returns true if the user chose to continue (forced refresh). */
-export function confirmRefreshDespiteCooldown(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.confirm(
-    "We have limited API keys. Scores were synced within the last 15 minutes.\n\nRefresh again only if you need the latest data.\n\nContinue?",
-  );
+/** Whole minutes until a free sync (no confirm); null if sync is allowed now or time unknown. */
+export function minutesUntilRefreshAllowed(lastSyncedAtIso: string | null | undefined): number | null {
+  if (!lastSyncedAtIso) return null;
+  const t = new Date(lastSyncedAtIso).getTime();
+  if (!Number.isFinite(t)) return null;
+  const leftMs = REFRESH_COOLDOWN_MS - (Date.now() - t);
+  if (leftMs <= 0) return null;
+  return Math.max(1, Math.ceil(leftMs / 60_000));
 }

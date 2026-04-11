@@ -15,7 +15,7 @@ import {
   FALLBACK_QUOTA_CAP,
   type KeyStatsApiResponse,
 } from "@/lib/combined-quota";
-import { confirmRefreshDespiteCooldown, isWithinRefreshCooldown } from "@/lib/refresh-cooldown";
+import { isWithinRefreshCooldown, minutesUntilRefreshAllowed } from "@/lib/refresh-cooldown";
 
 const QUOTA_KEY = "cricapi_quota";
 
@@ -162,6 +162,7 @@ export default function DashboardClient({
   const [linkDateHint, setLinkDateHint] = useState("");
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number; label: string } | null>(null);
+  const [showSyncCooldownPrompt, setShowSyncCooldownPrompt] = useState(false);
   const [keyStats, setKeyStats] = useState<{ alias: string; hits: number; remaining: number; blocked?: boolean }[]>([]);
   const [quotaCap, setQuotaCap] = useState(FALLBACK_QUOTA_CAP);
 
@@ -339,12 +340,17 @@ export default function DashboardClient({
     setSyncing(false);
   }
 
-  async function doRefreshNow(opts?: { force?: boolean }) {
-    let force = opts?.force === true;
-    if (!force && isWithinRefreshCooldown(currentMatch?.last_synced_at)) {
-      if (!confirmRefreshDespiteCooldown()) return;
-      force = true;
+  async function beginDashboardSyncScores() {
+    if (isWithinRefreshCooldown(currentMatch?.last_synced_at)) {
+      setShowSyncCooldownPrompt(true);
+      return;
     }
+    await doRefreshNow();
+  }
+
+  async function doRefreshNow(opts?: { force?: boolean }) {
+    const force = opts?.force === true;
+    setShowSyncCooldownPrompt(false);
     setSyncing(true);
     setMessage("Syncing from cricket source...");
     try {
@@ -367,7 +373,7 @@ export default function DashboardClient({
   }
 
   function refreshNow() {
-    guardedRun(1, "Sync scores (1 credit)", doRefreshNow);
+    guardedRun(1, "Sync scores (1 credit)", beginDashboardSyncScores);
   }
 
   async function saveLineup() {
@@ -506,6 +512,34 @@ export default function DashboardClient({
             <span style={{ fontSize: 13, color: "#475569" }}>{message}</span>
           )}
         </div>
+
+        {showSyncCooldownPrompt && (
+          <div style={{ ...quotaWarnPanelStyle, borderColor: "#bfdbfe", background: "#f0f9ff" }}>
+            <div style={{ fontWeight: 700, color: "#1e40af", marginBottom: 8 }}>Recent sync</div>
+            <div style={{ color: "#1e3a8a", fontSize: 14, marginBottom: 14 }}>
+              Last refresh was less than 15 minutes ago. API keys are limited — sync again only if you really need the latest scores.
+              {(() => {
+                const m = minutesUntilRefreshAllowed(currentMatch?.last_synced_at);
+                return m != null ? ` You can sync without this prompt in about ${m} minute${m === 1 ? "" : "s"}.` : "";
+              })()}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button type="button" style={buttonStyle} onClick={() => void doRefreshNow({ force: true })}>
+                Yes, refresh anyway
+              </button>
+              <button
+                type="button"
+                style={buttonStyleSecondary}
+                onClick={() => {
+                  setShowSyncCooldownPrompt(false);
+                  setMessage("Sync skipped — last refresh was under 15 minutes ago.");
+                }}
+              >
+                No, keep current data
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Match picker — shown inline when Link IPL Match is clicked from scores view */}
         {linkChoices && linkChoices.length > 1 ? (
