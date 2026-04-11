@@ -66,7 +66,9 @@ function NavLinks({ variant }: { variant: "sidebar" | "header" | "mobile" }) {
   function navHref(base: string) {
     const params = new URLSearchParams();
     if (navC) params.set("c", navC);
-    if ((base === "/match" || base === "/select") && navM) params.set("m", navM);
+    // Only /select carries ?m= from the cookie — /match uses server "primary" tracked fixture so a
+    // stale browser cookie cannot keep showing yesterday when today is also is_current.
+    if (base === "/select" && navM) params.set("m", navM);
     const q = params.toString();
     return q ? `${base}?${q}` : base;
   }

@@ -7,7 +7,7 @@ import { FantasyPlayer, sortFantasyLineupForDisplay } from "@/lib/scoring";
 import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
-import { readActiveMatchCookieValue, pickTrackedMatchRowFromList } from "@/lib/active-match";
+import { pickTrackedMatchRowFromList } from "@/lib/active-match";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -31,7 +31,7 @@ function parseRoster(match: unknown): { rosterNames: string[]; squads: SquadTeam
   return { rosterNames, squads, nameToId };
 }
 
-async function getData(queryM: string | undefined, cookieVal: string | undefined) {
+async function getData(queryM: string | undefined) {
   const [{ data: matches }, { data: settings }, { data: players }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").order("id", { ascending: false }),
     supabaseAdmin.from("series_settings").select("*").limit(1).single(),
@@ -47,8 +47,7 @@ async function getData(queryM: string | undefined, cookieVal: string | undefined
       fixture?: string | null;
       status?: string | null;
     }[],
-    queryM,
-    cookieVal
+    queryM
   );
   const currentMatch = shownRow as (typeof list)[number] | null;
   const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
@@ -59,8 +58,7 @@ async function getData(queryM: string | undefined, cookieVal: string | undefined
 export default async function MatchPage({ searchParams }: { searchParams: Promise<{ c?: string; m?: string }> }) {
   const { c, m } = await searchParams;
   const competitionId = await resolveCompetitionId(c);
-  const cookieVal = await readActiveMatchCookieValue();
-  const { currentMatch, matchPlayers, settings, activeTrackedForTabs } = await getData(m, cookieVal);
+  const { currentMatch, matchPlayers, settings, activeTrackedForTabs } = await getData(m);
 
   let yourName: string;
   let opponentName: string;

@@ -50,18 +50,15 @@ export async function getActiveMatchIdsOrdered(): Promise<number[]> {
 }
 
 /**
- * Pick which active match to show: URL ?m= wins, then cookie, else highest-id active row.
+ * Pick which active match to show among `is_current` rows: explicit `?m=` when that id is still
+ * tracked as current, else the primary row from `sortTrackedByRecency` (newest schedule day first).
+ * Browser cookies are intentionally not used here — they kept forcing an older `is_current` fixture
+ * when a newer IPL day was also tracked, and nav was appending stale `?m=` from the same cookie.
  */
-export function pickShownMatchId(
-  activeIds: number[],
-  queryM: string | undefined,
-  cookieVal: string | undefined | null
-): number | null {
+export function pickShownMatchId(activeIds: number[], queryM: string | undefined): number | null {
   if (activeIds.length === 0) return null;
   const q = queryM?.trim() ? parseInt(queryM, 10) : NaN;
   if (Number.isFinite(q) && activeIds.includes(q)) return q;
-  const c = cookieVal?.trim() ? parseInt(String(cookieVal), 10) : NaN;
-  if (Number.isFinite(c) && activeIds.includes(c)) return c;
   return activeIds[0] ?? null;
 }
 
@@ -82,8 +79,7 @@ type Matchish = {
  */
 export function pickTrackedMatchRowFromList<T extends Matchish>(
   matchesDescending: T[],
-  queryM: string | undefined,
-  cookieVal: string | undefined | null
+  queryM: string | undefined
 ): { activeTracked: T[]; activeTrackedForTabs: T[]; shownRow: T | null } {
   const activeTracked = sortTrackedByRecency(matchesDescending.filter((m) => m.is_current));
   const liveTracked = activeTracked.filter((m) => isMatchActivelyLive(m.status));
@@ -102,7 +98,7 @@ export function pickTrackedMatchRowFromList<T extends Matchish>(
     return { activeTracked: [], activeTrackedForTabs: [], shownRow: matchesDescending[0] ?? null };
   }
 
-  const shownId = pickShownMatchId(activeIdsOrdered, undefined, cookieVal);
+  const shownId = pickShownMatchId(activeIdsOrdered, undefined);
   const shownRow = matchesDescending.find((m) => m.id === shownId) ?? activeTracked[0] ?? null;
 
   return { activeTracked, activeTrackedForTabs, shownRow };
@@ -110,7 +106,7 @@ export function pickTrackedMatchRowFromList<T extends Matchish>(
 
 /** Default match id for lineup / roster / refresh when body omits matchId. */
 export async function resolveDefaultMatchIdFromPreferences(
-  cookieVal: string | undefined | null
+  _cookieVal: string | undefined | null
 ): Promise<number> {
   const activeIds = await getActiveMatchIdsOrdered();
   if (activeIds.length === 0) {
@@ -123,8 +119,6 @@ export async function resolveDefaultMatchIdFromPreferences(
     if (!fallback) throw new Error("Seed a match first.");
     return fallback.id as number;
   }
-  const c = cookieVal?.trim() ? parseInt(String(cookieVal), 10) : NaN;
-  if (Number.isFinite(c) && activeIds.includes(c)) return c;
   return activeIds[0]!;
 }
 
@@ -141,8 +135,7 @@ export async function getDefaultActiveMatchRowForSync(): Promise<Record<string, 
   const activeIds = await getActiveMatchIdsOrdered();
   let pickId: number | null = null;
   if (activeIds.length > 0) {
-    const raw = await readActiveMatchCookieValue();
-    pickId = pickShownMatchId(activeIds, undefined, raw);
+    pickId = pickShownMatchId(activeIds, undefined);
   }
   if (pickId != null) {
     const { data } = await supabaseAdmin.from("matches").select("*").eq("id", pickId).maybeSingle();

@@ -43,6 +43,57 @@ function validateSide(label: string, players: PlayerInput[]) {
   if (new Set(keys).size !== keys.length) throw new Error(`${label} has duplicate player names.`);
 }
 
+/** Prior row for this match+side — used to carry stats across delete+insert lineup saves. */
+type ExistingFp = {
+  name?: unknown;
+  runs?: unknown;
+  wickets?: unknown;
+  catches?: unknown;
+  runouts?: unknown;
+  stumpings?: unknown;
+  fifty_bonus?: unknown;
+  hundred_bonus?: unknown;
+  three_w_bonus?: unknown;
+  five_w_bonus?: unknown;
+  mom_bonus?: unknown;
+  provider_player_id?: unknown;
+};
+
+function fantasyStatsByLowerName(rows: ExistingFp[]): Map<string, ExistingFp> {
+  const m = new Map<string, ExistingFp>();
+  for (const r of rows) {
+    const k = String(r.name ?? "").trim().toLowerCase();
+    if (k) m.set(k, r);
+  }
+  return m;
+}
+
+function numCol(prev: ExistingFp | undefined, key: keyof ExistingFp): number {
+  if (!prev) return 0;
+  const x = Number(prev[key] ?? 0);
+  return Number.isFinite(x) ? x : 0;
+}
+
+function preservedStatsAndProvider(prev: ExistingFp | undefined, pick: PlayerInput) {
+  const pid =
+    pick.providerId?.trim() ||
+    (typeof prev?.provider_player_id === "string" ? prev.provider_player_id.trim() : "") ||
+    null;
+  return {
+    runs: numCol(prev, "runs"),
+    wickets: numCol(prev, "wickets"),
+    catches: numCol(prev, "catches"),
+    runouts: numCol(prev, "runouts"),
+    stumpings: numCol(prev, "stumpings"),
+    fifty_bonus: numCol(prev, "fifty_bonus"),
+    hundred_bonus: numCol(prev, "hundred_bonus"),
+    three_w_bonus: numCol(prev, "three_w_bonus"),
+    five_w_bonus: numCol(prev, "five_w_bonus"),
+    mom_bonus: numCol(prev, "mom_bonus"),
+    provider_player_id: pid,
+  };
+}
+
 async function defaultLineupMatchId(req: NextRequest): Promise<number> {
   const cookieVal = req.cookies.get(ACTIVE_MATCH_COOKIE)?.value;
   return resolveDefaultMatchIdFromPreferences(cookieVal ?? undefined);
@@ -145,24 +196,33 @@ export async function POST(req: NextRequest) {
       if (error) throw new Error(`Save failed: ${error.message}`);
     }
 
+    async function replaceFantasyLineupSide(sideLabel: string, picks: PlayerInput[]) {
+      const { data: existing } = await baseFilter(supabaseAdmin.from("fantasy_players").select("*")).eq("side", sideLabel);
+      const byName = fantasyStatsByLowerName((existing ?? []) as ExistingFp[]);
+      await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", sideLabel);
+      await insertPlayers(
+        picks.map((p) => {
+          const prev = byName.get(p.name.toLowerCase());
+          return {
+            match_id: matchId,
+            side: sideLabel,
+            name: p.name,
+            captain: p.captain,
+            bench: p.bench === true,
+            competition_id: isDefault ? null : competitionId,
+            ...preservedStatsAndProvider(prev, p),
+          };
+        })
+      );
+    }
+
     // New: save for any named participant in a multi-player competition
     if (body.playerName) {
       const playerName = String(body.playerName).trim();
       const playerPicks = normalizePlayers(body.players);
       validateSide(`${playerName}'s team`, playerPicks);
       const beforeSnap = auditLate ? await snapshotSide(playerName) : [];
-      await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", playerName);
-      await insertPlayers(
-        playerPicks.map((p) => ({
-          match_id: matchId,
-          side: playerName,
-          name: p.name,
-          captain: p.captain,
-          bench: p.bench === true,
-          provider_player_id: p.providerId ?? null,
-          competition_id: isDefault ? null : competitionId,
-        }))
-      );
+      await replaceFantasyLineupSide(playerName, playerPicks);
       if (auditLate) {
         const afterSnap = playerPicks.map((p) => ({
           name: p.name,
@@ -187,18 +247,7 @@ export async function POST(req: NextRequest) {
       const yourPlayers = normalizePlayers(body.yourPlayers);
       validateSide(`${side1}'s team`, yourPlayers);
       const beforeMine = auditLate ? await snapshotSide(side1) : [];
-      await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", side1);
-      await insertPlayers(
-        yourPlayers.map((p) => ({
-          match_id: matchId,
-          side: side1,
-          name: p.name,
-          captain: p.captain,
-          bench: p.bench === true,
-          provider_player_id: p.providerId ?? null,
-          competition_id: isDefault ? null : competitionId,
-        }))
-      );
+      await replaceFantasyLineupSide(side1, yourPlayers);
       if (auditLate) {
         const afterSnap = yourPlayers.map((p) => ({
           name: p.name,
@@ -222,18 +271,7 @@ export async function POST(req: NextRequest) {
       const opponentPlayers = normalizePlayers(body.opponentPlayers);
       validateSide(`${side2}'s team`, opponentPlayers);
       const beforeTheirs = auditLate ? await snapshotSide(side2) : [];
-      await baseFilter(supabaseAdmin.from("fantasy_players").delete()).eq("side", side2);
-      await insertPlayers(
-        opponentPlayers.map((p) => ({
-          match_id: matchId,
-          side: side2,
-          name: p.name,
-          captain: p.captain,
-          bench: p.bench === true,
-          provider_player_id: p.providerId ?? null,
-          competition_id: isDefault ? null : competitionId,
-        }))
-      );
+      await replaceFantasyLineupSide(side2, opponentPlayers);
       if (auditLate) {
         const afterSnap = opponentPlayers.map((p) => ({
           name: p.name,
