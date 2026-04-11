@@ -1,36 +1,38 @@
 import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
-import {
-  effectiveScheduleDateKeyForMatch,
-  iplCalendarTodayIso,
-  isMatchActivelyLive,
-} from "@/lib/next-match";
+import { isMatchActivelyLive } from "@/lib/next-match";
 
 export { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
 
-type MatchDateFields = { id: number; match_date?: unknown; fixture?: unknown; status?: unknown };
+type MatchDateFields = { id: number; match_date?: unknown; fixture?: unknown; status?: unknown; last_synced_at?: unknown };
 
-function filterTrackedToIplToday<T extends MatchDateFields>(rows: T[]): T[] {
-  const today = iplCalendarTodayIso();
-  const onDay = rows.filter((r) => {
-    const d = effectiveScheduleDateKeyForMatch(r);
-    return d !== "" && d === today;
-  });
-  return onDay.length > 0 ? onDay : rows;
+function parseLastSyncedMs(v: unknown): number {
+  if (v == null) return 0;
+  const t = Date.parse(String(v));
+  return Number.isNaN(t) ? 0 : t;
 }
 
-/** Prefer truly live `is_current` rows; else same calendar-day filter as before. Id desc. */
+/** Latest activity first (sync time), then higher id — “current match” should follow the fixture you last linked or synced. */
+export function sortTrackedByRecency<T extends { id: number; last_synced_at?: unknown }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const tb = parseLastSyncedMs(b.last_synced_at);
+    const ta = parseLastSyncedMs(a.last_synced_at);
+    if (tb !== ta) return tb - ta;
+    return b.id - a.id;
+  });
+}
+
+/** All `is_current` rows, most recently synced first, then id desc (not “live only” — avoids sticking on an older LIVE row after you link/sync a newer fixture). */
 export async function getActiveMatchIdsOrdered(): Promise<number[]> {
   const { data } = await supabaseAdmin
     .from("matches")
-    .select("id, match_date, fixture, status")
-    .eq("is_current", true)
-    .order("id", { ascending: false });
+    .select("id, match_date, fixture, status, last_synced_at")
+    .eq("is_current", true);
   const rows = (data ?? []) as MatchDateFields[];
-  const live = rows.filter((r) => isMatchActivelyLive(r.status));
-  if (live.length > 0) return live.map((r) => r.id);
-  return filterTrackedToIplToday(rows).map((r) => r.id);
+  if (rows.length === 0) return [];
+  const sorted = sortTrackedByRecency(rows);
+  return sorted.map((r) => r.id);
 }
 
 /**
@@ -49,19 +51,27 @@ export function pickShownMatchId(
   return activeIds[0] ?? null;
 }
 
-type Matchish = { id: number; is_current?: boolean; match_date?: unknown; fixture?: unknown; status?: unknown };
+type Matchish = {
+  id: number;
+  is_current?: boolean;
+  match_date?: unknown;
+  fixture?: unknown;
+  status?: unknown;
+  last_synced_at?: unknown;
+};
 
 /**
  * Tabs list only **actively live** `is_current` matches (not finished, not stale tracked).
  * Shown row: `?m=` always wins when that id exists in the DB list (history / deep links), even if the
- * match is not `is_current` or not in the live tab set — otherwise cookie / live pool fallback.
+ * match is not `is_current` or not in the live tab set — otherwise cookie / **all** `is_current` rows
+ * ordered by `last_synced_at` then id (not live-only, so a newer synced fixture beats an older LIVE one).
  */
 export function pickTrackedMatchRowFromList<T extends Matchish>(
   matchesDescending: T[],
   queryM: string | undefined,
   cookieVal: string | undefined | null
 ): { activeTracked: T[]; activeTrackedForTabs: T[]; shownRow: T | null } {
-  const activeTracked = matchesDescending.filter((m) => m.is_current).sort((a, b) => b.id - a.id);
+  const activeTracked = sortTrackedByRecency(matchesDescending.filter((m) => m.is_current));
   const liveTracked = activeTracked.filter((m) => isMatchActivelyLive(m.status));
   const activeTrackedForTabs = liveTracked;
 
@@ -73,28 +83,13 @@ export function pickTrackedMatchRowFromList<T extends Matchish>(
     }
   }
 
-  const activeIds = activeTracked.map((m) => m.id);
-  if (activeIds.length === 0) {
+  const activeIdsOrdered = activeTracked.map((m) => m.id);
+  if (activeIdsOrdered.length === 0) {
     return { activeTracked: [], activeTrackedForTabs: [], shownRow: matchesDescending[0] ?? null };
   }
 
-  const today = iplCalendarTodayIso();
-  const onToday = activeTracked.filter((m) => {
-    const d = effectiveScheduleDateKeyForMatch(m);
-    return d !== "" && d === today;
-  });
-  const fallbackPool = onToday.length > 0 ? onToday : activeTracked;
-
-  let shownRow: T | null = null;
-  if (liveTracked.length > 0) {
-    const tabIds = liveTracked.map((m) => m.id);
-    const shownId = pickShownMatchId(tabIds, undefined, cookieVal);
-    shownRow = matchesDescending.find((m) => m.id === shownId) ?? liveTracked[0] ?? null;
-  } else {
-    const fbIds = fallbackPool.map((m) => m.id);
-    const shownId = pickShownMatchId(fbIds, undefined, cookieVal);
-    shownRow = matchesDescending.find((m) => m.id === shownId) ?? fallbackPool[0] ?? null;
-  }
+  const shownId = pickShownMatchId(activeIdsOrdered, undefined, cookieVal);
+  const shownRow = matchesDescending.find((m) => m.id === shownId) ?? activeTracked[0] ?? null;
 
   return { activeTracked, activeTrackedForTabs, shownRow };
 }

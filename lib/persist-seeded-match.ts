@@ -101,7 +101,12 @@ export async function persistSeededMatch(
     }
   }
 
-  const { error: setErr } = await supabaseAdmin.from("matches").update({ is_current: true }).eq("id", match.id);
+  const mid = Number(match.id);
+  const { error: clearErr } = await supabaseAdmin.from("matches").update({ is_current: false }).neq("id", mid);
+  if (clearErr) {
+    console.error("is_current clear failed:", clearErr.message);
+  }
+  const { error: setErr } = await supabaseAdmin.from("matches").update({ is_current: true }).eq("id", mid);
   if (setErr) {
     console.error("is_current update failed — run: ALTER TABLE matches ADD COLUMN IF NOT EXISTS is_current boolean NOT NULL DEFAULT false;");
   }
