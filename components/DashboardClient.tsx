@@ -8,10 +8,15 @@ import ScoreCard from "@/components/ScoreCard";
 import PlayerTable from "@/components/PlayerTable";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
 import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
+import {
+  anyKeyBlocked,
+  combinedHitsFromKeyStats,
+  combinedQuotaCap,
+  FALLBACK_QUOTA_CAP,
+  type KeyStatsApiResponse,
+} from "@/lib/combined-quota";
+import { confirmRefreshDespiteCooldown, isWithinRefreshCooldown } from "@/lib/refresh-cooldown";
 
-const KEY_LIMIT = 100;          // CricAPI free plan per key per day
-const QUOTA_LIMIT = 1200; // 100/day × 12 API keys (CRICKET_API_KEY … _12)
-const QUOTA_WARN_AT = 640; // warn at 80% of 800
 const QUOTA_KEY = "cricapi_quota";
 
 function loadQuota(): number {
@@ -89,29 +94,29 @@ function withFallback(players: Player[]) {
 
 function QuotaBar({
   apiUsed,
+  quotaCap,
   isNearLimit,
   isAtLimit,
   remaining,
-  keyStats,
 }: {
   apiUsed: number;
+  quotaCap: number;
   isNearLimit: boolean;
   isAtLimit: boolean;
   remaining: number;
-  keyStats: { alias: string; hits: number; remaining: number }[];
 }) {
   return (
     <div style={quotaBarContainerStyle}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: isAtLimit ? "#b91c1c" : isNearLimit ? "#92400e" : "#475569" }}>
-          API credits today: {apiUsed} / {QUOTA_LIMIT}
+          API credits today (all keys): {apiUsed} / {quotaCap}
         </span>
-        <span style={{ fontSize: 12, color: "#94a3b8" }}>resets midnight Eastern (per key / provider day)</span>
+        <span style={{ fontSize: 12, color: "#94a3b8" }}>resets next UTC day (Eastern in UI)</span>
       </div>
       <div style={{ height: 6, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
         <div style={{
           height: "100%",
-          width: `${Math.min(100, (apiUsed / QUOTA_LIMIT) * 100)}%`,
+          width: `${Math.min(100, (apiUsed / quotaCap) * 100)}%`,
           borderRadius: 999,
           background: isAtLimit ? "#ef4444" : isNearLimit ? "#f59e0b" : "#22c55e",
           transition: "width 0.3s ease",
@@ -125,23 +130,6 @@ function QuotaBar({
       {isAtLimit && (
         <div style={{ marginTop: 6, fontSize: 12, color: "#b91c1c" }}>
           Quota reached. Resets at next provider day (times shown in Eastern).
-        </div>
-      )}
-      {keyStats.length > 0 && (
-        <div style={{ marginTop: 8, display: "flex", gap: 12, flexWrap: "wrap" }}>
-          {keyStats.map((k, i) => {
-            const pct = k.hits / KEY_LIMIT;
-            const color = pct >= 1 ? "#ef4444" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
-            return (
-              <div key={k.alias} style={{ fontSize: 11, color: "#64748b", display: "flex", alignItems: "center", gap: 5 }}>
-                <span style={{ fontWeight: 600, color: "#475569" }}>Key {i + 1}</span>
-                <span style={{ display: "inline-block", width: 40, height: 4, borderRadius: 999, background: "#e2e8f0", overflow: "hidden" }}>
-                  <span style={{ display: "block", height: "100%", width: `${Math.min(100, pct * 100)}%`, background: color, borderRadius: 999 }} />
-                </span>
-                <span style={{ color }}>{k.hits}/{KEY_LIMIT}</span>
-              </div>
-            );
-          })}
         </div>
       )}
     </div>
@@ -174,15 +162,29 @@ export default function DashboardClient({
   const [linkDateHint, setLinkDateHint] = useState("");
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number; label: string } | null>(null);
-  const [keyStats, setKeyStats] = useState<{ alias: string; hits: number; remaining: number }[]>([]);
+  const [keyStats, setKeyStats] = useState<{ alias: string; hits: number; remaining: number; blocked?: boolean }[]>([]);
+  const [quotaCap, setQuotaCap] = useState(FALLBACK_QUOTA_CAP);
+
+  const refreshKeyStatsBundle = useCallback(() => {
+    fetch("/api/key-stats")
+      .then((r) => r.json())
+      .then((j: KeyStatsApiResponse & { stats?: typeof keyStats }) => {
+        if (!j.ok) return;
+        if (Array.isArray(j.stats)) setKeyStats(j.stats);
+        setQuotaCap(combinedQuotaCap(j));
+        const th = combinedHitsFromKeyStats(j);
+        if (th != null) {
+          setApiUsed(th);
+          saveQuota(th);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setApiUsed(loadQuota());
-    fetch("/api/key-stats")
-      .then((r) => r.json())
-      .then((j) => { if (j.ok && Array.isArray(j.stats)) setKeyStats(j.stats); })
-      .catch(() => {});
-  }, []);
+    refreshKeyStatsBundle();
+  }, [refreshKeyStatsBundle]);
 
   const addUsage = useCallback((n: number) => {
     setApiUsed((prev: number) => {
@@ -192,8 +194,9 @@ export default function DashboardClient({
     });
   }, []);
 
-  const remaining = QUOTA_LIMIT - apiUsed;
-  const isNearLimit = apiUsed >= QUOTA_WARN_AT;
+  const warnAt = Math.floor(quotaCap * 0.8);
+  const remaining = quotaCap - apiUsed;
+  const isNearLimit = apiUsed >= warnAt;
   const isAtLimit = remaining <= 0;
 
   const takenNames = useMemo(() => {
@@ -222,7 +225,7 @@ export default function DashboardClient({
 
   function guardedRun(cost: number, label: string, fn: () => Promise<void>) {
     if (isAtLimit) {
-      setMessage(`API quota reached (${QUOTA_LIMIT}/day). Resets at next provider day (Eastern calendar for local display).`);
+      setMessage(`API quota reached (${quotaCap}/day combined). Resets at next provider day (Eastern calendar for local display).`);
       return;
     }
     if (isNearLimit) {
@@ -250,6 +253,7 @@ export default function DashboardClient({
       recordSyncDebugClient(seedMid, json as Record<string, unknown>, "dashboard-seed");
       setLinkChoices(null);
       addUsage(1);
+      refreshKeyStatsBundle();
       setMessage(json.ok ? "Match linked. Opening…" : json.error || "Could not link match.");
       if (json.ok) {
         const mid = json.match && typeof json.match.id === "number" ? json.match.id : null;
@@ -275,6 +279,7 @@ export default function DashboardClient({
       const json = await res.json();
       recordSyncDebugClient(null, json as Record<string, unknown>, "dashboard-matches-today");
       addUsage(2);
+      refreshKeyStatsBundle();
       if (!json.ok) {
         setMessage(json.error || "Could not load today's matches.");
         setSyncing(false);
@@ -317,9 +322,13 @@ export default function DashboardClient({
     try {
       const res = await fetch("/api/fetch-roster", { method: "POST" });
       const json = await res.json();
-      addUsage(1);
+      if (json.source === "api") addUsage(1);
       if (json.ok) {
-        setMessage(`Roster loaded (${json.playerCount} players). Refreshing…`);
+        setMessage(
+          json.source === "cache"
+            ? `Using saved roster (${json.playerCount} players). Refreshing…`
+            : `Roster loaded (${json.playerCount} players). Refreshing…`,
+        );
         window.setTimeout(() => window.location.reload(), 800);
       } else {
         setMessage(json.error || "Could not load roster.");
@@ -330,18 +339,24 @@ export default function DashboardClient({
     setSyncing(false);
   }
 
-  async function doRefreshNow() {
+  async function doRefreshNow(opts?: { force?: boolean }) {
+    let force = opts?.force === true;
+    if (!force && isWithinRefreshCooldown(currentMatch?.last_synced_at)) {
+      if (!confirmRefreshDespiteCooldown()) return;
+      force = true;
+    }
     setSyncing(true);
     setMessage("Syncing from cricket source...");
     try {
-      const res = await fetch("/api/refresh", { method: "POST" });
+      const res = await fetch("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) });
       const json = await res.json();
       setSyncing(false);
       recordSyncDebugClient(null, json as Record<string, unknown>, "dashboard-refresh");
-      if (!json.skipped) addUsage(1);
       if (json.ok) {
-        setMessage(json.reason || json.message || (json.skipped ? "Using cached data." : "Scores updated!"));
-        if (!json.skipped) window.setTimeout(() => window.location.reload(), 1200);
+        addUsage(1);
+        refreshKeyStatsBundle();
+        setMessage(json.message || "Scores updated!");
+        window.setTimeout(() => window.location.reload(), 1200);
       } else {
         setMessage(json.error || "Refresh failed.");
       }
@@ -373,7 +388,7 @@ export default function DashboardClient({
       if (json.ok) {
         setMessage("Lineup saved! Syncing scores...");
         setView("scores");
-        window.setTimeout(() => void doRefreshNow(), 600);
+        window.setTimeout(() => void doRefreshNow({ force: true }), 600);
       } else {
         setMessage(json.error || "Could not save lineup.");
       }
@@ -556,9 +571,9 @@ export default function DashboardClient({
           <div style={quotaWarnPanelStyle}>
             <div style={{ fontWeight: 700, color: "#92400e", marginBottom: 6 }}>⚠️ Low on API credits</div>
             <div style={{ color: "#78350f", fontSize: 14, marginBottom: 14 }}>
-              You have <strong>{remaining} credit{remaining === 1 ? "" : "s"}</strong> remaining today.
-              This action uses <strong>{pendingAction.cost}</strong>. Proceed?
-            </div>
+            You have <strong>{remaining} credit{remaining === 1 ? "" : "s"}</strong> remaining today (combined across keys).
+            This action uses <strong>{pendingAction.cost}</strong>. Proceed?
+          </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button
                 type="button"
@@ -587,13 +602,16 @@ export default function DashboardClient({
         )}
 
         {/* Compact quota bar */}
-        <QuotaBar
-          apiUsed={apiUsed}
-          isNearLimit={isNearLimit}
-          isAtLimit={isAtLimit}
-          remaining={remaining}
-          keyStats={keyStats}
-        />
+        <QuotaBar apiUsed={apiUsed} quotaCap={quotaCap} isNearLimit={isNearLimit} isAtLimit={isAtLimit} remaining={remaining} />
+        {anyKeyBlocked(keyStats) && (
+          <div style={{ fontSize: 12, color: "#92400e", marginTop: 8 }}>
+            Some keys are rate-limited or at daily cap —{" "}
+            <button type="button" style={{ textDecoration: "underline", background: "none", border: "none", cursor: "pointer", padding: 0, color: "#b45309" }} onClick={() => void fetch("/api/reset-key-blocks", { method: "POST" }).then(() => refreshKeyStatsBundle())}>
+              try clearing blocks
+            </button>
+            {" "}or open <a href="/api/key-stats" target="_blank" rel="noreferrer">key stats</a>.
+          </div>
+        )}
 
       </div>
     );
@@ -621,13 +639,16 @@ export default function DashboardClient({
       </div>
 
       {/* Quota bar */}
-      <QuotaBar
-        apiUsed={apiUsed}
-        isNearLimit={isNearLimit}
-        isAtLimit={isAtLimit}
-        remaining={remaining}
-        keyStats={keyStats}
-      />
+      <QuotaBar apiUsed={apiUsed} quotaCap={quotaCap} isNearLimit={isNearLimit} isAtLimit={isAtLimit} remaining={remaining} />
+      {anyKeyBlocked(keyStats) && (
+        <div style={{ fontSize: 12, color: "#92400e", marginTop: 8 }}>
+          Some keys are rate-limited or at daily cap —{" "}
+          <button type="button" style={{ textDecoration: "underline", background: "none", border: "none", cursor: "pointer", padding: 0, color: "#b45309" }} onClick={() => void fetch("/api/reset-key-blocks", { method: "POST" }).then(() => refreshKeyStatsBundle())}>
+            try clearing blocks
+          </button>
+          {" "}or open <a href="/api/key-stats" target="_blank" rel="noreferrer">key stats</a>.
+        </div>
+      )}
 
       {/* Quota warning confirmation */}
       {pendingAction ? (

@@ -1,8 +1,15 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { fetchMatchRoster, type MatchSeed } from "@/lib/cricket-provider";
+import { parseStoredProviderSquad } from "@/lib/provider-squad-json";
 
-async function attachMatchRoster(matchId: number, externalMatchId: string | undefined) {
+async function attachMatchRoster(
+  matchId: number,
+  externalMatchId: string | undefined,
+  existingSquadJson?: unknown
+) {
   if (!externalMatchId) return;
+  const cached = parseStoredProviderSquad(existingSquadJson ?? null);
+  if (cached && cached.rosterNames.length > 0) return;
   try {
     const { squads, rosterNames, nameToId } = await fetchMatchRoster(externalMatchId);
     await supabaseAdmin
@@ -112,7 +119,7 @@ export async function persistSeededMatch(
   }
 
   if (options?.attachRoster !== false) {
-    await attachMatchRoster(Number(match.id), discovered.externalMatchId);
+    await attachMatchRoster(Number(match.id), discovered.externalMatchId, match.provider_squad_json);
   }
   return match;
 }

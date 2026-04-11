@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatUiDateTime } from "@/lib/ui-time";
 import { recordSyncDebugClient } from "@/lib/sync-debug-storage";
+import { confirmRefreshDespiteCooldown, isWithinRefreshCooldown } from "@/lib/refresh-cooldown";
 
 function isManualEditHint(msg: string) {
   return /✏️|manual|paid|plan|subscri|not available/i.test(msg);
@@ -15,13 +16,18 @@ export default function SyncButton({ matchId, lastSyncedAt }: { matchId: number;
   const [message, setMessage] = useState("");
 
   async function sync() {
+    let force = false;
+    if (isWithinRefreshCooldown(lastSyncedAt)) {
+      if (!confirmRefreshDespiteCooldown()) return;
+      force = true;
+    }
     setStatus("loading");
     setMessage("");
     try {
       const res = await fetch("/api/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId }),
+        body: JSON.stringify({ matchId, force }),
       });
       const json = await res.json();
       recordSyncDebugClient(matchId, json as Record<string, unknown>, "match-detail-sync");
@@ -30,7 +36,7 @@ export default function SyncButton({ matchId, lastSyncedAt }: { matchId: number;
         const noStats = json.debug?.updatedRows === 0 || isManualEditHint(msg);
         setStatus(noStats ? "warn" : "ok");
         setMessage(msg);
-        if (!json.skipped) router.refresh();
+        router.refresh();
       } else {
         setStatus("error");
         setMessage(json.error ?? "Sync failed.");

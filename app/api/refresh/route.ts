@@ -5,6 +5,7 @@ import { refreshPostSchema } from "@/lib/api-schemas";
 import { getDefaultActiveMatchRowForSync } from "@/lib/active-match";
 import { VOIDED_MATCH_FANTASY_SCORES, isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { createMatchSnapshot } from "@/lib/match-snapshot";
+import { REFRESH_COOLDOWN_MS } from "@/lib/refresh-cooldown";
 
 type SelectedPlayer = {
   id: number;
@@ -194,8 +195,9 @@ async function doRefresh(matchId?: number) {
   return currentMatch;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const force = new URL(request.url).searchParams.get("force") === "1";
     const currentMatch = await doRefresh();
 
     if (!currentMatch?.external_match_id) {
@@ -209,25 +211,19 @@ export async function GET() {
       .order("id", { ascending: true });
 
     const selected = (selectedPlayers ?? []) as SelectedPlayer[];
-    const lastSyncedAt = currentMatch.last_synced_at ? new Date(currentMatch.last_synced_at).getTime() : 0;
+    const lastSyncedAt = currentMatch.last_synced_at ? new Date(currentMatch.last_synced_at as string).getTime() : 0;
     const now = Date.now();
-    const minIntervalMs = 25_000;
 
-    if (lastSyncedAt && now - lastSyncedAt < minIntervalMs) {
-      const secondsUntilNext = Math.max(1, Math.ceil((minIntervalMs - (now - lastSyncedAt)) / 1000));
-      return NextResponse.json({
-        ok: true,
-        skipped: true,
-        reason: `Using cached data. Try again in ${secondsUntilNext}s.`,
-        debug: {
-          matchId: currentMatch.id,
-          externalMatchId: currentMatch.external_match_id,
-          selectedPlayers: selected.map((p) => p.name),
-          selectedCount: selected.length,
-          lastSyncedAt: currentMatch.last_synced_at,
-          liveSummary: currentMatch.live_summary,
+    if (!force && lastSyncedAt && now - lastSyncedAt < REFRESH_COOLDOWN_MS) {
+      const mins = Math.max(1, Math.ceil((REFRESH_COOLDOWN_MS - (now - lastSyncedAt)) / 60_000));
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "RECENT_SYNC",
+          error: `Scores were synced recently. Wait about ${mins} min, or call with ?force=1 if you accept the API cost.`,
         },
-      });
+        { status: 409 },
+      );
     }
 
     await createMatchSnapshot({
@@ -401,6 +397,7 @@ export async function POST(req: Request) {
       );
     }
     const matchId = parsed.data.matchId;
+    const force = parsed.data.force === true;
 
     const currentMatch = await doRefresh(matchId);
 
@@ -425,13 +422,19 @@ export async function POST(req: Request) {
       .from("fantasy_players").select("id,name,side,provider_player_id").eq("match_id", currentMatch.id).order("id", { ascending: true });
 
     const selected = (selectedPlayers ?? []) as SelectedPlayer[];
-    const lastSyncedAt = currentMatch.last_synced_at ? new Date(currentMatch.last_synced_at).getTime() : 0;
+    const lastSyncedAt = currentMatch.last_synced_at ? new Date(currentMatch.last_synced_at as string).getTime() : 0;
     const now = Date.now();
-    const minIntervalMs = 25_000;
 
-    if (lastSyncedAt && now - lastSyncedAt < minIntervalMs) {
-      const secondsUntilNext = Math.max(1, Math.ceil((minIntervalMs - (now - lastSyncedAt)) / 1000));
-      return NextResponse.json({ ok: true, skipped: true, reason: `Using cached data. Try again in ${secondsUntilNext}s.` });
+    if (!force && lastSyncedAt && now - lastSyncedAt < REFRESH_COOLDOWN_MS) {
+      const mins = Math.max(1, Math.ceil((REFRESH_COOLDOWN_MS - (now - lastSyncedAt)) / 60_000));
+      return NextResponse.json(
+        {
+          ok: false,
+          code: "RECENT_SYNC",
+          error: `Scores were synced recently. Wait about ${mins} min, or confirm a refresh in the app to use another API call.`,
+        },
+        { status: 409 },
+      );
     }
 
     await createMatchSnapshot({

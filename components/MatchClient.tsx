@@ -12,9 +12,14 @@ import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
 import { recordSyncDebugClient } from "@/lib/sync-debug-storage";
+import {
+  combinedHitsFromKeyStats,
+  combinedQuotaCap,
+  FALLBACK_QUOTA_CAP,
+  type KeyStatsApiResponse,
+} from "@/lib/combined-quota";
+import { confirmRefreshDespiteCooldown, isWithinRefreshCooldown } from "@/lib/refresh-cooldown";
 
-const QUOTA_LIMIT = 1200; // 100/day × 12 API keys (CRICKET_API_KEY … _12)
-const QUOTA_WARN_AT = 640; // warn at 80% of 800
 const QUOTA_KEY = "cricapi_quota";
 
 function loadQuota(): number {
@@ -86,19 +91,39 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     return null;
   });
   const [apiUsed, setApiUsed] = useState(0);
+  const [quotaCap, setQuotaCap] = useState(FALLBACK_QUOTA_CAP);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number } | null>(null);
+
+  const refreshKeyStatsBundle = useCallback(() => {
+    fetch("/api/key-stats")
+      .then((r) => r.json())
+      .then((j: KeyStatsApiResponse) => {
+        if (!j.ok) return;
+        setQuotaCap(combinedQuotaCap(j));
+        const th = combinedHitsFromKeyStats(j);
+        if (th != null) {
+          setApiUsed(th);
+          saveQuota(th);
+        }
+      })
+      .catch(() => {});
+  }, []);
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
   const [pickedLinkId, setPickedLinkId] = useState("");
   const [linkDateHint, setLinkDateHint] = useState("");
 
-  useEffect(() => { setApiUsed(loadQuota()); }, []);
+  useEffect(() => {
+    setApiUsed(loadQuota());
+    refreshKeyStatsBundle();
+  }, [refreshKeyStatsBundle]);
 
   const addUsage = useCallback((n: number) => {
     setApiUsed((prev) => { const next = prev + n; saveQuota(next); return next; });
   }, []);
 
-  const remaining = QUOTA_LIMIT - apiUsed;
-  const isNearLimit = apiUsed >= QUOTA_WARN_AT;
+  const warnAt = Math.floor(quotaCap * 0.8);
+  const remaining = quotaCap - apiUsed;
+  const isNearLimit = apiUsed >= warnAt;
   const isAtLimit = remaining <= 0;
 
   const yourTotal = teamPoints(yourFantasyPlayers);
@@ -153,7 +178,12 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     void fn();
   }
 
-  async function doRefreshNow() {
+  async function doRefreshNow(opts?: { force?: boolean }) {
+    let force = opts?.force === true;
+    if (!force && isWithinRefreshCooldown(currentMatch?.last_synced_at)) {
+      if (!confirmRefreshDespiteCooldown()) return;
+      force = true;
+    }
     setSyncing(true);
     setApiMsg({ type: "loading", title: "Syncing scores…" });
     try {
@@ -170,23 +200,24 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       const res = await fetch("/api/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId: syncMatchId }),
+        body: JSON.stringify({ matchId: syncMatchId, force }),
       });
       const json = await res.json();
       setSyncing(false);
       recordSyncDebugClient(syncMatchId, json as Record<string, unknown>, "match-detail");
 
-      if (json.skipped) {
-        // Cached response — show as info, no reload needed
-        setApiMsg({ type: "info", title: json.reason || "Already up to date", detail: "Scores were synced very recently. The displayed values are current." });
-        return;
-      }
-
       if (!json.ok) {
         const errorText = json.error || "Refresh failed";
+        if (res.status === 409 && json.code === "RECENT_SYNC") {
+          setApiMsg({
+            type: "info",
+            title: "Sync skipped",
+            detail: errorText,
+          });
+          return;
+        }
         const classified = classifyApiMsg(errorText, "Sync scores");
         setApiMsg(classified);
-        // Auto-open manual editor when API is blocked so users can still enter scores
         if (classified.type === "warning" || classified.type === "error") {
           const blocked = /rate.?limit|block|quota|exhausted/i.test(errorText);
           if (blocked && (yourFantasyPlayers.length > 0 || opponentFantasyPlayers.length > 0)) {
@@ -197,9 +228,9 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       }
 
       addUsage(1);
+      refreshKeyStatsBundle();
       const successMsg: ApiMsg = { type: "success", title: json.message || "Scores updated!" };
       setApiMsg(successMsg);
-      // Soft refresh keeps this panel and messages visible (full reload used to wipe debug before you could read it).
       router.refresh();
     } catch (e) {
       setSyncing(false);
@@ -214,7 +245,9 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     try {
       const res = await fetch("/api/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ externalMatchId }) });
       const json = await res.json();
-      setLinkChoices(null); addUsage(1);
+      setLinkChoices(null);
+      addUsage(1);
+      refreshKeyStatsBundle();
       showMsg(json.ok ? "Match linked! Opening…" : (json.error || "Could not link match."), "Link match");
       if (json.ok) {
         const mid = json.match && typeof json.match.id === "number" ? json.match.id : null;
@@ -231,7 +264,9 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     setLinkChoices(null);
     try {
       const res = await fetch("/api/matches/today");
-      const json = await res.json(); addUsage(2);
+      const json = await res.json();
+      addUsage(2);
+      refreshKeyStatsBundle();
       if (!json.ok) { showMsg(json.error || "Could not load matches.", "Load fixtures"); setSyncing(false); return; }
       setLinkDateHint(typeof json.date === "string" ? json.date : "");
       const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
@@ -396,7 +431,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           </button>
           <div style={{ width: "100%", display: "flex", justifyContent: "space-between", fontSize: 11, color: "#94a3b8", padding: "0 2px" }}>
             <span>Last synced: {lastSynced}</span>
-            <span style={{ color: isAtLimit ? "#b91c1c" : "#94a3b8" }}>{apiUsed}/{QUOTA_LIMIT} credits</span>
+            <span style={{ color: isAtLimit ? "#b91c1c" : "#94a3b8" }}>{apiUsed}/{quotaCap} credits (all keys)</span>
           </div>
         </div>
         {/* Message sits in its own full-width row below the buttons */}

@@ -27,6 +27,8 @@ export const refreshPostSchema = z.preprocess(
           z.string().regex(/^\d+$/).transform((s) => parseInt(s, 10)),
         ])
         .optional(),
+      /** When true, skip the 15‑minute cooldown (user confirmed in the UI). */
+      force: z.boolean().optional(),
     })
     .passthrough()
 );

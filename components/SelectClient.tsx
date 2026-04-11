@@ -18,10 +18,14 @@ import {
   slotsToLineupPayload,
   type RosterSlotPlayer,
 } from "@/lib/roster-config";
+import {
+  anyKeyBlocked,
+  combinedHitsFromKeyStats,
+  combinedQuotaCap,
+  FALLBACK_QUOTA_CAP,
+  type KeyStatsApiResponse,
+} from "@/lib/combined-quota";
 
-const KEY_LIMIT = 100;
-const QUOTA_LIMIT = 1200; // 100/day × 12 API keys (CRICKET_API_KEY … _12)
-const QUOTA_WARN_AT = 640; // warn at 80% of 800
 const QUOTA_KEY = "cricapi_quota";
 
 function loadQuota(): number {
@@ -47,6 +51,7 @@ type KeyStatRow = {
 
 function SelectQuotaCluster({
   apiUsed,
+  quotaCap,
   isAtLimit,
   isNearLimit,
   keyStats,
@@ -56,6 +61,7 @@ function SelectQuotaCluster({
   refreshKeyStats,
 }: {
   apiUsed: number;
+  quotaCap: number;
   isAtLimit: boolean;
   isNearLimit: boolean;
   keyStats: KeyStatRow[];
@@ -71,10 +77,11 @@ function SelectQuotaCluster({
           "select-quota-badge" +
           (isAtLimit ? " select-quota-badge--limit" : isNearLimit ? " select-quota-badge--warn" : "")
         }
+        title="Total CricAPI hits today summed across all configured keys"
       >
-        {apiUsed}/{QUOTA_LIMIT} credits
+        {apiUsed}/{quotaCap} credits (all keys)
       </span>
-      {keyStats.some((k) => k.blocked) && (
+      {anyKeyBlocked(keyStats) && (
         <button
           type="button"
           className="select-btn-clear-blocks"
@@ -96,54 +103,6 @@ function SelectQuotaCluster({
           {resettingBlocks ? "…" : "↺ Clear blocks"}
         </button>
       )}
-      <div className="select-key-cluster">
-        <div className="select-key-cluster__head">
-          <span className="select-key-cluster__title">Keys</span>
-          <span className="select-key-cluster__hint">hits today / 100</span>
-        </div>
-        <div className="select-key-meters">
-        {keyStats.map((k, i) => {
-          const pct = k.hits / KEY_LIMIT;
-          const blocked = k.blocked;
-          const isQuotaDone = k.blockReason === "quota_exhausted" && !k.staleQuotaFlag;
-          const isRateLimited = blocked && !isQuotaDone;
-          const barColor = isQuotaDone ? "#ef4444" : isRateLimited ? "#f59e0b" : pct >= 0.8 ? "#f59e0b" : "#22c55e";
-          const tip = isQuotaDone
-            ? `K${i + 1}: daily quota reached (${k.hits}/100) — resets next UTC day (Eastern shown in UI)`
-            : isRateLimited
-            ? `K${i + 1}: rate-limited${k.resumesInMin ? ` — ~${k.resumesInMin} min remaining` : " — ~15 min"}`
-            : `K${i + 1}: ${k.hits}/100 hits today — available`;
-          return (
-            <div
-              key={k.alias}
-              title={tip}
-              className={blocked ? "select-key-meter select-key-meter--dim" : "select-key-meter"}
-            >
-              <span className="select-key-meter__label" style={blocked ? { color: barColor } : undefined}>
-                K{i + 1}
-              </span>
-              <div className="select-key-meter__track">
-                <div
-                  className="select-key-meter__fill"
-                  style={{ height: `${Math.min(100, pct * 100)}%`, background: barColor }}
-                />
-              </div>
-              <span className="select-key-meter__hits">{k.hits}</span>
-              {isQuotaDone && (
-                <span className="select-key-meter__flag" style={{ color: barColor }}>
-                  ✕
-                </span>
-              )}
-              {isRateLimited && (
-                <span className="select-key-meter__flag" style={{ color: barColor }}>
-                  ⏸
-                </span>
-              )}
-            </div>
-          );
-        })}
-        </div>
-      </div>
     </div>
   );
 }
@@ -370,10 +329,23 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     alias: string; hits: number; blocked?: boolean; blockReason?: string | null;
     resumesInMin?: number | null; staleQuotaFlag?: boolean;
   }[]>([]);
+  const [quotaCap, setQuotaCap] = useState(FALLBACK_QUOTA_CAP);
   const [resettingBlocks, setResettingBlocks] = useState(false);
 
   const refreshKeyStats = useCallback(() => {
-    fetch("/api/key-stats").then((r) => r.json()).then((j) => { if (j.ok && Array.isArray(j.stats)) setKeyStats(j.stats); }).catch(() => {});
+    fetch("/api/key-stats")
+      .then((r) => r.json())
+      .then((j: KeyStatsApiResponse & { stats?: typeof keyStats }) => {
+        if (!j.ok) return;
+        if (Array.isArray(j.stats)) setKeyStats(j.stats);
+        setQuotaCap(combinedQuotaCap(j));
+        const th = combinedHitsFromKeyStats(j);
+        if (th != null) {
+          setApiUsed(th);
+          saveQuota(th);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -385,8 +357,9 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     setApiUsed((prev) => { const next = prev + n; saveQuota(next); return next; });
   }, []);
 
-  const remaining = QUOTA_LIMIT - apiUsed;
-  const isNearLimit = apiUsed >= QUOTA_WARN_AT;
+  const warnAt = Math.floor(quotaCap * 0.8);
+  const remaining = quotaCap - apiUsed;
+  const isNearLimit = apiUsed >= warnAt;
   const isAtLimit = remaining <= 0;
 
   const takenNames = useMemo(() => {
@@ -447,7 +420,9 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     try {
       const res = await fetch("/api/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ externalMatchId }) });
       const json = await res.json();
-      setLinkChoices(null); addUsage(1);
+      setLinkChoices(null);
+      addUsage(1);
+      refreshKeyStats();
       showMsg(json.ok ? "Match linked! Opening…" : (json.error || "Could not link match."), "Link match");
       if (json.ok) {
         const mid = json.match && typeof json.match.id === "number" ? json.match.id : null;
@@ -466,6 +441,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       const res = await fetch("/api/matches/today");
       const json = await res.json();
       addUsage(2);
+      refreshKeyStats();
       if (!json.ok) { showMsg(json.error || "Could not load matches.", "Load fixtures"); setSyncing(false); return; }
       setLinkDateHint(typeof json.date === "string" ? json.date : "");
       const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
@@ -498,9 +474,17 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(matchId != null ? { matchId } : {}),
       });
-      const json = await res.json(); addUsage(1);
+      const json = await res.json();
+      if (json.source === "api") addUsage(1);
+      refreshKeyStats();
       if (json.ok) {
-        setApiMsg({ type: "success", title: `Roster loaded — ${json.playerCount} players. Refreshing…` });
+        setApiMsg({
+          type: "success",
+          title:
+            json.source === "cache"
+              ? `Using saved roster — ${json.playerCount} players. Refreshing…`
+              : `Roster loaded — ${json.playerCount} players. Refreshing…`,
+        });
         window.setTimeout(() => window.location.reload(), 900);
       } else {
         showMsg(json.error || "Could not load roster.", "Refresh Players");
@@ -735,6 +719,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             </div>
             <SelectQuotaCluster
               apiUsed={apiUsed}
+              quotaCap={quotaCap}
               isAtLimit={isAtLimit}
               isNearLimit={isNearLimit}
               keyStats={keyStats}
@@ -1190,6 +1175,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
         </div>
         <SelectQuotaCluster
           apiUsed={apiUsed}
+          quotaCap={quotaCap}
           isAtLimit={isAtLimit}
           isNearLimit={isNearLimit}
           keyStats={keyStats}
