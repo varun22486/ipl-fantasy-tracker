@@ -124,7 +124,8 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
 
   const warnAt = Math.floor(quotaCap * 0.8);
   const remaining = quotaCap - apiUsed;
-  const isNearLimit = apiUsed >= warnAt;
+  /** Over cap: handled separately so sync can still run the same path as History (cooldown → server). */
+  const isNearLimit = apiUsed >= warnAt && remaining > 0;
   const isAtLimit = remaining <= 0;
 
   const yourTotal = teamPoints(yourFantasyPlayers);
@@ -174,8 +175,19 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   }, []);
 
   function guardedRun(cost: number, fn: () => Promise<void>) {
-    if (isAtLimit) { setApiMsg(classifyApiMsg("Daily API quota exhausted", "Quota")); return; }
-    if (isNearLimit) { setPendingAction({ fn, cost }); return; }
+    if (isAtLimit) {
+      // Match History (`SyncButton`): no client block on sync — show cooldown / let `/api/refresh` respond.
+      if (cost === 1) {
+        void fn();
+        return;
+      }
+      setApiMsg(classifyApiMsg("Daily API quota exhausted", "Quota"));
+      return;
+    }
+    if (isNearLimit) {
+      setPendingAction({ fn, cost });
+      return;
+    }
     void fn();
   }
 
