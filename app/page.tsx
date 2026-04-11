@@ -3,7 +3,7 @@ import { resolveCompetitionId } from "@/lib/competition";
 export const revalidate = 0;
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer, fantasyPointsCounted, playerPoints, scoringFromSettings } from "@/lib/scoring";
+import { FantasyPlayer, fantasyPointsCounted, isFantasyBench, playerPoints, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
@@ -118,7 +118,7 @@ async function getData(competitionId: number | null) {
       name: p.name,
       side: p.side as "You" | string,
       captain: p.captain,
-      bench: Boolean((p as FantasyPlayer).bench),
+      bench: isFantasyBench(p as FantasyPlayer),
       points: voided ? 0 : fantasyPointsCounted(p, rules),
       runs: voided ? 0 : p.runs,
       wickets: voided ? 0 : p.wickets,
@@ -184,7 +184,7 @@ async function getData(competitionId: number | null) {
           catches[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.catches ?? 0), 0);
           runouts[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.runouts ?? 0), 0);
           stumpings[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.stumpings ?? 0), 0);
-          const cap = sidePlayers.find((p: any) => p.captain && !p.bench);
+          const cap = sidePlayers.find((p: any) => p.captain && !isFantasyBench(p));
           captainPts[name] = voided || !cap ? 0 : fantasyPointsCounted(cap, rules);
           captainName[name] = cap?.name ?? "—";
         }

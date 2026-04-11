@@ -53,9 +53,34 @@ export function scoringFromSettings(s: Record<string, unknown> | null | undefine
 /** Legacy alias so existing call-sites that don't pass custom rules still work. */
 export const scoring = DEFAULT_SCORING;
 
+/**
+ * Super sub / bench row — only explicit truthy bench flags count.
+ * Avoids JS truthiness bugs (e.g. some payloads use the string "false", which would still be truthy).
+ */
+export function isFantasyBench(p: { bench?: unknown } | null | undefined): boolean {
+  const v = p?.bench;
+  if (v === true || v === 1) return true;
+  if (v === false || v === 0 || v === null || v === undefined) return false;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes";
+  }
+  return false;
+}
+
+/** Playing XI first, then super subs; stable by row id within each group. */
+export function sortFantasyLineupForDisplay<T extends { id?: number; bench?: unknown }>(players: T[]): T[] {
+  return [...players].sort((a, b) => {
+    const ab = isFantasyBench(a) ? 1 : 0;
+    const bb = isFantasyBench(b) ? 1 : 0;
+    if (ab !== bb) return ab - bb;
+    return (a.id ?? 0) - (b.id ?? 0);
+  });
+}
+
 /** Fantasy points that count toward team totals (0 for bench / super sub). */
 export function fantasyPointsCounted(p: FantasyPlayer, rules: ScoringRules = DEFAULT_SCORING): number {
-  if (p.bench) return 0;
+  if (isFantasyBench(p)) return 0;
   return playerPoints(p, rules).final;
 }
 
@@ -72,7 +97,7 @@ export function playerPoints(p: FantasyPlayer, rules: ScoringRules = DEFAULT_SCO
     p.five_w_bonus  * rules.fiveW  +
     p.mom_bonus     * rules.mom;
 
-  return {
+   return {
     base,
     final: p.captain ? base * 2 : base,
   };

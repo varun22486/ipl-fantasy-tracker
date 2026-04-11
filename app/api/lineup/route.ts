@@ -7,8 +7,9 @@ import {
   lineupSnapshotsEqual,
 } from "@/lib/match-audit";
 import { createMatchSnapshot } from "@/lib/match-snapshot";
+import { isFantasyBench } from "@/lib/scoring";
 
-type PlayerInput = { name: string; captain: boolean; bench?: boolean; providerId?: string };
+type PlayerInput = { name: string; captain: boolean; bench: boolean; providerId?: string };
 
 function normalizePlayers(players: unknown): PlayerInput[] {
   if (!Array.isArray(players)) return [];
@@ -16,7 +17,7 @@ function normalizePlayers(players: unknown): PlayerInput[] {
     .map((p) => ({
       name: String((p as any)?.name || "").trim(),
       captain: Boolean((p as any)?.captain),
-      bench: Boolean((p as any)?.bench),
+      bench: isFantasyBench({ bench: (p as any)?.bench }),
       providerId: typeof (p as any)?.providerId === "string" ? (p as any).providerId.trim() || undefined : undefined,
     }))
     .filter((p) => p.name);
@@ -134,7 +135,7 @@ export async function POST(req: NextRequest) {
       return (data ?? []).map((r) => ({
         name: r.name as string,
         captain: Boolean(r.captain),
-        bench: Boolean(r.bench),
+        bench: isFantasyBench(r),
       }));
     }
 

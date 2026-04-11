@@ -3,7 +3,7 @@ import { resolveCompetitionId } from "@/lib/competition";
 export const revalidate = 0;
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer } from "@/lib/scoring";
+import { FantasyPlayer, sortFantasyLineupForDisplay } from "@/lib/scoring";
 import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
@@ -83,12 +83,15 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
       : (p as any).competition_id == null;
 
   const p1Side = competitionId != null ? yourName : "You";
-  const yourPlayers = matchPlayers.filter((p) => p.side === p1Side && isCompFilter(p));
-  const oppPlayers = matchPlayers.filter((p) => p.side !== p1Side && isCompFilter(p));
+  const yourPlayers = sortFantasyLineupForDisplay(matchPlayers.filter((p) => p.side === p1Side && isCompFilter(p)));
+  const oppPlayers = sortFantasyLineupForDisplay(matchPlayers.filter((p) => p.side !== p1Side && isCompFilter(p)));
 
   // For multi-player competitions, collect all participants' picks
   const allParticipantPlayers = compPlayers.length > 2
-    ? compPlayers.map(name => ({ name, players: matchPlayers.filter(p => p.side === name && isCompFilter(p)) }))
+    ? compPlayers.map((name) => ({
+        name,
+        players: sortFantasyLineupForDisplay(matchPlayers.filter((p) => p.side === name && isCompFilter(p))),
+      }))
     : [];
 
   const { rosterNames, squads, nameToId } = parseRoster(currentMatch);

@@ -8,7 +8,7 @@ import {
 } from "recharts";
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { DEFAULT_SCORING } from "@/lib/scoring";
+import { DEFAULT_SCORING, isFantasyBench } from "@/lib/scoring";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type PlayerStat = { name: string; side: string; captain: boolean; bench?: boolean; points: number; runs: number; wickets: number; catches: number; runouts?: number; stumpings?: number };
@@ -49,10 +49,10 @@ function shortFixture(f: string) {
 
 /** Super subs are excluded from stat breakdown charts (only playing 4 count). */
 function xiYou(p: PlayerStat, youSide: string) {
-  return p.side === youSide && !p.bench;
+  return p.side === youSide && !isFantasyBench(p);
 }
 function xiOpp(p: PlayerStat, youSide: string) {
-  return p.side !== youSide && !p.bench;
+  return p.side !== youSide && !isFantasyBench(p);
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
   let topPerf = { name: "", side: "", points: 0, fixture: "" };
   for (const m of played)
     for (const p of m.players) {
-      if (p.bench) continue;
+      if (isFantasyBench(p)) continue;
       if (p.points > topPerf.points) topPerf = { name: p.name, side: p.side, points: p.points, fixture: m.fixture };
     }
 
@@ -109,7 +109,7 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
   const stPts = DEFAULT_SCORING.stump;
   const brkd = { you: { runs: 0, wkts: 0, catches: 0, runouts: 0, stumpings: 0 }, opp: { runs: 0, wkts: 0, catches: 0, runouts: 0, stumpings: 0 } };
   for (const m of played) for (const p of m.players) {
-    if (p.bench) continue;
+    if (isFantasyBench(p)) continue;
     const mult = p.captain ? 2 : 1, isYou = p.side === youSide;
     const ts = isYou ? totalPts.you : totalPts.opp;
     const rOut = (p.runouts ?? 0) * roPts * mult;

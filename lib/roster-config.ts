@@ -1,5 +1,7 @@
 /** Playing XI + super subs: first 4 slots count for fantasy; up to 3 extra picks (swap anytime). */
 
+import { isFantasyBench } from "@/lib/scoring";
+
 export const ROSTER_STARTING_COUNT = 4;
 export const ROSTER_BENCH_SLOTS = 3;
 export const ROSTER_MAX_PLAYERS = ROSTER_STARTING_COUNT + ROSTER_BENCH_SLOTS;
@@ -21,8 +23,8 @@ type SavedRow = {
 export function rosterSlotsFromSaved(rows: SavedRow[]): RosterSlotPlayer[] {
   const slots = emptyRosterSlots();
   if (!rows.length) return slots;
-  const starters = rows.filter((r) => !r.bench);
-  const bench = rows.filter((r) => r.bench);
+  const starters = rows.filter((r) => !isFantasyBench(r));
+  const bench = rows.filter((r) => isFantasyBench(r));
   starters.slice(0, ROSTER_STARTING_COUNT).forEach((r, i) => {
     slots[i] = {
       name: r.name,

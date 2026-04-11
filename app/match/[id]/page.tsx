@@ -3,7 +3,15 @@ export const revalidate = 0;
 
 import { resolveCompetitionId } from "@/lib/competition";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer, fantasyPointsCounted, formatCtRoSt, playerPoints, scoringFromSettings } from "@/lib/scoring";
+import {
+  FantasyPlayer,
+  fantasyPointsCounted,
+  formatCtRoSt,
+  isFantasyBench,
+  playerPoints,
+  scoringFromSettings,
+  sortFantasyLineupForDisplay,
+} from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import NavBar from "@/components/NavBar";
@@ -122,12 +130,12 @@ function PlayerRow({
     !p.captain;
 
   return (
-    <tr className={p.bench ? "match-detail-tr--bench" : "match-detail-tr--xi"}>
+    <tr className={isFantasyBench(p) ? "match-detail-tr--bench" : "match-detail-tr--xi"}>
       <td className="match-detail-td">
         <div className="match-detail-player-row">
           <span className="match-detail-player-name">{p.name}</span>
           {p.captain && <span className="match-detail-badge match-detail-badge--captain">★ Captain</span>}
-          {p.bench && <span className="match-detail-badge match-detail-badge--bench">Super sub</span>}
+          {isFantasyBench(p) && <span className="match-detail-badge match-detail-badge--bench">Super sub</span>}
         </div>
         <div className="match-detail-side-meta">
           <span className="match-detail-side-pill">{displaySide}</span>
@@ -150,7 +158,7 @@ function PlayerRow({
       </td>
       <td className="match-detail-td match-detail-td--pts">
         {counted}
-        {!pointsVoided && p.bench && pts.final > 0 && (
+        {!pointsVoided && isFantasyBench(p) && pts.final > 0 && (
           <div className="match-detail-bench-note">(would be {pts.final} if in XI)</div>
         )}
       </td>
@@ -207,9 +215,12 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     );
   }
 
-  const yourPlayers = cid == null ? players.filter((p) => p.side === "You") : players.filter((p) => p.side === yourName);
-  const oppPlayers =
-    cid == null ? players.filter((p) => p.side !== "You") : players.filter((p) => p.side === opponentName);
+  const yourPlayers = sortFantasyLineupForDisplay(
+    cid == null ? players.filter((p) => p.side === "You") : players.filter((p) => p.side === yourName)
+  );
+  const oppPlayers = sortFantasyLineupForDisplay(
+    cid == null ? players.filter((p) => p.side !== "You") : players.filter((p) => p.side === opponentName)
+  );
 
   const matchRow = match as typeof match & { fantasy_voided?: boolean | null };
   const pointsVoided = isPointsVoidedMatchStatus(match.status, match.live_summary, matchRow.fantasy_voided);
@@ -222,7 +233,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     ? compPlayers.map((name, i) => ({
         name,
         color: MULTI_COLORS[i % MULTI_COLORS.length],
-        players: players.filter((p) => p.side === name),
+        players: sortFantasyLineupForDisplay(players.filter((p) => p.side === name)),
         total: pointsVoided
           ? 0
           : players.filter((p) => p.side === name).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0),
