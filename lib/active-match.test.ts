@@ -2,10 +2,18 @@ import { describe, expect, it } from "vitest";
 import { pickTrackedMatchRowFromList, sortTrackedByRecency } from "./active-match";
 
 describe("sortTrackedByRecency", () => {
-  it("orders by last_synced_at then id", () => {
+  it("orders by last_synced_at then id when match_date missing or equal", () => {
     const rows = [
       { id: 16, last_synced_at: "2026-04-10T12:00:00Z" },
       { id: 17, last_synced_at: "2026-04-11T18:00:00Z" },
+    ];
+    expect(sortTrackedByRecency(rows).map((r) => r.id)).toEqual([17, 16]);
+  });
+
+  it("prefers later match_date even when older row has newer last_synced_at", () => {
+    const rows = [
+      { id: 16, match_date: "2026-04-10", last_synced_at: "2026-04-10T20:33:00Z" },
+      { id: 17, match_date: "2026-04-11", last_synced_at: null },
     ];
     expect(sortTrackedByRecency(rows).map((r) => r.id)).toEqual([17, 16]);
   });
@@ -30,6 +38,29 @@ describe("pickTrackedMatchRowFromList", () => {
     const { shownRow, activeTrackedForTabs } = pickTrackedMatchRowFromList(rows, undefined, undefined);
     expect(shownRow?.id).toBe(17);
     expect(activeTrackedForTabs.map((m) => m.id)).toEqual([16]);
+  });
+
+  it("defaults to newer fixture when it has no last_synced_at but older row was synced yesterday", () => {
+    const rows = [
+      {
+        id: 16,
+        is_current: true,
+        match_date: "2026-04-10",
+        status: "COMPLETED",
+        last_synced_at: "2026-04-10T20:33:00Z",
+        fixture: "RR vs RCB",
+      },
+      {
+        id: 17,
+        is_current: true,
+        match_date: "2026-04-11",
+        status: "LIVE",
+        last_synced_at: null,
+        fixture: "PBKS vs SRH",
+      },
+    ];
+    const { shownRow } = pickTrackedMatchRowFromList(rows, undefined, undefined);
+    expect(shownRow?.id).toBe(17);
   });
 
   it("ignores cookie when that id is no longer is_current", () => {

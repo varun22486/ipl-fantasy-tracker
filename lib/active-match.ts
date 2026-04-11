@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
-import { isMatchActivelyLive } from "@/lib/next-match";
+import { isMatchActivelyLive, normalizeMatchDateKey } from "@/lib/next-match";
 
 export { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
 
@@ -13,9 +13,23 @@ function parseLastSyncedMs(v: unknown): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
-/** Latest activity first (sync time), then higher id — “current match” should follow the fixture you last linked or synced. */
-export function sortTrackedByRecency<T extends { id: number; last_synced_at?: unknown }>(rows: T[]): T[] {
+/**
+ * Which `is_current` row to treat as primary: later IPL calendar day first (so Match 17 beats 16 even
+ * when 16 has a newer `last_synced_at` from yesterday), then last_sync, then id.
+ */
+export function sortTrackedByRecency<T extends { id: number; last_synced_at?: unknown; match_date?: unknown }>(
+  rows: T[]
+): T[] {
   return [...rows].sort((a, b) => {
+    const db = normalizeMatchDateKey(b.match_date);
+    const da = normalizeMatchDateKey(a.match_date);
+    if (da !== db) {
+      if (!da) return 1;
+      if (!db) return -1;
+      const c = db.localeCompare(da);
+      if (c !== 0) return c;
+    }
+
     const tb = parseLastSyncedMs(b.last_synced_at);
     const ta = parseLastSyncedMs(a.last_synced_at);
     if (tb !== ta) return tb - ta;
@@ -23,7 +37,7 @@ export function sortTrackedByRecency<T extends { id: number; last_synced_at?: un
   });
 }
 
-/** All `is_current` rows, most recently synced first, then id desc (not “live only” — avoids sticking on an older LIVE row after you link/sync a newer fixture). */
+/** All `is_current` rows: later `match_date` first, then last_sync, then id (avoids sticking on yesterday’s row when today’s has no sync time yet). */
 export async function getActiveMatchIdsOrdered(): Promise<number[]> {
   const { data } = await supabaseAdmin
     .from("matches")
@@ -64,7 +78,7 @@ type Matchish = {
  * Tabs list only **actively live** `is_current` matches (not finished, not stale tracked).
  * Shown row: `?m=` always wins when that id exists in the DB list (history / deep links), even if the
  * match is not `is_current` or not in the live tab set — otherwise cookie / **all** `is_current` rows
- * ordered by `last_synced_at` then id (not live-only, so a newer synced fixture beats an older LIVE one).
+ * ordered by `match_date` (later day first), then `last_synced_at`, then id.
  */
 export function pickTrackedMatchRowFromList<T extends Matchish>(
   matchesDescending: T[],
