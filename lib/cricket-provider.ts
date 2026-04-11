@@ -537,7 +537,9 @@ function isMatchOnIplCalendarDay(match: MaybeRecord, dayIso: string): boolean {
 }
 
 function safeString(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
+  if (typeof value !== "string") return "";
+  // CricAPI sometimes embeds newlines in title/name — normalize so fixtures and parsing stay stable.
+  return value.replace(/\r\n|\r|\n/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function parseStatus(text: string) {
