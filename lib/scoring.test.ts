@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { fantasyPointsCounted, isFantasyBench, playerPoints, sortFantasyLineupForDisplay } from "./scoring";
+import {
+  displayRunMilestoneCells,
+  fantasyPointsCounted,
+  isFantasyBench,
+  playerPoints,
+  sortFantasyLineupForDisplay,
+} from "./scoring";
 
 describe("isFantasyBench", () => {
   it("treats only explicit bench flags as super sub", () => {
@@ -38,6 +44,31 @@ describe("playerPoints milestones", () => {
       mom_bonus: 0,
     };
     expect(playerPoints(p).final).toBe(100 + 20);
+  });
+
+  it("uses runs >= 100 for century even when hundred_bonus is still 0 in DB", () => {
+    const p = {
+      side: "You" as const,
+      name: "X",
+      captain: false,
+      runs: 115,
+      wickets: 0,
+      catches: 0,
+      fifty_bonus: 1,
+      hundred_bonus: 0,
+      three_w_bonus: 0,
+      five_w_bonus: 0,
+      mom_bonus: 0,
+    };
+    expect(playerPoints(p).final).toBe(115 + 20);
+  });
+});
+
+describe("displayRunMilestoneCells", () => {
+  it("shows 0 / 1 for 50+ / 100 when runs cross 100 with stale fifty flag", () => {
+    expect(
+      displayRunMilestoneCells({ runs: 115, fifty_bonus: 1, hundred_bonus: 1 }),
+    ).toEqual({ fifty: 0, hundred: 1 });
   });
 });
 

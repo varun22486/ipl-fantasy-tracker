@@ -5,8 +5,10 @@ import { resolveCompetitionId } from "@/lib/competition";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   FantasyPlayer,
+  displayRunMilestoneCells,
   fantasyPointsCounted,
   formatCtRoSt,
+  hasCenturyRunMilestone,
   isFantasyBench,
   playerPoints,
   scoringFromSettings,
@@ -118,10 +120,11 @@ function PlayerRow({
 }) {
   const pts = playerPoints(p, rules);
   const counted = pointsVoided ? 0 : fantasyPointsCounted(p, rules);
+  const runMile = displayRunMilestoneCells(p);
   const noBonuses =
     !p.catches &&
-    !p.fifty_bonus &&
-    !p.hundred_bonus &&
+    runMile.fifty === 0 &&
+    runMile.hundred === 0 &&
     !p.three_w_bonus &&
     !p.five_w_bonus &&
     !p.mom_bonus &&
@@ -146,8 +149,8 @@ function PlayerRow({
       <td className="match-detail-td match-detail-td--muted match-detail-td--tabular">{formatCtRoSt(p)}</td>
       <td className="match-detail-td match-detail-td--bonus">
         {p.catches > 0 && <div>Ct: +{p.catches * rules.catch}</div>}
-        {p.fifty_bonus > 0 && !p.hundred_bonus && <div>50+: +{rules.fifty}</div>}
-        {p.hundred_bonus > 0 && <div>100: +{rules.hundred}</div>}
+        {!hasCenturyRunMilestone(p) && p.fifty_bonus > 0 && <div>50+: +{rules.fifty}</div>}
+        {hasCenturyRunMilestone(p) && <div>100: +{rules.hundred}</div>}
         {p.three_w_bonus > 0 && <div>3W: +{rules.threeW}</div>}
         {p.five_w_bonus > 0 && <div>5W: +{rules.fiveW}</div>}
         {p.mom_bonus > 0 && <div>MOM: +{rules.mom}</div>}

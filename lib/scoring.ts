@@ -84,9 +84,27 @@ export function fantasyPointsCounted(p: FantasyPlayer, rules: ScoringRules = DEF
   return playerPoints(p, rules).final;
 }
 
+/** True when the player qualifies for the century milestone (runs and/or stored flag). */
+export function hasCenturyRunMilestone(p: Pick<FantasyPlayer, "runs" | "hundred_bonus">): boolean {
+  return p.runs >= 100 || p.hundred_bonus > 0;
+}
+
+/** Point table / UI: 50+ and 100 columns match scoring (century suppresses 50). */
+export function displayRunMilestoneCells(p: Pick<FantasyPlayer, "runs" | "fifty_bonus" | "hundred_bonus">): {
+  fifty: number;
+  hundred: number;
+} {
+  const century = hasCenturyRunMilestone(p);
+  return {
+    fifty: century ? 0 : p.fifty_bonus,
+    hundred: century ? 1 : 0,
+  };
+}
+
 export function playerPoints(p: FantasyPlayer, rules: ScoringRules = DEFAULT_SCORING) {
-  // 100+ runs: only the century tier counts (not 50 + 100).
-  const fiftyTier = p.hundred_bonus ? 0 : p.fifty_bonus;
+  // 100+ runs: only the century tier counts (not 50 + 100). Use runs so stale DB flags still score correctly.
+  const century = hasCenturyRunMilestone(p);
+  const fiftyTier = century ? 0 : p.fifty_bonus;
   const base =
     p.runs          * rules.run    +
     p.wickets       * rules.wicket +
@@ -94,7 +112,7 @@ export function playerPoints(p: FantasyPlayer, rules: ScoringRules = DEFAULT_SCO
     (p.runouts ?? 0) * rules.runout +
     (p.stumpings ?? 0) * rules.stump +
     fiftyTier       * rules.fifty  +
-    p.hundred_bonus * rules.hundred +
+    (century ? 1 : 0) * rules.hundred +
     p.three_w_bonus * rules.threeW +
     p.five_w_bonus  * rules.fiveW  +
     p.mom_bonus     * rules.mom;

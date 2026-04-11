@@ -1,4 +1,11 @@
-import { FantasyPlayer, fantasyPointsCounted, formatCtRoSt, isFantasyBench, playerPoints } from "@/lib/scoring";
+import {
+  FantasyPlayer,
+  displayRunMilestoneCells,
+  fantasyPointsCounted,
+  formatCtRoSt,
+  isFantasyBench,
+  playerPoints,
+} from "@/lib/scoring";
 
 type Props = {
   title: string;
@@ -31,6 +38,7 @@ export default function PlayerTable({ title, players }: Props) {
             {players.map((p) => {
               const pts = fantasyPointsCounted(p);
               const raw = playerPoints(p).final;
+              const runMile = displayRunMilestoneCells(p);
               return (
                 <tr key={p.name} style={{ borderBottom: "1px solid #f1f5f9", background: isFantasyBench(p) ? "#fafafa" : undefined }}>
                   <td style={{ padding: "10px 10px", fontSize: 14, fontWeight: 500 }}>
@@ -42,8 +50,8 @@ export default function PlayerTable({ title, players }: Props) {
                   <td style={td}>{p.runs}</td>
                   <td style={td}>{p.wickets}</td>
                   <td style={{ ...td, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{formatCtRoSt(p)}</td>
-                  <td style={td}>{p.fifty_bonus}</td>
-                  <td style={td}>{p.hundred_bonus}</td>
+                  <td style={td}>{runMile.fifty}</td>
+                  <td style={td}>{runMile.hundred}</td>
                   <td style={td}>{p.three_w_bonus}</td>
                   <td style={td}>{p.five_w_bonus}</td>
                   <td style={td}>{p.mom_bonus}</td>
