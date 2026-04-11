@@ -174,18 +174,21 @@ function resolveSummaryAndStatusAfterRefresh(
 }
 
 async function doRefresh(matchId?: number) {
-  // If a specific matchId is provided, load that match directly
-  let currentMatch: any = null;
-  if (matchId) {
-    ({ data: currentMatch } = await supabaseAdmin.from("matches").select("*").eq("id", matchId).single());
+  const explicit =
+    typeof matchId === "number" && Number.isFinite(matchId) && matchId > 0 ? matchId : null;
+
+  // Explicit id (e.g. from Sync on /match?m=…): load only that row — never fall back to another fixture.
+  if (explicit != null) {
+    const { data } = await supabaseAdmin.from("matches").select("*").eq("id", explicit).maybeSingle();
+    return (data as Record<string, unknown> | null) ?? null;
   }
-  // Otherwise fall back to the "current" match
+
+  let currentMatch: Record<string, unknown> | null = null;
+  const row = await getDefaultActiveMatchRowForSync();
+  currentMatch = row as typeof currentMatch;
   if (!currentMatch) {
-    const row = await getDefaultActiveMatchRowForSync();
-    currentMatch = row as typeof currentMatch;
-  }
-  if (!currentMatch) {
-    ({ data: currentMatch } = await supabaseAdmin.from("matches").select("*").order("id", { ascending: false }).limit(1).maybeSingle());
+    const { data } = await supabaseAdmin.from("matches").select("*").order("id", { ascending: false }).limit(1).maybeSingle();
+    currentMatch = (data as Record<string, unknown> | null) ?? null;
   }
 
   return currentMatch;
@@ -401,8 +404,21 @@ export async function POST(req: Request) {
 
     const currentMatch = await doRefresh(matchId);
 
-    if (!currentMatch?.external_match_id) {
-      return NextResponse.json({ ok: false, error: "No match with an external ID found." }, { status: 400 });
+    if (!currentMatch) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: matchId != null ? `No match with id ${matchId}.` : "No match to sync.",
+        },
+        { status: matchId != null ? 404 : 400 }
+      );
+    }
+
+    if (!currentMatch.external_match_id) {
+      return NextResponse.json(
+        { ok: false, error: "This match is not linked to CricAPI (missing external_match_id)." },
+        { status: 400 }
+      );
     }
 
     const { data: selectedPlayers } = await supabaseAdmin

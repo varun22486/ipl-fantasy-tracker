@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { resolveCompetitionId } from "@/lib/competition";
 export const revalidate = 0;
 
+import { Suspense } from "react";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, sortFantasyLineupForDisplay } from "@/lib/scoring";
 import NavBar from "@/components/NavBar";
@@ -127,7 +128,8 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         basePath="/match"
         competitionSuffix={competitionSuffix}
       />
-      <MatchClient
+      <Suspense fallback={null}>
+        <MatchClient
         yourName={yourName}
         opponentName={opponentName}
         yourFantasyPlayers={yourPlayers}
@@ -154,7 +156,8 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         }))}
         competitionId={competitionId}
         allParticipants={allParticipantPlayers}
-      />
+        />
+      </Suspense>
     </main>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { formatFixture } from "@/lib/format";
 import { formatUiCalendarDate, formatUiDateTime } from "@/lib/ui-time";
 import PlayerTable from "@/components/PlayerTable";
@@ -58,6 +58,13 @@ type Props = {
 
 export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, matchId, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId, allParticipants }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  /** Prefer `?m=` from the URL when set so Sync matches the tab/chip the user opened (same as server RSC after navigation). */
+  const queryM = searchParams.get("m")?.trim() ?? "";
+  const urlMatchId = /^\d+$/.test(queryM) ? parseInt(queryM, 10) : null;
+  const syncMatchId =
+    urlMatchId != null && urlMatchId > 0 ? urlMatchId : matchId != null && matchId > 0 ? matchId : null;
+
   const isMultiPlayer = (allParticipants?.length ?? 0) > 2;
   // Show inline team picker only when NO ONE has saved yet (truly fresh start).
   // Once any participant has saved, show the live view — the pending banner
@@ -150,14 +157,24 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     setSyncing(true);
     setApiMsg({ type: "loading", title: "Syncing scores…" });
     try {
+      if (syncMatchId == null) {
+        setSyncing(false);
+        setApiMsg({
+          type: "error",
+          title: "Cannot sync — no match id",
+          detail: "Reload the page or open this match from History / Match tabs.",
+        });
+        return;
+      }
+
       const res = await fetch("/api/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(matchId != null ? { matchId } : {}),
+        body: JSON.stringify({ matchId: syncMatchId }),
       });
       const json = await res.json();
       setSyncing(false);
-      recordSyncDebugClient(matchId ?? null, json as Record<string, unknown>, "match-detail");
+      recordSyncDebugClient(syncMatchId, json as Record<string, unknown>, "match-detail");
 
       if (json.skipped) {
         // Cached response — show as info, no reload needed
@@ -265,7 +282,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           squads={squads}
           nameToId={nameToId}
           hasLinkedMatch={hasLinkedMatch}
-          matchId={matchId ?? null}
+          matchId={syncMatchId ?? null}
           competitionId={competitionId ?? null}
           compPlayers={isMultiPlayer ? (allParticipants ?? []).map(p => p.name) : undefined}
           existingPicks={isMultiPlayer ? (allParticipants ?? []).map(p => p.players.map(fp => ({
