@@ -146,7 +146,7 @@ function PlayerRow({
       <td className="match-detail-td match-detail-td--muted match-detail-td--tabular">{formatCtRoSt(p)}</td>
       <td className="match-detail-td match-detail-td--bonus">
         {p.catches > 0 && <div>Ct: +{p.catches * rules.catch}</div>}
-        {p.fifty_bonus > 0 && <div>50+: +{rules.fifty}</div>}
+        {p.fifty_bonus > 0 && !p.hundred_bonus && <div>50+: +{rules.fifty}</div>}
         {p.hundred_bonus > 0 && <div>100: +{rules.hundred}</div>}
         {p.three_w_bonus > 0 && <div>3W: +{rules.threeW}</div>}
         {p.five_w_bonus > 0 && <div>5W: +{rules.fiveW}</div>}

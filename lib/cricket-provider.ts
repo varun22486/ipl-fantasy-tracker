@@ -994,8 +994,8 @@ function bonusify(row: PlayerStats): PlayerStats {
     mom_bonus: row.mom_bonus ?? 0,
     runouts: row.runouts ?? 0,
     stumpings: row.stumpings ?? 0,
-    fifty_bonus: row.runs >= 50 ? 1 : 0,
-    hundred_bonus: row.runs >= 100 ? 1 : 0,
+       hundred_bonus: row.runs >= 100 ? 1 : 0,
+    fifty_bonus: row.runs >= 100 ? 0 : row.runs >= 50 ? 1 : 0,
     three_w_bonus: row.wickets >= 3 ? 1 : 0,
     five_w_bonus: row.wickets >= 5 ? 1 : 0,
   };

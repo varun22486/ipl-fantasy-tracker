@@ -85,13 +85,15 @@ export function fantasyPointsCounted(p: FantasyPlayer, rules: ScoringRules = DEF
 }
 
 export function playerPoints(p: FantasyPlayer, rules: ScoringRules = DEFAULT_SCORING) {
+  // 100+ runs: only the century tier counts (not 50 + 100).
+  const fiftyTier = p.hundred_bonus ? 0 : p.fifty_bonus;
   const base =
     p.runs          * rules.run    +
     p.wickets       * rules.wicket +
     p.catches       * rules.catch  +
     (p.runouts ?? 0) * rules.runout +
     (p.stumpings ?? 0) * rules.stump +
-    p.fifty_bonus   * rules.fifty  +
+    fiftyTier       * rules.fifty  +
     p.hundred_bonus * rules.hundred +
     p.three_w_bonus * rules.threeW +
     p.five_w_bonus  * rules.fiveW  +

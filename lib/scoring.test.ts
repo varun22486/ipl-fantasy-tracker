@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fantasyPointsCounted, isFantasyBench, sortFantasyLineupForDisplay } from "./scoring";
+import { fantasyPointsCounted, isFantasyBench, playerPoints, sortFantasyLineupForDisplay } from "./scoring";
 
 describe("isFantasyBench", () => {
   it("treats only explicit bench flags as super sub", () => {
@@ -19,6 +19,25 @@ describe("sortFantasyLineupForDisplay", () => {
       { id: 8, bench: false, name: "b" },
     ];
     expect(sortFantasyLineupForDisplay(rows).map((r) => r.id)).toEqual([7, 8, 10]);
+  });
+});
+
+describe("playerPoints milestones", () => {
+  it("counts only the 100-run tier when both fifty and hundred flags are set", () => {
+    const p = {
+      side: "You" as const,
+      name: "X",
+      captain: false,
+      runs: 100,
+      wickets: 0,
+      catches: 0,
+      fifty_bonus: 1,
+      hundred_bonus: 1,
+      three_w_bonus: 0,
+      five_w_bonus: 0,
+      mom_bonus: 0,
+    };
+    expect(playerPoints(p).final).toBe(100 + 20);
   });
 });
 
