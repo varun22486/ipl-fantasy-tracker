@@ -18,18 +18,6 @@ describe("parseMatchesTodayResponse", () => {
     expect(parseMatchesTodayResponse({ ok: true, source: "api", totalRaw: 3, nonIplSample: ["A"] }).kind).toBe("empty");
   });
 
-  it("preserves emptyReason when nothing left after link-picker filters", () => {
-    const r = parseMatchesTodayResponse({
-      ok: true,
-      source: "cache",
-      choices: [],
-      totalRaw: 4,
-      emptyReason: "no_eligible_fixtures",
-    });
-    expect(r.kind).toBe("empty");
-    if (r.kind === "empty") expect(r.emptyReason).toBe("no_eligible_fixtures");
-  });
-
   it("returns auto_link for single choice", () => {
     const r = parseMatchesTodayResponse({
       ok: true,
@@ -80,11 +68,6 @@ describe("copy helpers", () => {
   it("emptyFixtureListCopy handles zero totalRaw", () => {
     const { title } = emptyFixtureListCopy(0);
     expect(title).toContain("No matches");
-  });
-
-  it("emptyFixtureListCopy for no-eligible uses dedicated copy", () => {
-    const { title } = emptyFixtureListCopy(3, "no_eligible_fixtures");
-    expect(title).toContain("No fixtures to link");
   });
 
   it("emptyFixtureListPlainMessage appends sample when present", () => {

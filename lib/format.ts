@@ -93,10 +93,3 @@ export function formatFixture(fixture: string | null | undefined): string {
   const cleaned = rest.replace(/,?\s*Indian Premier League.*$/i, "").trim();
   return cleaned ? `${t1} vs ${t2}, ${cleaned}` : `${t1} vs ${t2}`;
 }
-
-/** Link IPL picker — show COMPLETED / LIVE / SCHEDULED / NO_RESULT in uppercase. */
-export function displayMatchStatusForPicker(status: string | undefined): string {
-  const s = (status ?? "").trim();
-  if (!s) return "—";
-  return s.length <= 48 ? s.toUpperCase() : s;
-}

@@ -18,36 +18,6 @@ export function iplCalendarTodayIso(now = new Date()): string {
 }
 
 /** Normalize DB/API date to YYYY-MM-DD for string compare. */
-/** Link IPL picker: yesterday / today / tomorrow on the India calendar (±1 day from “today”). */
-export const LINK_PICKER_DAY_RADIUS = 1;
-
-/**
- * Whole calendar days between two YYYY-MM-DD keys (both interpreted as IST calendar dates).
- * Returns `toKey` minus `fromKey` (e.g. +1 if `to` is tomorrow relative to `from`).
- */
-export function istCalendarDaysBetween(fromKey: string, toKey: string): number {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromKey) || !/^\d{4}-\d{2}-\d{2}$/.test(toKey)) return NaN;
-  const a = Date.UTC(
-    parseInt(fromKey.slice(0, 4), 10),
-    parseInt(fromKey.slice(5, 7), 10) - 1,
-    parseInt(fromKey.slice(8, 10), 10)
-  );
-  const b = Date.UTC(
-    parseInt(toKey.slice(0, 4), 10),
-    parseInt(toKey.slice(5, 7), 10) - 1,
-    parseInt(toKey.slice(8, 10), 10)
-  );
-  return Math.round((b - a) / 86_400_000);
-}
-
-/** True if `key` is on the same IST calendar day as `todayIso`, or up to ±`plusMinus` days away. */
-export function isScheduleKeyWithinIstDays(key: string, todayIso: string, plusMinus: number): boolean {
-  if (!key || !todayIso) return false;
-  const diff = istCalendarDaysBetween(todayIso, key);
-  if (Number.isNaN(diff)) return false;
-  return diff >= -plusMinus && diff <= plusMinus;
-}
-
 export function normalizeMatchDateKey(v: unknown): string {
   if (v == null) return "";
   const s = String(v).trim();

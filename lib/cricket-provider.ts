@@ -13,11 +13,6 @@ import {
   todayIsoInIplTZ,
 } from "@/lib/ipl-series-feed";
 import { parseLeagueMatchNumberFromFixture } from "@/lib/format";
-import {
-  effectiveScheduleDateKeyForMatch,
-  isScheduleKeyWithinIstDays,
-  LINK_PICKER_DAY_RADIUS,
-} from "@/lib/next-match";
 import { parseStoredProviderSquad } from "@/lib/provider-squad-json";
 
 const DEFAULT_BASE_URL = "https://api.cricapi.com";
@@ -883,32 +878,6 @@ export function sortMatchSeedsLikeHistory(
     if (aLinked && bLinked && ia !== undefined && ib !== undefined) return ia - ib;
     return 0;
   });
-}
-
-/**
- * Link IPL picker: keep only IST calendar yesterday–tomorrow (±1 day), exclude fixtures
- * already linked in `matches`, exclude already played in this fantasy, then sort.
- */
-export function filterMatchSeedsForLinkPicker(
-  choices: MatchSeed[],
-  playedExternalIds: Set<string>,
-  linkedExternalIds: Set<string>,
-  todayIso: string
-): MatchSeed[] {
-  const filtered = choices.filter((c) => {
-    const ext = cleanEnvText(c.externalMatchId);
-    if (!ext) return false;
-    if (playedExternalIds.has(ext)) return false;
-    if (linkedExternalIds.has(ext)) return false;
-    const key = effectiveScheduleDateKeyForMatch({
-      id: 0,
-      match_date: c.match_date,
-      fixture: c.fixture,
-    });
-    if (!key) return false;
-    return isScheduleKeyWithinIstDays(key, todayIso, LINK_PICKER_DAY_RADIUS);
-  });
-  return sortMatchSeedsLikeHistory(filtered, []);
 }
 
 /** All IPL fixtures currently in the feed (live, recent, upcoming). */
