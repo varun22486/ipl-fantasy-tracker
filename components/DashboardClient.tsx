@@ -16,6 +16,14 @@ import {
   type KeyStatsApiResponse,
 } from "@/lib/combined-quota";
 import { isWithinRefreshCooldown, minutesUntilRefreshAllowed } from "@/lib/refresh-cooldown";
+import {
+  type MatchChoice,
+  emptyFixtureListPlainMessage,
+  fetchMatchesToday,
+  fixturePickerPlainMessage,
+  parseMatchesTodayResponse,
+  shouldDebitFixtureListCredits,
+} from "@/lib/fixture-list-client";
 
 const QUOTA_KEY = "cricapi_quota";
 
@@ -44,15 +52,6 @@ type Player = {
 type SquadTeam = {
   teamName: string;
   players: string[];
-};
-
-type MatchChoice = {
-  externalMatchId?: string;
-  fixture: string;
-  status: string;
-  venue?: string | null;
-  match_date: string;
-  live_summary?: string | null;
 };
 
 type CurrentMatch = {
@@ -274,41 +273,27 @@ export default function DashboardClient({
   }
 
   async function loadFixtureChoicesFromServer(refresh: boolean) {
-    const url = refresh ? "/api/matches/today?refresh=1" : "/api/matches/today";
-    const res = await fetch(url);
-    const json = await res.json();
-    recordSyncDebugClient(null, json as Record<string, unknown>, "dashboard-matches-today");
-    if (json.source === "api") addUsage(2);
+    const json = await fetchMatchesToday(refresh, { debugLabel: "dashboard-matches-today" });
+    if (shouldDebitFixtureListCredits(json.source)) addUsage(2);
     refreshKeyStatsBundle();
-    if (!json.ok) {
-      setMessage(json.error || "Could not load today's matches.");
+    const parsed = parseMatchesTodayResponse(json);
+    if (parsed.kind === "error") {
+      setMessage(parsed.message);
       return false;
     }
-    setFixtureListSource(json.source === "cache" ? "cache" : "api");
-    setLinkDateHint(typeof json.date === "string" ? json.date : "");
-    const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
-    if (choices.length === 0) {
-      const sample: string[] = Array.isArray(json.nonIplSample) ? json.nonIplSample : [];
-      let hint = "";
-      if (typeof json.totalRaw !== "number" || json.totalRaw === 0) {
-        hint = "API returned 0 matches. Keys may be rate-limited (wait ~15 min) or daily quota is used up (resets at next UTC day; UI times are Eastern).";
-      } else {
-        hint = `${json.totalRaw} matches in feed but none are IPL yet. Current feed has: ${sample.length > 0 ? sample.join(", ") : "non-IPL tournaments"}. IPL 2026 may not have started yet.`;
-      }
-      setMessage(hint);
+    if (parsed.kind === "empty") {
+      setMessage(emptyFixtureListPlainMessage(parsed.totalRaw, parsed.nonIplSample));
       return false;
     }
-    if (choices.length === 1) {
-      await doSubmitSeedLink(choices[0].externalMatchId || "");
+    if (parsed.kind === "auto_link") {
+      await doSubmitSeedLink(parsed.externalMatchId);
       return true;
     }
-    setLinkChoices(choices);
-    setPickedLinkId(choices[0].externalMatchId || "");
-    setMessage(
-      json.source === "cache"
-        ? `${choices.length} IPL fixtures (saved list) — pick one below, or refresh from API if something is missing.`
-        : `${choices.length} IPL fixture${choices.length > 1 ? "s" : ""} found — pick one below.`,
-    );
+    setFixtureListSource(parsed.source);
+    setLinkDateHint(parsed.date);
+    setLinkChoices(parsed.choices);
+    setPickedLinkId(parsed.choices[0]?.externalMatchId || "");
+    setMessage(fixturePickerPlainMessage(parsed.choices.length, parsed.source));
     return true;
   }
 

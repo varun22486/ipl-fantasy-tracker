@@ -25,6 +25,14 @@ import {
   FALLBACK_QUOTA_CAP,
   type KeyStatsApiResponse,
 } from "@/lib/combined-quota";
+import {
+  type MatchChoice,
+  emptyFixtureListCopy,
+  fetchMatchesToday,
+  fixturePickerBannerCopy,
+  parseMatchesTodayResponse,
+  shouldDebitFixtureListCredits,
+} from "@/lib/fixture-list-client";
 
 const QUOTA_KEY = "cricapi_quota";
 
@@ -132,7 +140,6 @@ function sortRosterByFirstName(names: string[]): string[] {
 
 type Player = RosterSlotPlayer;
 type SquadTeam = { teamName: string; players: string[] };
-type MatchChoice = { externalMatchId?: string; fixture: string; status: string; venue?: string | null; match_date: string };
 
 type Props = {
   yourName: string;
@@ -439,45 +446,29 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   }
 
   async function loadFixtureChoicesFromServer(refresh: boolean) {
-    const url = refresh ? "/api/matches/today?refresh=1" : "/api/matches/today";
-    const res = await fetch(url);
-    const json = await res.json();
-    if (json.source === "api") addUsage(2);
+    const json = await fetchMatchesToday(refresh, { debugLabel: "select-matches-today" });
+    if (shouldDebitFixtureListCredits(json.source)) addUsage(2);
     refreshKeyStats();
-    if (!json.ok) {
-      showMsg(json.error || "Could not load matches.", "Load fixtures");
+    const parsed = parseMatchesTodayResponse(json);
+    if (parsed.kind === "error") {
+      showMsg(parsed.message, "Load fixtures");
       return false;
     }
-    setFixtureListSource(json.source === "cache" ? "cache" : "api");
-    setLinkDateHint(typeof json.date === "string" ? json.date : "");
-    const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
-    if (choices.length === 0) {
-      const total = json.totalRaw ?? 0;
-      setApiMsg({
-        type: "info",
-        title: total === 0
-          ? "No matches returned by the API right now"
-          : `${total} match${total === 1 ? "" : "es"} in feed but none identified as IPL`,
-        detail: total === 0
-          ? "The CricAPI feed is empty — this can happen between match days or when all keys are rate-limited. Try again in a few minutes."
-          : "The API returned matches but none matched the IPL filter. Check if the series ID in your environment is correct.",
-      });
+    if (parsed.kind === "empty") {
+      const { title, detail } = emptyFixtureListCopy(parsed.totalRaw);
+      setApiMsg({ type: "info", title, detail });
       return false;
     }
-    if (choices.length === 1) {
-      await doSubmitSeedLink(choices[0].externalMatchId || "");
+    if (parsed.kind === "auto_link") {
+      await doSubmitSeedLink(parsed.externalMatchId);
       return true;
     }
-    setLinkChoices(choices);
-    setPickedLinkId(choices[0].externalMatchId || "");
-    setApiMsg({
-      type: "info",
-      title: `${choices.length} IPL fixtures found`,
-      detail:
-        json.source === "cache"
-          ? "Loaded from saved list. Pick one below, or refresh from API if something is missing."
-          : "Pick one below to link it.",
-    });
+    setFixtureListSource(parsed.source);
+    setLinkDateHint(parsed.date);
+    setLinkChoices(parsed.choices);
+    setPickedLinkId(parsed.choices[0]?.externalMatchId || "");
+    const { title, detail } = fixturePickerBannerCopy(parsed.choices.length, parsed.source);
+    setApiMsg({ type: "info", title, detail });
     return true;
   }
 

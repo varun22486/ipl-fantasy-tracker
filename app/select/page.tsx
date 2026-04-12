@@ -2,7 +2,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { FantasyPlayer } from "@/lib/scoring";
+import { FantasyPlayer, sortFantasyLineupForDisplay } from "@/lib/scoring";
+import { resolveCompetitionId } from "@/lib/competition";
 import NavBar from "@/components/NavBar";
 import SelectClient from "@/components/SelectClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
@@ -63,24 +64,58 @@ async function getData(queryM: string | undefined) {
   return { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope };
 }
 
-export default async function SelectPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
-  const { m } = await searchParams;
+export default async function SelectPage({ searchParams }: { searchParams: Promise<{ m?: string; c?: string }> }) {
+  const { m, c } = await searchParams;
+  const competitionId = await resolveCompetitionId(c);
   const { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope } = await getData(m);
   const { rosterNames, squads, nameToId } = parseRosterFromMatch(currentMatch);
-  const opponentName = settings?.opponent_name ?? "Rahul";
-  const yourName = (settings as any)?.your_name ?? "Varun";
-  const yourPlayers = matchPlayers.filter((p) => p.side === "You").map((p) => ({
+
+  let yourName: string;
+  let opponentName: string;
+  let compPlayers: string[] = [];
+  if (competitionId != null) {
+    const { data: comp } = await supabaseAdmin.from("competitions").select("*").eq("id", competitionId).single();
+    compPlayers = Array.isArray(comp?.players) ? comp.players : [comp?.player1_name ?? "Player 1", comp?.player2_name ?? "Player 2"];
+    yourName = compPlayers[0] ?? "Player 1";
+    opponentName = compPlayers[1] ?? "Player 2";
+  } else {
+    opponentName = settings?.opponent_name ?? "Rahul";
+    yourName = (settings as { your_name?: string })?.your_name ?? "Varun";
+  }
+
+  const isCompFilter = (p: FantasyPlayer) =>
+    competitionId != null
+      ? (p as FantasyPlayer & { competition_id?: number | null }).competition_id === competitionId
+      : (p as FantasyPlayer & { competition_id?: number | null }).competition_id == null;
+
+  const p1Side = competitionId != null ? yourName : "You";
+  const yourPlayersSorted = sortFantasyLineupForDisplay(
+    matchPlayers.filter((p) => p.side === p1Side && isCompFilter(p)),
+  );
+  const oppPlayersSorted = sortFantasyLineupForDisplay(
+    matchPlayers.filter((p) => p.side !== p1Side && isCompFilter(p)),
+  );
+
+  const mapRow = (p: FantasyPlayer) => ({
     name: p.name,
     captain: p.captain,
     bench: p.bench,
-    provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
-  }));
-  const oppPlayers = matchPlayers.filter((p) => p.side !== "You").map((p) => ({
-    name: p.name,
-    captain: p.captain,
-    bench: p.bench,
-    provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
-  }));
+    provider_player_id: p.provider_player_id ?? null,
+  });
+
+  const yourPlayers = yourPlayersSorted.map(mapRow);
+  const oppPlayers = oppPlayersSorted.map(mapRow);
+
+  const existingPicks =
+    compPlayers.length >= 3
+      ? compPlayers.map((name) =>
+          sortFantasyLineupForDisplay(matchPlayers.filter((p) => p.side === name && isCompFilter(p))).map(mapRow),
+        )
+      : undefined;
+
+  const isMultiSubtitle = compPlayers.length > 2;
+  const competitionSuffix =
+    competitionId != null ? `&c=${encodeURIComponent(String(competitionId))}` : "";
 
   return (
     <main className="page-main page-main--select">
@@ -88,7 +123,9 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
         title="Lineup studio"
         subtitle={
           currentMatch?.fixture
-            ? `${currentMatch.fixture} — complete both squads to enter the match view`
+            ? isMultiSubtitle
+              ? `${currentMatch.fixture} — complete every lineup to enter the match view`
+              : `${currentMatch.fixture} — complete both squads to enter the match view`
             : "Link a fixture, load the squad, then build and save each lineup"
         }
       />
@@ -96,7 +133,7 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
         matches={activeTrackedForTabs as { id: number; fixture?: string | null }[]}
         selectedId={currentMatch?.id ?? 0}
         basePath="/select"
-        competitionSuffix=""
+        competitionSuffix={competitionSuffix}
         scope={activeTabsScope}
       />
       <SelectClient
@@ -109,6 +146,9 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
         nameToId={nameToId}
         hasLinkedMatch={Boolean(currentMatch)}
         matchId={currentMatch?.id ?? null}
+        competitionId={competitionId}
+        compPlayers={compPlayers.length >= 3 ? compPlayers : undefined}
+        existingPicks={existingPicks}
       />
     </main>
   );

@@ -13,6 +13,14 @@ import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
 import { recordSyncDebugClient } from "@/lib/sync-debug-storage";
 import {
+  type MatchChoice,
+  emptyFixtureListCopy,
+  fetchMatchesToday,
+  fixturePickerBannerCopy,
+  parseMatchesTodayResponse,
+  shouldDebitFixtureListCredits,
+} from "@/lib/fixture-list-client";
+import {
   combinedHitsFromKeyStats,
   combinedQuotaCap,
   FALLBACK_QUOTA_CAP,
@@ -34,7 +42,6 @@ function saveQuota(count: number) {
   try { localStorage.setItem(QUOTA_KEY, JSON.stringify({ count, date: formatUiCalendarDate() })); } catch {}
 }
 
-type MatchChoice = { externalMatchId?: string; fixture: string; status: string; venue?: string | null; match_date: string };
 type CurrentMatch = { fixture?: string; label?: string; status?: string; venue?: string | null; toss_winner?: string | null; live_summary?: string | null; last_synced_at?: string | null };
 
 type SquadTeam = { teamName: string; players: string[] };
@@ -267,6 +274,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       const res = await fetch("/api/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ externalMatchId }) });
       const json = await res.json();
       setLinkChoices(null);
+      setFixtureListSource(null);
       addUsage(1);
       refreshKeyStatsBundle();
       showMsg(json.ok ? "Match linked! Opening…" : (json.error || "Could not link match."), "Link match");
@@ -280,36 +288,29 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   }
 
   async function loadFixtureChoicesFromServer(refresh: boolean) {
-    const url = refresh ? "/api/matches/today?refresh=1" : "/api/matches/today";
-    const res = await fetch(url);
-    const json = await res.json();
-    if (json.source === "api") addUsage(2);
+    const json = await fetchMatchesToday(refresh, { debugLabel: "match-matches-today" });
+    if (shouldDebitFixtureListCredits(json.source)) addUsage(2);
     refreshKeyStatsBundle();
-    if (!json.ok) {
-      showMsg(json.error || "Could not load matches.", "Load fixtures");
+    const parsed = parseMatchesTodayResponse(json);
+    if (parsed.kind === "error") {
+      showMsg(parsed.message, "Load fixtures");
       return false;
     }
-    setFixtureListSource(json.source === "cache" ? "cache" : "api");
-    setLinkDateHint(typeof json.date === "string" ? json.date : "");
-    const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
-    if (choices.length === 0) {
-      showMsg(`${json.totalRaw ?? 0} matches in feed but none are IPL.`, "Load fixtures");
+    if (parsed.kind === "empty") {
+      const { title, detail } = emptyFixtureListCopy(parsed.totalRaw);
+      setApiMsg({ type: "info", title, detail });
       return false;
     }
-    if (choices.length === 1) {
-      await doSubmitSeedLink(choices[0].externalMatchId || "");
+    if (parsed.kind === "auto_link") {
+      await doSubmitSeedLink(parsed.externalMatchId);
       return true;
     }
-    setLinkChoices(choices);
-    setPickedLinkId(choices[0].externalMatchId || "");
-    setApiMsg({
-      type: "info",
-      title: `${choices.length} fixtures found`,
-      detail:
-        json.source === "cache"
-          ? "Loaded from saved list (no API call). Pick one below, or refresh from API if something is missing."
-          : "Pick one below to link it.",
-    });
+    setFixtureListSource(parsed.source);
+    setLinkDateHint(parsed.date);
+    setLinkChoices(parsed.choices);
+    setPickedLinkId(parsed.choices[0]?.externalMatchId || "");
+    const { title, detail } = fixturePickerBannerCopy(parsed.choices.length, parsed.source);
+    setApiMsg({ type: "info", title, detail });
     return true;
   }
 
