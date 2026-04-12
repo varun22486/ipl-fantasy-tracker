@@ -12,6 +12,8 @@ import {
   pickIplSeriesMatchesForFeedWindow,
   todayIsoInIplTZ,
 } from "@/lib/ipl-series-feed";
+import { parseLeagueMatchNumberFromFixture } from "@/lib/format";
+import { parseStoredProviderSquad } from "@/lib/provider-squad-json";
 
 const DEFAULT_BASE_URL = "https://api.cricapi.com";
 
@@ -191,6 +193,11 @@ export type ProviderRefresh = {
 export type RefreshMatchFromProviderOptions = {
   /** If true, include mergedParseTree (larger payload; intended for /api/debug-scorecard). */
   includeMergedParseTree?: boolean;
+  /**
+   * When set and `matches.provider_squad_json` already has a roster, squad list is taken from DB
+   * and extra `match_squad` API calls are skipped (scorecard still fetched for stats).
+   */
+  storedProviderSquad?: unknown;
 };
 
 function cleanEnvText(value: string | undefined | null) {
@@ -826,6 +833,9 @@ async function collectRawMatchesFromProvider(): Promise<MaybeRecord[]> {
 }
 
 function choiceDisplayOrder(a: MatchSeed, b: MatchSeed): number {
+  const na = parseLeagueMatchNumberFromFixture(a.fixture) ?? 9999;
+  const nb = parseLeagueMatchNumberFromFixture(b.fixture) ?? 9999;
+  if (na !== nb) return na - nb;
   const rank = (s: MatchSeed) => {
     const t = `${s.status} ${s.live_summary || ""}`.toLowerCase();
     if (t.includes("live")) return 0;
@@ -834,14 +844,14 @@ function choiceDisplayOrder(a: MatchSeed, b: MatchSeed): number {
   };
   const dr = rank(a) - rank(b);
   if (dr !== 0) return dr;
-  const dateCmp = (b.match_date || "").localeCompare(a.match_date || "");
+  const dateCmp = (a.match_date || "").localeCompare(b.match_date || "");
   if (dateCmp !== 0) return dateCmp;
   return a.fixture.localeCompare(b.fixture);
 }
 
 /**
- * Link IPL Match picker: same relative order as History (`matches.id` desc via row order).
- * Rows already linked appear first in that order; other feed fixtures use live/date fallback.
+ * Link IPL Match picker: rows already linked in the app appear first; then league match number
+ * ascending (Match 1, 2, …), with live / schedule / date as tie-breakers.
  */
 export function sortMatchSeedsLikeHistory(
   choices: MatchSeed[],
@@ -858,10 +868,15 @@ export function sortMatchSeedsLikeHistory(
     const eb = cleanEnvText(b.externalMatchId);
     const ia = ea ? orderIdx.get(ea) : undefined;
     const ib = eb ? orderIdx.get(eb) : undefined;
-    if (ia !== undefined && ib !== undefined) return ia - ib;
-    if (ia !== undefined) return -1;
-    if (ib !== undefined) return 1;
-    return choiceDisplayOrder(a, b);
+    const aLinked = ia !== undefined;
+    const bLinked = ib !== undefined;
+    if (aLinked !== bLinked) return aLinked ? -1 : 1;
+
+    const c = choiceDisplayOrder(a, b);
+    if (c !== 0) return c;
+
+    if (aLinked && bLinked && ia !== undefined && ib !== undefined) return ia - ib;
+    return 0;
   });
 }
 
@@ -2747,7 +2762,21 @@ async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<Squa
  *
  * Cost target: 1 refresh call (scorecard / match_info paths) plus match_squad when needed for full squads.
  */
-export async function fetchMatchRoster(externalMatchId: string): Promise<{ squads: SquadTeam[]; rosterNames: string[]; nameToId: Record<string, string> }> {
+export async function fetchMatchRoster(
+  externalMatchId: string,
+  existingFromDb?: unknown
+): Promise<{ squads: SquadTeam[]; rosterNames: string[]; nameToId: Record<string, string> }> {
+  if (existingFromDb !== undefined) {
+    const cached = parseStoredProviderSquad(existingFromDb);
+    if (cached && cached.rosterNames.length > 0) {
+      const squads =
+        cached.squads.length > 0
+          ? cached.squads
+          : [{ teamName: "Squad", players: [...cached.rosterNames] }];
+      return { squads, rosterNames: cached.rosterNames, nameToId: cached.nameToId };
+    }
+  }
+
   const id = encodeURIComponent(externalMatchId);
 
   // Step 1: refresh (scorecard / match_info + match_squad when fuller).
@@ -2990,8 +3019,14 @@ export async function refreshMatchFromProvider(
     }
   }
 
-  /** Prefer `match_squad` when it lists more players than the scorecard payload (skip extra API if we already have ~full squads). */
-  if (isCricapiBase(envBaseUrl()) && count < 44) {
+  const storedSquad = parseStoredProviderSquad(options?.storedProviderSquad ?? null);
+  if (storedSquad && storedSquad.rosterNames.length > 0) {
+    squads =
+      storedSquad.squads.length > 0
+        ? storedSquad.squads
+        : [{ teamName: "Squad", players: [...storedSquad.rosterNames] }];
+  } else if (isCricapiBase(envBaseUrl()) && count < 44) {
+    /** Prefer `match_squad` when it lists more players than the scorecard payload (only if DB has no roster yet). */
     try {
       const extra = await tryFetchSquadsFromSquadApi(externalMatchId);
       if (extra.length >= 2 && squadPlayerCount(extra) > count) {
@@ -3009,6 +3044,11 @@ export async function refreshMatchFromProvider(
     squads = rosterNames.length ? [{ teamName: "From live scorecard", players: rosterNames }] : [];
   }
 
+  const nameToId =
+    storedSquad && storedSquad.rosterNames.length > 0
+      ? { ...buildNameToId(squads), ...storedSquad.nameToId }
+      : buildNameToId(squads);
+
   const metaDate = extractProviderMatchDate(dataRec);
   const statusForParse = pickedApiLine || safeString((payload as MaybeRecord).status || data.status || "LIVE");
   return {
@@ -3022,7 +3062,7 @@ export async function refreshMatchFromProvider(
     players: withMom,
     squads,
     rosterNames,
-    nameToId: buildNameToId(squads),
+    nameToId,
     raw: payload,
     mergedParseTree: options?.includeMergedParseTree ? (dataRec as MaybeRecord) : undefined,
     providerFetchPath: providerFetchPath || undefined,

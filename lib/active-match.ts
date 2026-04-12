@@ -1,7 +1,9 @@
 import { cookies } from "next/headers";
+import { parseLeagueMatchNumberFromFixture } from "@/lib/format";
+import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
-import { isMatchActivelyLive, normalizeMatchDateKey } from "@/lib/next-match";
+import { isMatchActivelyLive, iplCalendarTodayIso, normalizeMatchDateKey } from "@/lib/next-match";
 
 export { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
 
@@ -72,36 +74,63 @@ type Matchish = {
 };
 
 /**
- * Tabs list only **actively live** `is_current` matches (not finished, not stale tracked).
- * Shown row: `?m=` always wins when that id exists in the DB list (history / deep links), even if the
- * match is not `is_current` or not in the live tab set — otherwise cookie / **all** `is_current` rows
- * ordered by `match_date` (later day first), then `last_synced_at`, then id.
+ * True when this row’s schedule day (DB date, or sparse IPL 2026 league # map) equals `todayIso` (IST).
+ * Aligns with `effectiveScheduleDateKeyForMatch` in `next-match` without importing a circular graph.
+ */
+export function isTrackedMatchOnCalendarIstDay(m: Matchish, todayIso: string): boolean {
+  const key = normalizeMatchDateKey(m.match_date);
+  if (key === todayIso) return true;
+  const fixture = typeof m.fixture === "string" ? m.fixture : "";
+  const n = parseLeagueMatchNumberFromFixture(fixture);
+  if (n == null) return false;
+  const canon = canonicalIstDayForIpl2026LeagueMatch(n);
+  return canon === todayIso;
+}
+
+export type ActiveTabsScope = "today" | "live";
+
+/**
+ * Tabs: (1) two or more `is_current` fixtures on the **same IST calendar day** as today (double-headers,
+ * including SCHEDULED), or (2) otherwise same as before — **live** `is_current` rows (in-play).
+ * Shown row: `?m=` wins when that id exists in the DB list; else primary from `sortTrackedByRecency`.
  */
 export function pickTrackedMatchRowFromList<T extends Matchish>(
   matchesDescending: T[],
-  queryM: string | undefined
-): { activeTracked: T[]; activeTrackedForTabs: T[]; shownRow: T | null } {
+  queryM: string | undefined,
+  options?: { todayIstIso?: string }
+): { activeTracked: T[]; activeTrackedForTabs: T[]; shownRow: T | null; activeTabsScope: ActiveTabsScope } {
+  const todayIso = options?.todayIstIso ?? iplCalendarTodayIso();
   const activeTracked = sortTrackedByRecency(matchesDescending.filter((m) => m.is_current));
   const liveTracked = activeTracked.filter((m) => isMatchActivelyLive(m.status));
-  const activeTrackedForTabs = liveTracked;
+  const todayTracked = activeTracked.filter((m) => isTrackedMatchOnCalendarIstDay(m, todayIso));
+
+  let activeTrackedForTabs: T[];
+  let activeTabsScope: ActiveTabsScope;
+  if (todayTracked.length >= 2) {
+    activeTrackedForTabs = sortTrackedByRecency(todayTracked);
+    activeTabsScope = "today";
+  } else {
+    activeTrackedForTabs = liveTracked;
+    activeTabsScope = "live";
+  }
 
   const q = queryM?.trim() ? parseInt(queryM.trim(), 10) : NaN;
   if (Number.isFinite(q)) {
     const explicit = matchesDescending.find((m) => m.id === q);
     if (explicit) {
-      return { activeTracked, activeTrackedForTabs, shownRow: explicit };
+      return { activeTracked, activeTrackedForTabs, shownRow: explicit, activeTabsScope };
     }
   }
 
   const activeIdsOrdered = activeTracked.map((m) => m.id);
   if (activeIdsOrdered.length === 0) {
-    return { activeTracked: [], activeTrackedForTabs: [], shownRow: matchesDescending[0] ?? null };
+    return { activeTracked: [], activeTrackedForTabs: [], shownRow: matchesDescending[0] ?? null, activeTabsScope };
   }
 
   const shownId = pickShownMatchId(activeIdsOrdered, undefined);
   const shownRow = matchesDescending.find((m) => m.id === shownId) ?? activeTracked[0] ?? null;
 
-  return { activeTracked, activeTrackedForTabs, shownRow };
+  return { activeTracked, activeTrackedForTabs, shownRow, activeTabsScope };
 }
 
 /** Default match id for lineup / roster / refresh when body omits matchId. */

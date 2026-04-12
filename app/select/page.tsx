@@ -47,7 +47,7 @@ async function getData(queryM: string | undefined) {
   ]);
 
   const list = matches ?? [];
-  const { activeTrackedForTabs, shownRow } = pickTrackedMatchRowFromList(
+  const { activeTrackedForTabs, shownRow, activeTabsScope } = pickTrackedMatchRowFromList(
     list as {
       id: number;
       is_current?: boolean;
@@ -60,12 +60,12 @@ async function getData(queryM: string | undefined) {
   const currentMatch = shownRow as (typeof list)[number] | null;
   const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
 
-  return { currentMatch, matchPlayers, settings, activeTrackedForTabs };
+  return { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope };
 }
 
 export default async function SelectPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
   const { m } = await searchParams;
-  const { currentMatch, matchPlayers, settings, activeTrackedForTabs } = await getData(m);
+  const { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope } = await getData(m);
   const { rosterNames, squads, nameToId } = parseRosterFromMatch(currentMatch);
   const opponentName = settings?.opponent_name ?? "Rahul";
   const yourName = (settings as any)?.your_name ?? "Varun";
@@ -97,6 +97,7 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
         selectedId={currentMatch?.id ?? 0}
         basePath="/select"
         competitionSuffix=""
+        scope={activeTabsScope}
       />
       <SelectClient
         yourName={yourName}

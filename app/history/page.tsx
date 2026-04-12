@@ -5,7 +5,8 @@ export const revalidate = 0;
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, fantasyPointsCounted, scoringFromSettings } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
-import { effectiveScheduleDateKeyForMatch, iplCalendarTodayIso, isLiveMatchStatus } from "@/lib/next-match";
+import { isTrackedMatchOnCalendarIstDay } from "@/lib/active-match";
+import { iplCalendarTodayIso, isLiveMatchStatus } from "@/lib/next-match";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import NavBar from "@/components/NavBar";
 import Link from "next/link";
@@ -53,14 +54,6 @@ function includeInHistory(m: HistoryMatchRow): boolean {
   if (isFinishedMatchStatus(m.status)) return true;
   if (m.hasData) return true;
   return false;
-}
-
-function rowScheduleDayKey(m: HistoryMatchRow): string {
-  return effectiveScheduleDateKeyForMatch({
-    id: m.matchId,
-    match_date: m.date,
-    fixture: m.fixture,
-  });
 }
 
 /** In progress (not a final result), same cues as the match list pills. */
@@ -198,10 +191,12 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
   const visibleRows = matchRows.filter(includeInHistory);
   const played = visibleRows.filter((m) => m.hasData);
   const todayIst = iplCalendarTodayIso();
-  const onCalendarToday = visibleRows.filter((m) => {
-    const d = rowScheduleDayKey(m);
-    return d !== "" && d === todayIst;
-  });
+  const onCalendarToday = visibleRows.filter((m) =>
+    isTrackedMatchOnCalendarIstDay(
+      { id: m.matchId, match_date: m.date, fixture: m.fixture },
+      todayIst
+    )
+  );
   /** Stale `is_current` on old days was inflating this; scope to IST calendar today. */
   const liveCount = onCalendarToday.filter((m) => isActivelyLiveNotFinished(m)).length;
 

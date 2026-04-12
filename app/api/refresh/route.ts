@@ -232,7 +232,9 @@ export async function GET(request: Request) {
       summary: "Before API sync",
     });
 
-    const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id));
+    const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id), {
+      storedProviderSquad: currentMatch.provider_squad_json,
+    });
 
     // Build two lookups: by provider player ID (authoritative) and by name variants (fallback)
     const incomingById      = new Map<string, (typeof payload.players)[number]>();
@@ -443,7 +445,9 @@ export async function POST(req: Request) {
       summary: "Before API sync",
     });
 
-    const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id));
+    const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id), {
+      storedProviderSquad: currentMatch.provider_squad_json,
+    });
 
     const incomingById      = new Map<string, (typeof payload.players)[number]>();
     const incomingByVariant = new Map<string, (typeof payload.players)[number]>();

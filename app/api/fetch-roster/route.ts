@@ -70,7 +70,10 @@ export async function POST(request: Request) {
       }
     }
 
-    const { squads, rosterNames, nameToId } = await fetchMatchRoster(extId);
+    const { squads, rosterNames, nameToId } = await fetchMatchRoster(
+      extId,
+      forceRefresh ? undefined : match.provider_squad_json
+    );
 
     if (rosterNames.length === 0) {
       return NextResponse.json({

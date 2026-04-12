@@ -40,7 +40,7 @@ async function getData(queryM: string | undefined) {
   ]);
 
   const list = matches ?? [];
-  const { activeTrackedForTabs, shownRow } = pickTrackedMatchRowFromList(
+  const { activeTrackedForTabs, shownRow, activeTabsScope } = pickTrackedMatchRowFromList(
     list as {
       id: number;
       is_current?: boolean;
@@ -53,13 +53,13 @@ async function getData(queryM: string | undefined) {
   const currentMatch = shownRow as (typeof list)[number] | null;
   const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
 
-  return { currentMatch, matchPlayers, settings, activeTrackedForTabs };
+  return { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope };
 }
 
 export default async function MatchPage({ searchParams }: { searchParams: Promise<{ c?: string; m?: string }> }) {
   const { c, m } = await searchParams;
   const competitionId = await resolveCompetitionId(c);
-  const { currentMatch, matchPlayers, settings, activeTrackedForTabs } = await getData(m);
+  const { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope } = await getData(m);
 
   let yourName: string;
   let opponentName: string;
@@ -127,6 +127,7 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         selectedId={selectedTabId}
         basePath="/match"
         competitionSuffix={competitionSuffix}
+        scope={activeTabsScope}
       />
       <Suspense fallback={null}>
         <MatchClient
