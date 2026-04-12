@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { formatFixture } from "@/lib/format";
+import { displayMatchStatusForPicker, formatFixture } from "@/lib/format";
 import { formatUiCalendarDate, formatUiDateTime } from "@/lib/ui-time";
 import PlayerTable from "@/components/PlayerTable";
 import ManualScorePanel from "@/components/ManualScorePanel";
@@ -288,7 +288,10 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   }
 
   async function loadFixtureChoicesFromServer(refresh: boolean) {
-    const json = await fetchMatchesToday(refresh, { debugLabel: "match-matches-today" });
+    const json = await fetchMatchesToday(refresh, {
+      debugLabel: "match-matches-today",
+      competitionId: competitionId ?? null,
+    });
     if (shouldDebitFixtureListCredits(json.source)) addUsage(2);
     refreshKeyStatsBundle();
     const parsed = parseMatchesTodayResponse(json);
@@ -297,7 +300,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
       return false;
     }
     if (parsed.kind === "empty") {
-      const { title, detail } = emptyFixtureListCopy(parsed.totalRaw);
+      const { title, detail } = emptyFixtureListCopy(parsed.totalRaw, parsed.emptyReason);
       setApiMsg({ type: "info", title, detail });
       return false;
     }
@@ -571,7 +574,11 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
                 <input type="radio" name="lpm" checked={pickedLinkId === c.externalMatchId} onChange={() => setPickedLinkId(c.externalMatchId || "")} style={{ marginTop: 3 }} />
                 <div>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{formatFixture(c.fixture) || c.fixture}</div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{c.status}{c.venue ? ` · ${c.venue}` : ""}{c.match_date ? ` · ${c.match_date}` : ""}</div>
+                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+                    {displayMatchStatusForPicker(c.status)}
+                    {c.venue ? ` · ${c.venue}` : ""}
+                    {c.match_date ? ` · ${c.match_date}` : ""}
+                  </div>
                 </div>
               </label>
             ))}

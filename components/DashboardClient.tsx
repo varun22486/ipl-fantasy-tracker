@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useCallback, type CSSProperties } from "react";
-import { formatFixture } from "@/lib/format";
+import { displayMatchStatusForPicker, formatFixture } from "@/lib/format";
 import { formatUiCalendarDate, formatUiDateTime } from "@/lib/ui-time";
 import { recordSyncDebugClient } from "@/lib/sync-debug-storage";
 import ScoreCard from "@/components/ScoreCard";
@@ -24,6 +24,7 @@ import {
   parseMatchesTodayResponse,
   shouldDebitFixtureListCredits,
 } from "@/lib/fixture-list-client";
+import { readActiveCompetitionIdFromCookie } from "@/lib/competition-id";
 
 const QUOTA_KEY = "cricapi_quota";
 
@@ -273,7 +274,10 @@ export default function DashboardClient({
   }
 
   async function loadFixtureChoicesFromServer(refresh: boolean) {
-    const json = await fetchMatchesToday(refresh, { debugLabel: "dashboard-matches-today" });
+    const json = await fetchMatchesToday(refresh, {
+      debugLabel: "dashboard-matches-today",
+      competitionId: readActiveCompetitionIdFromCookie(),
+    });
     if (shouldDebitFixtureListCredits(json.source)) addUsage(2);
     refreshKeyStatsBundle();
     const parsed = parseMatchesTodayResponse(json);
@@ -282,7 +286,7 @@ export default function DashboardClient({
       return false;
     }
     if (parsed.kind === "empty") {
-      setMessage(emptyFixtureListPlainMessage(parsed.totalRaw, parsed.nonIplSample));
+      setMessage(emptyFixtureListPlainMessage(parsed.totalRaw, parsed.nonIplSample, parsed.emptyReason));
       return false;
     }
     if (parsed.kind === "auto_link") {
@@ -590,7 +594,9 @@ export default function DashboardClient({
                   <div>
                     <div style={{ fontWeight: 600, color: "#0f172a" }}>{formatFixture(c.fixture) || c.fixture}</div>
                     <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
-                      {c.status}{c.venue ? ` · ${c.venue}` : ""}{c.match_date ? ` · ${c.match_date}` : ""}
+                      {displayMatchStatusForPicker(c.status)}
+                      {c.venue ? ` · ${c.venue}` : ""}
+                      {c.match_date ? ` · ${c.match_date}` : ""}
                     </div>
                   </div>
                 </label>
@@ -784,7 +790,7 @@ export default function DashboardClient({
                 <div>
                   <div style={{ fontWeight: 600, color: "#0f172a" }}>{formatFixture(c.fixture) || c.fixture}</div>
                   <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>
-                    {c.status}
+                    {displayMatchStatusForPicker(c.status)}
                     {c.venue ? ` · ${c.venue}` : ""}
                     {c.match_date ? ` · ${c.match_date}` : ""}
                   </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { formatFixture } from "@/lib/format";
+import { displayMatchStatusForPicker, formatFixture } from "@/lib/format";
 import { formatUiCalendarDate } from "@/lib/ui-time";
 import type { CSSProperties } from "react";
 import ApiMessage from "@/components/ApiMessage";
@@ -446,7 +446,10 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   }
 
   async function loadFixtureChoicesFromServer(refresh: boolean) {
-    const json = await fetchMatchesToday(refresh, { debugLabel: "select-matches-today" });
+    const json = await fetchMatchesToday(refresh, {
+      debugLabel: "select-matches-today",
+      competitionId: competitionId ?? null,
+    });
     if (shouldDebitFixtureListCredits(json.source)) addUsage(2);
     refreshKeyStats();
     const parsed = parseMatchesTodayResponse(json);
@@ -455,7 +458,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       return false;
     }
     if (parsed.kind === "empty") {
-      const { title, detail } = emptyFixtureListCopy(parsed.totalRaw);
+      const { title, detail } = emptyFixtureListCopy(parsed.totalRaw, parsed.emptyReason);
       setApiMsg({ type: "info", title, detail });
       return false;
     }
@@ -796,7 +799,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                     <div className="select-match-option__body">
                       <div className="select-match-option__fixture">{formatFixture(c.fixture) || c.fixture}</div>
                       <div className="select-match-option__meta">
-                        {c.status}
+                        {displayMatchStatusForPicker(c.status)}
                         {c.venue ? ` · ${c.venue}` : ""}
                         {c.match_date ? ` · ${c.match_date}` : ""}
                       </div>
@@ -1271,7 +1274,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                   <div className="select-match-option__body">
                     <div className="select-match-option__fixture">{formatFixture(c.fixture) || c.fixture}</div>
                     <div className="select-match-option__meta">
-                      {c.status}
+                      {displayMatchStatusForPicker(c.status)}
                       {c.venue ? ` · ${c.venue}` : ""}
                       {c.match_date ? ` · ${c.match_date}` : ""}
                     </div>

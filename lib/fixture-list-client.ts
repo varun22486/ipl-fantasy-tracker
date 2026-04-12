@@ -18,6 +18,8 @@ export type MatchesTodayResponse = {
   totalRaw?: number;
   nonIplSample?: string[];
   error?: string;
+  /** Present when IPL rows existed but all were removed by link-picker filters. */
+  emptyReason?: "no_eligible_fixtures";
 };
 
 /**
@@ -27,9 +29,14 @@ export type MatchesTodayResponse = {
  */
 export async function fetchMatchesToday(
   refresh: boolean,
-  opts?: { debugLabel?: string }
+  opts?: { debugLabel?: string; competitionId?: number | null }
 ): Promise<MatchesTodayResponse> {
-  const url = refresh ? "/api/matches/today?refresh=1" : "/api/matches/today";
+  const params = new URLSearchParams();
+  if (refresh) params.set("refresh", "1");
+  const cid = opts?.competitionId;
+  if (cid != null && Number.isFinite(cid) && cid > 0) params.set("c", String(cid));
+  const qs = params.toString();
+  const url = `/api/matches/today${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
   const json = (await res.json()) as MatchesTodayResponse;
   if (opts?.debugLabel) {
@@ -46,7 +53,13 @@ export function shouldDebitFixtureListCredits(source: MatchesTodayResponse["sour
 export type ParsedFixtureList =
   | { kind: "picker"; choices: MatchChoice[]; source: "cache" | "api"; date: string }
   | { kind: "auto_link"; externalMatchId: string; source: "cache" | "api"; date: string }
-  | { kind: "empty"; totalRaw: number; nonIplSample: string[]; source?: "cache" | "api" }
+  | {
+      kind: "empty";
+      totalRaw: number;
+      nonIplSample: string[];
+      source?: "cache" | "api";
+      emptyReason?: "no_eligible_fixtures";
+    }
   | { kind: "error"; message: string };
 
 export function parseMatchesTodayResponse(json: MatchesTodayResponse): ParsedFixtureList {
@@ -62,6 +75,7 @@ export function parseMatchesTodayResponse(json: MatchesTodayResponse): ParsedFix
       totalRaw: json.totalRaw ?? 0,
       nonIplSample: Array.isArray(json.nonIplSample) ? json.nonIplSample : [],
       source: json.source as "cache" | "api" | undefined,
+      emptyReason: json.emptyReason,
     };
   }
   if (choices.length === 1) {
@@ -71,7 +85,17 @@ export function parseMatchesTodayResponse(json: MatchesTodayResponse): ParsedFix
 }
 
 /** Shared copy for ApiMessage / toast when the feed has no IPL rows. */
-export function emptyFixtureListCopy(totalRaw: number): { title: string; detail: string } {
+export function emptyFixtureListCopy(
+  totalRaw: number,
+  emptyReason?: "no_eligible_fixtures"
+): { title: string; detail: string } {
+  if (emptyReason === "no_eligible_fixtures") {
+    return {
+      title: "No fixtures to link",
+      detail:
+        "Only yesterday through tomorrow (India time) are listed. Fixtures already linked in the app, already played in this league, or outside that window are hidden. Refresh from API when new IPL rows appear.",
+    };
+  }
   return {
     title:
       totalRaw === 0
@@ -85,8 +109,13 @@ export function emptyFixtureListCopy(totalRaw: number): { title: string; detail:
 }
 
 /** Plain string for dashboards that use a single message line (includes sample when helpful). */
-export function emptyFixtureListPlainMessage(totalRaw: number, nonIplSample: string[]): string {
-  const { title, detail } = emptyFixtureListCopy(totalRaw);
+export function emptyFixtureListPlainMessage(
+  totalRaw: number,
+  nonIplSample: string[],
+  emptyReason?: "no_eligible_fixtures"
+): string {
+  const { title, detail } = emptyFixtureListCopy(totalRaw, emptyReason);
+  if (emptyReason === "no_eligible_fixtures") return `${title} — ${detail}`;
   if (totalRaw > 0 && nonIplSample.length > 0) {
     return `${title}. ${detail} Current feed sample: ${nonIplSample.join(", ")}.`;
   }
@@ -102,7 +131,7 @@ export function fixturePickerBannerCopy(
     title: `${count} IPL fixtures found`,
     detail:
       source === "cache"
-        ? "Loaded from saved list. Pick one below, or refresh from API if something is missing."
+        ? "Loaded from saved list (yesterday–tomorrow, India time). Pick one below, or refresh from API if something is missing."
         : "Pick one below to link it.",
   };
 }
