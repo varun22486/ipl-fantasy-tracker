@@ -323,6 +323,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
   const [pickedLinkId, setPickedLinkId] = useState("");
   const [linkDateHint, setLinkDateHint] = useState("");
+  const [fixtureListSource, setFixtureListSource] = useState<"cache" | "api" | null>(null);
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number } | null>(null);
   const [keyStats, setKeyStats] = useState<{
@@ -405,11 +406,14 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
   }, []);
 
   function guardedRun(cost: number, fn: () => Promise<void>) {
-    if (isAtLimit) {
+    if (isAtLimit && cost > 0) {
       setApiMsg(classifyApiMsg("Daily API quota exhausted", "Quota"));
       return;
     }
-    if (isNearLimit) { setPendingAction({ fn, cost }); return; }
+    if (isNearLimit && cost > 0) {
+      setPendingAction({ fn, cost });
+      return;
+    }
     void fn();
   }
 
@@ -421,6 +425,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       const res = await fetch("/api/seed", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ externalMatchId }) });
       const json = await res.json();
       setLinkChoices(null);
+      setFixtureListSource(null);
       addUsage(1);
       refreshKeyStats();
       showMsg(json.ok ? "Match linked! Opening…" : (json.error || "Could not link match."), "Link match");
@@ -433,35 +438,70 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
     setSyncing(false);
   }
 
+  async function loadFixtureChoicesFromServer(refresh: boolean) {
+    const url = refresh ? "/api/matches/today?refresh=1" : "/api/matches/today";
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json.source === "api") addUsage(2);
+    refreshKeyStats();
+    if (!json.ok) {
+      showMsg(json.error || "Could not load matches.", "Load fixtures");
+      return false;
+    }
+    setFixtureListSource(json.source === "cache" ? "cache" : "api");
+    setLinkDateHint(typeof json.date === "string" ? json.date : "");
+    const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
+    if (choices.length === 0) {
+      const total = json.totalRaw ?? 0;
+      setApiMsg({
+        type: "info",
+        title: total === 0
+          ? "No matches returned by the API right now"
+          : `${total} match${total === 1 ? "" : "es"} in feed but none identified as IPL`,
+        detail: total === 0
+          ? "The CricAPI feed is empty — this can happen between match days or when all keys are rate-limited. Try again in a few minutes."
+          : "The API returned matches but none matched the IPL filter. Check if the series ID in your environment is correct.",
+      });
+      return false;
+    }
+    if (choices.length === 1) {
+      await doSubmitSeedLink(choices[0].externalMatchId || "");
+      return true;
+    }
+    setLinkChoices(choices);
+    setPickedLinkId(choices[0].externalMatchId || "");
+    setApiMsg({
+      type: "info",
+      title: `${choices.length} IPL fixtures found`,
+      detail:
+        json.source === "cache"
+          ? "Loaded from saved list. Pick one below, or refresh from API if something is missing."
+          : "Pick one below to link it.",
+    });
+    return true;
+  }
+
   async function doStartLinkTodaysMatch() {
     setSyncing(true);
     setApiMsg({ type: "loading", title: "Loading IPL fixtures…" });
     setLinkChoices(null);
+    setFixtureListSource(null);
     try {
-      const res = await fetch("/api/matches/today");
-      const json = await res.json();
-      addUsage(2);
-      refreshKeyStats();
-      if (!json.ok) { showMsg(json.error || "Could not load matches.", "Load fixtures"); setSyncing(false); return; }
-      setLinkDateHint(typeof json.date === "string" ? json.date : "");
-      const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
-      if (choices.length === 0) {
-        const total = json.totalRaw ?? 0;
-        setApiMsg({
-          type: "info",
-          title: total === 0
-            ? "No matches returned by the API right now"
-            : `${total} match${total === 1 ? "" : "es"} in feed but none identified as IPL`,
-          detail: total === 0
-            ? "The CricAPI feed is empty — this can happen between match days or when all keys are rate-limited. Try again in a few minutes."
-            : "The API returned matches but none matched the IPL filter. Check if the series ID in your environment is correct.",
-        });
-        setSyncing(false); return;
-      }
-      if (choices.length === 1) { await doSubmitSeedLink(choices[0].externalMatchId || ""); return; }
-      setLinkChoices(choices); setPickedLinkId(choices[0].externalMatchId || "");
-      setApiMsg({ type: "info", title: `${choices.length} IPL fixtures found`, detail: "Pick one below to link it." });
-    } catch { showMsg("Network error loading matches.", "Load fixtures"); }
+      await loadFixtureChoicesFromServer(false);
+    } catch {
+      showMsg("Network error loading matches.", "Load fixtures");
+    }
+    setSyncing(false);
+  }
+
+  async function doRefreshFixtureListFromApi() {
+    setSyncing(true);
+    setApiMsg({ type: "loading", title: "Fetching latest fixtures from API…" });
+    try {
+      await loadFixtureChoicesFromServer(true);
+    } catch {
+      showMsg("Network error loading matches.", "Load fixtures");
+    }
     setSyncing(false);
   }
 
@@ -694,8 +734,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             <button
               type="button"
               className="select-btn-primary"
-              onClick={() => guardedRun(2, doStartLinkTodaysMatch)}
-              disabled={syncing || isAtLimit}
+              onClick={() => guardedRun(0, doStartLinkTodaysMatch)}
+              disabled={syncing}
             >
               {syncing ? "Loading…" : "Link IPL Match"}
             </button>
@@ -742,6 +782,11 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             {linkDateHint && (
               <div className="select-match-picker__hint">Showing ±1 day (Eastern) · {linkDateHint}</div>
             )}
+            {fixtureListSource === "cache" && (
+              <div className="select-match-picker__hint" style={{ color: "#0369a1", background: "#e0f2fe", padding: "8px 10px", borderRadius: 8 }}>
+                Using saved fixture list — no API call. Use the button below if a match is missing.
+              </div>
+            )}
             <div className="select-match-picker__grid">
               {linkChoices.map((c) => {
                 const picked = pickedLinkId === c.externalMatchId;
@@ -785,11 +830,20 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                 onClick={() => {
                   setLinkChoices(null);
                   setApiMsg(null);
+                  setFixtureListSource(null);
                 }}
               >
                 Cancel
               </button>
             </div>
+            {fixtureListSource === "cache" && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Fixture not listed? Pull the latest IPL list from CricAPI (uses ~2 API credits).</div>
+                <button type="button" className="select-btn-secondary-sm" onClick={() => guardedRun(2, doRefreshFixtureListFromApi)} disabled={syncing}>
+                  {syncing ? "Loading…" : "Refresh list from API"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -821,8 +875,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                   <button
                     type="button"
                     className="select-btn-secondary-sm"
-                    onClick={() => guardedRun(2, doStartLinkTodaysMatch)}
-                    disabled={syncing || isAtLimit}
+                    onClick={() => guardedRun(0, doStartLinkTodaysMatch)}
+                    disabled={syncing}
                   >
                     Link Match
                   </button>
@@ -869,8 +923,8 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                 <button
                   type="button"
                   className="select-btn-primary"
-                  onClick={() => guardedRun(2, doStartLinkTodaysMatch)}
-                  disabled={syncing || isAtLimit}
+                  onClick={() => guardedRun(0, doStartLinkTodaysMatch)}
+                  disabled={syncing}
                 >
                   Link IPL Match
                 </button>
@@ -1157,7 +1211,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
       {/* ── Match control bar ─────────────────────────────────────────────── */}
       <div className="select-surface-card select-control-bar">
         <div className="select-control-bar__row">
-        <button type="button" className="select-btn-primary" onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>
+        <button type="button" className="select-btn-primary" onClick={() => guardedRun(0, doStartLinkTodaysMatch)} disabled={syncing}>
           {syncing ? "Loading…" : "Link IPL Match"}
         </button>
         <div className="select-h2h-progress" aria-label="Save progress">
@@ -1203,6 +1257,11 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
           {linkDateHint && (
             <div className="select-match-picker__hint">Showing ±1 day (Eastern) · {linkDateHint}</div>
           )}
+          {fixtureListSource === "cache" && (
+            <div className="select-match-picker__hint" style={{ color: "#0369a1", background: "#e0f2fe", padding: "8px 10px", borderRadius: 8 }}>
+              Using saved fixture list — no API call. Use the button below if a match is missing.
+            </div>
+          )}
           <div className="select-match-picker__grid">
             {linkChoices.map((c) => {
               const picked = pickedLinkId === c.externalMatchId;
@@ -1246,11 +1305,20 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
               onClick={() => {
                 setLinkChoices(null);
                 setMessage("");
+                setFixtureListSource(null);
               }}
             >
               Cancel
             </button>
           </div>
+          {fixtureListSource === "cache" && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Fixture not listed? Pull the latest IPL list from CricAPI (uses ~2 API credits).</div>
+              <button type="button" className="select-btn-secondary-sm" onClick={() => guardedRun(2, doRefreshFixtureListFromApi)} disabled={syncing}>
+                {syncing ? "Loading…" : "Refresh list from API"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1276,7 +1344,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                 </button>
               )}
               {!hasLinkedMatch && (
-                <button type="button" className="select-btn-secondary-sm" onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>
+                <button type="button" className="select-btn-secondary-sm" onClick={() => guardedRun(0, doStartLinkTodaysMatch)} disabled={syncing}>
                   Link Match
                 </button>
               )}
@@ -1313,7 +1381,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
               <div className="select-empty-state__icon" aria-hidden>🏏</div>
               <div className="select-empty-state__title">No match linked</div>
               <div className="select-empty-state__text">Link an IPL match to load squads and build your lineups.</div>
-              <button type="button" className="select-btn-primary" onClick={() => guardedRun(2, doStartLinkTodaysMatch)} disabled={syncing || isAtLimit}>
+              <button type="button" className="select-btn-primary" onClick={() => guardedRun(0, doStartLinkTodaysMatch)} disabled={syncing}>
                 Link IPL Match
               </button>
             </div>

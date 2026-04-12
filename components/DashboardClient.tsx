@@ -160,6 +160,7 @@ export default function DashboardClient({
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
   const [pickedLinkId, setPickedLinkId] = useState("");
   const [linkDateHint, setLinkDateHint] = useState("");
+  const [fixtureListSource, setFixtureListSource] = useState<"cache" | "api" | null>(null);
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number; label: string } | null>(null);
   const [showSyncCooldownPrompt, setShowSyncCooldownPrompt] = useState(false);
@@ -225,11 +226,11 @@ export default function DashboardClient({
         : `${rival} +${opponentTotal - yourTotal}`;
 
   function guardedRun(cost: number, label: string, fn: () => Promise<void>) {
-    if (isAtLimit) {
+    if (isAtLimit && cost > 0) {
       setMessage(`API quota reached (${quotaCap}/day combined). Resets at next provider day (Eastern calendar for local display).`);
       return;
     }
-    if (isNearLimit) {
+    if (isNearLimit && cost > 0) {
       setPendingAction({ fn, cost, label });
       return;
     }
@@ -253,6 +254,7 @@ export default function DashboardClient({
           : null;
       recordSyncDebugClient(seedMid, json as Record<string, unknown>, "dashboard-seed");
       setLinkChoices(null);
+      setFixtureListSource(null);
       addUsage(1);
       refreshKeyStatsBundle();
       setMessage(json.ok ? "Match linked. Opening…" : json.error || "Could not link match.");
@@ -271,42 +273,63 @@ export default function DashboardClient({
     guardedRun(1, "Link match", () => doSubmitSeedLink(externalMatchId));
   }
 
+  async function loadFixtureChoicesFromServer(refresh: boolean) {
+    const url = refresh ? "/api/matches/today?refresh=1" : "/api/matches/today";
+    const res = await fetch(url);
+    const json = await res.json();
+    recordSyncDebugClient(null, json as Record<string, unknown>, "dashboard-matches-today");
+    if (json.source === "api") addUsage(2);
+    refreshKeyStatsBundle();
+    if (!json.ok) {
+      setMessage(json.error || "Could not load today's matches.");
+      return false;
+    }
+    setFixtureListSource(json.source === "cache" ? "cache" : "api");
+    setLinkDateHint(typeof json.date === "string" ? json.date : "");
+    const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
+    if (choices.length === 0) {
+      const sample: string[] = Array.isArray(json.nonIplSample) ? json.nonIplSample : [];
+      let hint = "";
+      if (typeof json.totalRaw !== "number" || json.totalRaw === 0) {
+        hint = "API returned 0 matches. Keys may be rate-limited (wait ~15 min) or daily quota is used up (resets at next UTC day; UI times are Eastern).";
+      } else {
+        hint = `${json.totalRaw} matches in feed but none are IPL yet. Current feed has: ${sample.length > 0 ? sample.join(", ") : "non-IPL tournaments"}. IPL 2026 may not have started yet.`;
+      }
+      setMessage(hint);
+      return false;
+    }
+    if (choices.length === 1) {
+      await doSubmitSeedLink(choices[0].externalMatchId || "");
+      return true;
+    }
+    setLinkChoices(choices);
+    setPickedLinkId(choices[0].externalMatchId || "");
+    setMessage(
+      json.source === "cache"
+        ? `${choices.length} IPL fixtures (saved list) — pick one below, or refresh from API if something is missing.`
+        : `${choices.length} IPL fixture${choices.length > 1 ? "s" : ""} found — pick one below.`,
+    );
+    return true;
+  }
+
   async function doStartLinkTodaysMatch() {
     setSyncing(true);
-    setMessage("Loading today's IPL fixtures…");
+    setMessage("Loading IPL fixtures…");
     setLinkChoices(null);
+    setFixtureListSource(null);
     try {
-      const res = await fetch("/api/matches/today");
-      const json = await res.json();
-      recordSyncDebugClient(null, json as Record<string, unknown>, "dashboard-matches-today");
-      addUsage(2);
-      refreshKeyStatsBundle();
-      if (!json.ok) {
-        setMessage(json.error || "Could not load today's matches.");
-        setSyncing(false);
-        return;
-      }
-      setLinkDateHint(typeof json.date === "string" ? json.date : "");
-      const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
-      if (choices.length === 0) {
-        const sample: string[] = Array.isArray(json.nonIplSample) ? json.nonIplSample : [];
-        let hint = "";
-        if (typeof json.totalRaw !== "number" || json.totalRaw === 0) {
-          hint = "API returned 0 matches. Keys may be rate-limited (wait ~15 min) or daily quota is used up (resets at next UTC day; UI times are Eastern).";
-        } else {
-          hint = `${json.totalRaw} matches in feed but none are IPL yet. Current feed has: ${sample.length > 0 ? sample.join(", ") : "non-IPL tournaments"}. IPL 2026 may not have started yet.`;
-        }
-        setMessage(hint);
-        setSyncing(false);
-        return;
-      }
-      if (choices.length === 1) {
-        await doSubmitSeedLink(choices[0].externalMatchId || "");
-        return;
-      }
-      setLinkChoices(choices);
-      setPickedLinkId(choices[0].externalMatchId || "");
-      setMessage(`${choices.length} IPL fixture${choices.length > 1 ? "s" : ""} found — pick one below.`);
+      await loadFixtureChoicesFromServer(false);
+    } catch {
+      setMessage("Network error loading today's matches.");
+    }
+    setSyncing(false);
+  }
+
+  async function doRefreshFixtureListFromApi() {
+    setSyncing(true);
+    setMessage("Fetching latest fixtures from API…");
+    try {
+      await loadFixtureChoicesFromServer(true);
     } catch {
       setMessage("Network error loading today's matches.");
     }
@@ -314,7 +337,11 @@ export default function DashboardClient({
   }
 
   function startLinkTodaysMatch() {
-    guardedRun(2, "Load today's matches (2 credits)", doStartLinkTodaysMatch);
+    guardedRun(0, "Load IPL list (cached when available)", doStartLinkTodaysMatch);
+  }
+
+  function startRefreshFixtureListFromApi() {
+    guardedRun(2, "Refresh IPL list from API (2 credits)", doRefreshFixtureListFromApi);
   }
 
   async function doFetchRoster() {
@@ -472,7 +499,7 @@ export default function DashboardClient({
             <button
               type="button"
               onClick={() => void startLinkTodaysMatch()}
-              disabled={syncing || isAtLimit}
+              disabled={syncing}
               style={buttonStyleSecondary}
             >
               {syncing ? "⏳ Loading..." : "Link IPL Match"}
@@ -548,6 +575,11 @@ export default function DashboardClient({
             {linkDateHint ? (
               <div style={{ color: "#64748b", fontSize: 13, marginBottom: 12 }}>Showing yesterday, today &amp; tomorrow (Eastern) · {linkDateHint}</div>
             ) : null}
+            {fixtureListSource === "cache" && (
+              <div style={{ fontSize: 12, color: "#0369a1", marginBottom: 12, padding: "8px 10px", background: "#e0f2fe", borderRadius: 8 }}>
+                Using saved fixture list — no API call. Use the button below if a match is missing.
+              </div>
+            )}
             <div style={{ display: "grid", gap: 10 }}>
               {linkChoices.map((c: MatchChoice) => (
                 <label
@@ -590,13 +622,26 @@ export default function DashboardClient({
               </button>
               <button
                 type="button"
-                onClick={() => { setLinkChoices(null); setMessage(""); }}
+                onClick={() => { setLinkChoices(null); setMessage(""); setFixtureListSource(null); }}
                 disabled={syncing}
                 style={buttonStyleSecondary}
               >
                 Cancel
               </button>
             </div>
+            {fixtureListSource === "cache" && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
+                <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Fixture not listed? Pull the latest IPL list from CricAPI (uses ~2 API credits).</div>
+                <button
+                  type="button"
+                  onClick={() => void startRefreshFixtureListFromApi()}
+                  disabled={syncing}
+                  style={buttonStyleSecondary}
+                >
+                  {syncing ? "Loading…" : "Refresh list from API"}
+                </button>
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -709,7 +754,7 @@ export default function DashboardClient({
 
       {/* Match linking button + inline status */}
       <div style={syncBarStyle}>
-        <button onClick={() => void startLinkTodaysMatch()} disabled={syncing || isAtLimit} style={buttonStyle}>
+        <button onClick={() => void startLinkTodaysMatch()} disabled={syncing} style={buttonStyle}>
           {syncing ? "⏳ Loading matches..." : "Link IPL Match"}
         </button>
         {message && !linkChoices && (
@@ -724,6 +769,11 @@ export default function DashboardClient({
           {linkDateHint ? (
             <div style={{ color: "#64748b", fontSize: 13, marginBottom: 12 }}>Showing yesterday, today &amp; tomorrow (India time) · {linkDateHint}</div>
           ) : null}
+          {fixtureListSource === "cache" && (
+            <div style={{ fontSize: 12, color: "#0369a1", marginBottom: 12, padding: "8px 10px", background: "#e0f2fe", borderRadius: 8 }}>
+              Using saved fixture list — no API call. Use the button below if a match is missing.
+            </div>
+          )}
           <div style={{ display: "grid", gap: 10 }}>
             {linkChoices.map((c: MatchChoice) => (
               <label
@@ -768,13 +818,26 @@ export default function DashboardClient({
             </button>
             <button
               type="button"
-              onClick={() => { setLinkChoices(null); setMessage(""); }}
+              onClick={() => { setLinkChoices(null); setMessage(""); setFixtureListSource(null); }}
               disabled={syncing}
               style={buttonStyleSecondary}
             >
               Cancel
             </button>
           </div>
+          {fixtureListSource === "cache" && (
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid #e2e8f0" }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Fixture not listed? Pull the latest IPL list from CricAPI (uses ~2 API credits).</div>
+              <button
+                type="button"
+                onClick={() => void startRefreshFixtureListFromApi()}
+                disabled={syncing}
+                style={buttonStyleSecondary}
+              >
+                {syncing ? "Loading…" : "Refresh list from API"}
+              </button>
+            </div>
+          )}
         </div>
       ) : null}
 

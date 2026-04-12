@@ -56,6 +56,14 @@ alter table matches add column if not exists provider_squad_json jsonb;
 alter table matches add column if not exists is_current boolean not null default false;
 alter table matches add column if not exists fantasy_voided boolean not null default false;
 
+-- Cached IPL picker rows (full MatchSeed JSON) so Link IPL can list without hitting CricAPI every time
+create table if not exists ipl_fixture_catalog (
+  external_match_id text primary key,
+  payload jsonb not null,
+  updated_at timestamp with time zone not null default now()
+);
+create index if not exists ipl_fixture_catalog_updated_at on ipl_fixture_catalog (updated_at desc);
+
 -- API key hit tracking (one row per key per day)
 create table if not exists api_key_stats (
   key_alias text not null,

@@ -112,6 +112,8 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   const [linkChoices, setLinkChoices] = useState<MatchChoice[] | null>(null);
   const [pickedLinkId, setPickedLinkId] = useState("");
   const [linkDateHint, setLinkDateHint] = useState("");
+  /** Picker list came from DB cache vs live API (`/api/matches/today`). */
+  const [fixtureListSource, setFixtureListSource] = useState<"cache" | "api" | null>(null);
 
   useEffect(() => {
     setApiUsed(loadQuota());
@@ -176,15 +178,15 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
 
   function guardedRun(cost: number, fn: () => Promise<void>) {
     if (isAtLimit) {
-      // Match History (`SyncButton`): no client block on sync — show cooldown / let `/api/refresh` respond.
-      if (cost === 1) {
+      // Sync (1) and cached fixture list (0) still run; API refresh (2) is blocked at quota.
+      if (cost < 2) {
         void fn();
         return;
       }
       setApiMsg(classifyApiMsg("Daily API quota exhausted", "Quota"));
       return;
     }
-    if (isNearLimit) {
+    if (isNearLimit && cost > 0) {
       setPendingAction({ fn, cost });
       return;
     }
@@ -277,23 +279,61 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     setSyncing(false);
   }
 
+  async function loadFixtureChoicesFromServer(refresh: boolean) {
+    const url = refresh ? "/api/matches/today?refresh=1" : "/api/matches/today";
+    const res = await fetch(url);
+    const json = await res.json();
+    if (json.source === "api") addUsage(2);
+    refreshKeyStatsBundle();
+    if (!json.ok) {
+      showMsg(json.error || "Could not load matches.", "Load fixtures");
+      return false;
+    }
+    setFixtureListSource(json.source === "cache" ? "cache" : "api");
+    setLinkDateHint(typeof json.date === "string" ? json.date : "");
+    const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
+    if (choices.length === 0) {
+      showMsg(`${json.totalRaw ?? 0} matches in feed but none are IPL.`, "Load fixtures");
+      return false;
+    }
+    if (choices.length === 1) {
+      await doSubmitSeedLink(choices[0].externalMatchId || "");
+      return true;
+    }
+    setLinkChoices(choices);
+    setPickedLinkId(choices[0].externalMatchId || "");
+    setApiMsg({
+      type: "info",
+      title: `${choices.length} fixtures found`,
+      detail:
+        json.source === "cache"
+          ? "Loaded from saved list (no API call). Pick one below, or refresh from API if something is missing."
+          : "Pick one below to link it.",
+    });
+    return true;
+  }
+
   async function doStartLinkMatch() {
     setSyncing(true);
     setApiMsg({ type: "loading", title: "Loading IPL fixtures…" });
     setLinkChoices(null);
+    setFixtureListSource(null);
     try {
-      const res = await fetch("/api/matches/today");
-      const json = await res.json();
-      addUsage(2);
-      refreshKeyStatsBundle();
-      if (!json.ok) { showMsg(json.error || "Could not load matches.", "Load fixtures"); setSyncing(false); return; }
-      setLinkDateHint(typeof json.date === "string" ? json.date : "");
-      const choices: MatchChoice[] = Array.isArray(json.choices) ? json.choices : [];
-      if (choices.length === 0) { showMsg(`${json.totalRaw ?? 0} matches in feed but none are IPL.`, "Load fixtures"); setSyncing(false); return; }
-      if (choices.length === 1) { await doSubmitSeedLink(choices[0].externalMatchId || ""); return; }
-      setLinkChoices(choices); setPickedLinkId(choices[0].externalMatchId || "");
-      setApiMsg({ type: "info", title: `${choices.length} fixtures found`, detail: "Pick one below to link it." });
-    } catch { showMsg("Network error loading matches.", "Load fixtures"); }
+      await loadFixtureChoicesFromServer(false);
+    } catch {
+      showMsg("Network error loading matches.", "Load fixtures");
+    }
+    setSyncing(false);
+  }
+
+  async function doRefreshFixtureListFromApi() {
+    setSyncing(true);
+    setApiMsg({ type: "loading", title: "Fetching latest fixtures from API…" });
+    try {
+      await loadFixtureChoicesFromServer(true);
+    } catch {
+      showMsg("Network error loading matches.", "Load fixtures");
+    }
     setSyncing(false);
   }
 
@@ -445,7 +485,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           <button onClick={() => guardedRun(1, beginUserSyncScores)} disabled={syncing} style={{ ...btnPrimary, flex: "1 1 auto", textAlign: "center" as const }}>
             {syncing ? "Syncing…" : "⟳ Sync Scores"}
           </button>
-          <button onClick={() => guardedRun(2, doStartLinkMatch)} disabled={syncing} style={{ ...btnSecondary, flex: "1 1 auto", textAlign: "center" as const }}>
+          <button onClick={() => guardedRun(0, doStartLinkMatch)} disabled={syncing} style={{ ...btnSecondary, flex: "1 1 auto", textAlign: "center" as const }}>
             {syncing ? "Loading…" : "Link Match"}
           </button>
           <div style={{ width: "100%", display: "flex", justifyContent: "space-between", fontSize: 11, color: "#94a3b8", padding: "0 2px" }}>
@@ -519,6 +559,11 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
         <div style={{ border: "1px solid #bfdbfe", borderRadius: 16, background: "#f0f9ff", padding: 18 }}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Choose an IPL match to import</div>
           {linkDateHint && <div style={{ color: "#64748b", fontSize: 13, marginBottom: 10 }}>Showing ±1 day (Eastern) · {linkDateHint}</div>}
+          {fixtureListSource === "cache" && (
+            <div style={{ fontSize: 12, color: "#0369a1", marginBottom: 10, padding: "8px 10px", background: "#e0f2fe", borderRadius: 8 }}>
+              Using saved fixture list — no API call. Use the button below if a match is missing.
+            </div>
+          )}
           <div style={{ display: "grid", gap: 8 }}>
             {linkChoices.map((c) => (
               <label key={c.externalMatchId || c.fixture} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: 11, borderRadius: 10, border: pickedLinkId === c.externalMatchId ? "2px solid #2563eb" : "1px solid #e2e8f0", background: pickedLinkId === c.externalMatchId ? "#eff6ff" : "white", cursor: "pointer" }}>
@@ -532,8 +577,16 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           </div>
           <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
             <button style={btnPrimary} onClick={() => void doSubmitSeedLink(pickedLinkId)} disabled={syncing || !pickedLinkId}>{syncing ? "Working…" : "Link selected"}</button>
-            <button style={btnSecondary} onClick={() => { setLinkChoices(null); setMessage(""); }}>Cancel</button>
+            <button style={btnSecondary} onClick={() => { setLinkChoices(null); setMessage(""); setFixtureListSource(null); }}>Cancel</button>
           </div>
+          {fixtureListSource === "cache" && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #bae6fd" }}>
+              <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>Fixture not listed? Pull the latest IPL list from CricAPI (uses ~2 API credits).</div>
+              <button type="button" style={btnSecondary} onClick={() => guardedRun(2, doRefreshFixtureListFromApi)} disabled={syncing}>
+                {syncing ? "Loading…" : "Refresh list from API"}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

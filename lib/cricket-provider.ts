@@ -899,8 +899,16 @@ export async function getIplMatchChoicesForToday(): Promise<{
     .slice(0, 5)
     .map((m) => safeString(m.name || m.title || m.matchDesc) || "Unknown match");
 
+  const choices = [...byId.values()];
+  try {
+    const { upsertMatchSeedCatalogMany } = await import("@/lib/ipl-fixture-catalog");
+    await upsertMatchSeedCatalogMany(choices);
+  } catch {
+    /* catalog optional — never block feed */
+  }
+
   return {
-    choices: [...byId.values()],
+    choices,
     totalRaw: raw.length,
     nonIplSample,
   };
@@ -917,6 +925,14 @@ export async function getIplMatchChoicesForToday(): Promise<{
 export async function getMatchSeedByExternalIdForToday(externalMatchId: string): Promise<MatchSeed | null> {
   const id = cleanEnvText(externalMatchId);
   if (!id) return null;
+
+  try {
+    const { loadMatchSeedFromCatalog } = await import("@/lib/ipl-fixture-catalog");
+    const cached = await loadMatchSeedFromCatalog(id);
+    if (cached && cleanEnvText(cached.externalMatchId) === id) return cached;
+  } catch {
+    /* fall through to API */
+  }
 
   // Fast path: match still in the recent feed
   const raw = await collectRawMatchesFromProvider();

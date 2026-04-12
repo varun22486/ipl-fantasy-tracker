@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMatchSeedByExternalIdForToday } from "@/lib/cricket-provider";
+import { upsertMatchSeedCatalog } from "@/lib/ipl-fixture-catalog";
 import { persistSeededMatch } from "@/lib/persist-seeded-match";
 import { seedPostSchema } from "@/lib/api-schemas";
 
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
       );
     }
     const match = await persistSeededMatch(discovered);
+    await upsertMatchSeedCatalog(discovered);
     return NextResponse.json({ ok: true, match });
   } catch (error) {
     return NextResponse.json(
