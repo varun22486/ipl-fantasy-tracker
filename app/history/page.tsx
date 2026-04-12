@@ -277,6 +277,12 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
           {visibleRows.map((m) => {
             if (m.isMulti && m.ptsByPlayer && m.compPlayers) {
               const total = m.compPlayers.reduce((s, n) => s + (m.ptsByPlayer![n] ?? 0), 0);
+              const playersByPoints = [...m.compPlayers].sort((a, b) => {
+                const pa = m.ptsByPlayer![a] ?? 0;
+                const pb = m.ptsByPlayer![b] ?? 0;
+                if (pb !== pa) return pb - pa;
+                return a.localeCompare(b);
+              });
               return (
                 <Link key={m.matchId} href={matchHref(m.matchId, cid)} className="history-card-link">
                   <article className={`history-card history-card--multi${m.isCurrent ? " history-card--live" : ""}${m.voided ? " history-card--voided" : ""}`}>
@@ -311,11 +317,12 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                     ) : m.hasData ? (
                       <>
                         <div className="history-card__players history-card__players--multi">
-                          {m.compPlayers.map((name, i) => {
+                          {playersByPoints.map((name) => {
                             const pts = m.ptsByPlayer![name] ?? 0;
                             const pct = total > 0 ? Math.round((pts / total) * 100) : 0;
                             const won = m.winner === name;
-                            const color = MULTI_COLORS[i % MULTI_COLORS.length];
+                            const colorIdx = m.compPlayers.indexOf(name);
+                            const color = MULTI_COLORS[(colorIdx >= 0 ? colorIdx : 0) % MULTI_COLORS.length];
                             return (
                               <div key={name} className="history-card__player-chip">
                                 <span className="history-card__swatch" style={{ background: color }} />
@@ -330,16 +337,18 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                           })}
                         </div>
                         <div className="history-card__bar history-card__bar--multi">
-                          {m.compPlayers.map((name, i) => {
+                          {playersByPoints.map((name) => {
                             const pts = m.ptsByPlayer![name] ?? 0;
                             const w = total > 0 ? (pts / total) * 100 : 100 / m.compPlayers!.length;
+                            const barColorIdx = m.compPlayers.indexOf(name);
                             return (
                               <div
                                 key={name}
                                 className="history-card__bar-seg"
                                 style={{
                                   width: `${w}%`,
-                                  background: MULTI_COLORS[i % MULTI_COLORS.length],
+                                  background:
+                                    MULTI_COLORS[(barColorIdx >= 0 ? barColorIdx : 0) % MULTI_COLORS.length],
                                   minWidth: pts > 0 ? 4 : 0,
                                 }}
                                 title={`${name}: ${pts}`}
