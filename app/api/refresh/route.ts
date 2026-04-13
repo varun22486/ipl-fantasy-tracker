@@ -174,6 +174,154 @@ function resolveSummaryAndStatusAfterRefresh(
   };
 }
 
+/** All `matches` rows linked to the same CricAPI fixture (dedupe is normal; duplicates can exist from legacy data). */
+async function loadMatchesSharingExternalId(externalMatchId: string | null | undefined): Promise<Record<string, unknown>[]> {
+  const ext = String(externalMatchId ?? "").trim();
+  if (!ext) return [];
+  const { data, error } = await supabaseAdmin
+    .from("matches")
+    .select("*")
+    .eq("external_match_id", ext)
+    .order("id", { ascending: true });
+  if (error || !data?.length) return [];
+  return data as Record<string, unknown>[];
+}
+
+function maxLastSyncedMsAmong(rows: Record<string, unknown>[]): number {
+  let max = 0;
+  for (const row of rows) {
+    const raw = row.last_synced_at;
+    if (raw == null) continue;
+    const t = new Date(String(raw)).getTime();
+    if (Number.isFinite(t) && t > max) max = t;
+  }
+  return max;
+}
+
+function buildIncomingLookups(payload: RefreshPayload) {
+  const incomingById = new Map<string, (typeof payload.players)[number]>();
+  const incomingByVariant = new Map<string, (typeof payload.players)[number]>();
+  for (const player of payload.players) {
+    if (player.id) incomingById.set(player.id, player);
+    for (const variant of buildVariants(player.name)) {
+      if (!incomingByVariant.has(variant)) incomingByVariant.set(variant, player);
+    }
+  }
+  return { incomingById, incomingByVariant };
+}
+
+/**
+ * Apply one provider payload to a single match row and all fantasy_players for that match (every competition).
+ * Does not call the cricket API.
+ */
+async function applyRefreshPayloadToOneMatch(
+  matchRow: Record<string, unknown>,
+  payload: RefreshPayload,
+  incomingById: Map<string, (typeof payload.players)[number]>,
+  incomingByVariant: Map<string, (typeof payload.players)[number]>
+): Promise<{
+  updatedRows: number;
+  selectedCount: number;
+  matched: Array<{ selected: string; provider: string; matchedById: boolean }>;
+  unmatched: string[];
+}> {
+  const matchId = Number(matchRow.id);
+  const { data: selectedPlayers } = await supabaseAdmin
+    .from("fantasy_players")
+    .select("id,name,side,provider_player_id")
+    .eq("match_id", matchId)
+    .order("id", { ascending: true });
+
+  const selected = (selectedPlayers ?? []) as SelectedPlayer[];
+  const matched: Array<{ selected: string; provider: string; matchedById: boolean }> = [];
+  const unmatched: string[] = [];
+  let updatedRows = 0;
+
+  for (const player of selected) {
+    const idHit = player.provider_player_id ? incomingById.get(player.provider_player_id) : null;
+    const idOk = Boolean(idHit && namesCompatible(player.name, idHit.name));
+    const hit = idOk ? idHit! : findIncomingPlayer(player.name, incomingByVariant);
+    if (!hit) {
+      if (idHit && !idOk) {
+        await supabaseAdmin
+          .from("fantasy_players")
+          .update({
+            runs: 0,
+            wickets: 0,
+            catches: 0,
+            runouts: 0,
+            stumpings: 0,
+            fifty_bonus: 0,
+            hundred_bonus: 0,
+            three_w_bonus: 0,
+            five_w_bonus: 0,
+            mom_bonus: 0,
+            provider_player_id: null,
+          })
+          .eq("id", player.id);
+        updatedRows += 1;
+      }
+      unmatched.push(player.name);
+      continue;
+    }
+
+    matched.push({ selected: player.name, provider: hit.name, matchedById: idOk });
+
+    const updatePayload: Record<string, unknown> = {
+      runs: hit.runs,
+      wickets: hit.wickets,
+      catches: hit.catches,
+      runouts: hit.runouts ?? 0,
+      stumpings: hit.stumpings ?? 0,
+      fifty_bonus: hit.fifty_bonus,
+      hundred_bonus: hit.hundred_bonus,
+      three_w_bonus: hit.three_w_bonus,
+      five_w_bonus: hit.five_w_bonus,
+    };
+    if (payload.manOfTheMatchSynced) {
+      updatePayload.mom_bonus = hit.mom_bonus ?? 0;
+    }
+    if (hit.id) {
+      updatePayload.provider_player_id = hit.id;
+    }
+
+    await supabaseAdmin.from("fantasy_players").update(updatePayload).eq("id", player.id);
+    updatedRows += 1;
+  }
+
+  const {
+    live_summary: nextLiveSummary,
+    status: nextStatus,
+  } = resolveSummaryAndStatusAfterRefresh(matchRow, payload);
+
+  const syncedAt = new Date().toISOString();
+  await supabaseAdmin
+    .from("matches")
+    .update({
+      status: nextStatus,
+      fixture: payload.fixture || matchRow.fixture,
+      ...(payload.match_date ? { match_date: payload.match_date } : {}),
+      venue: payload.venue ?? matchRow.venue,
+      toss_winner: payload.toss_winner ?? matchRow.toss_winner,
+      live_summary: nextLiveSummary,
+      source_url: payload.source_url ?? matchRow.source_url,
+      last_synced_at: syncedAt,
+      ...(payload.rosterNames.length > 0
+        ? { provider_squad_json: { squads: payload.squads, rosterNames: payload.rosterNames } }
+        : {}),
+    })
+    .eq("id", matchId);
+
+  const resolvedStatus = String(nextStatus || matchRow.status || "");
+  const liveSum = nextLiveSummary ?? matchRow.live_summary ?? null;
+  const manualVoid = matchRow.fantasy_voided === true;
+  if (manualVoid || isPointsVoidedMatchStatus(resolvedStatus, liveSum)) {
+    await supabaseAdmin.from("fantasy_players").update(VOIDED_MATCH_FANTASY_SCORES).eq("match_id", matchId);
+  }
+
+  return { updatedRows, selectedCount: selected.length, matched, unmatched };
+}
+
 async function doRefresh(matchId?: number) {
   const explicit =
     typeof matchId === "number" && Number.isFinite(matchId) && matchId > 0 ? matchId : null;
@@ -204,18 +352,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: false, error: "No seeded match with an external match id yet." }, { status: 400 });
     }
 
-    const { data: selectedPlayers } = await supabaseAdmin
-      .from("fantasy_players")
-      .select("id,name,side,provider_player_id")
-      .eq("match_id", currentMatch.id)
-      .order("id", { ascending: true });
-
-    const selected = (selectedPlayers ?? []) as SelectedPlayer[];
-    const lastSyncedAt = currentMatch.last_synced_at ? new Date(currentMatch.last_synced_at as string).getTime() : 0;
+    let rowsToSync = await loadMatchesSharingExternalId(String(currentMatch.external_match_id));
+    if (rowsToSync.length === 0) rowsToSync = [currentMatch as Record<string, unknown>];
     const now = Date.now();
+    const lastSyncedMax = maxLastSyncedMsAmong(rowsToSync);
 
-    if (!force && lastSyncedAt && now - lastSyncedAt < REFRESH_COOLDOWN_MS) {
-      const mins = Math.max(1, Math.ceil((REFRESH_COOLDOWN_MS - (now - lastSyncedAt)) / 60_000));
+    if (!force && lastSyncedMax && now - lastSyncedMax < REFRESH_COOLDOWN_MS) {
+      const mins = Math.max(1, Math.ceil((REFRESH_COOLDOWN_MS - (now - lastSyncedMax)) / 60_000));
       return NextResponse.json(
         {
           ok: false,
@@ -226,122 +369,53 @@ export async function GET(request: Request) {
       );
     }
 
-    await createMatchSnapshot({
-      matchId: currentMatch.id as number,
-      source: "pre_sync",
-      summary: "Before API sync",
-    });
+    for (const row of rowsToSync) {
+      await createMatchSnapshot({
+        matchId: Number(row.id),
+        source: "pre_sync",
+        summary: "Before API sync",
+      });
+    }
 
     const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id), {
       storedProviderSquad: currentMatch.provider_squad_json,
     });
 
-    // Build two lookups: by provider player ID (authoritative) and by name variants (fallback)
-    const incomingById      = new Map<string, (typeof payload.players)[number]>();
-    const incomingByVariant = new Map<string, (typeof payload.players)[number]>();
-    for (const player of payload.players) {
-      if (player.id) incomingById.set(player.id, player);
-      for (const variant of buildVariants(player.name)) {
-        if (!incomingByVariant.has(variant)) incomingByVariant.set(variant, player);
-      }
-    }
+    const { incomingById, incomingByVariant } = buildIncomingLookups(payload);
 
+    const primaryRow =
+      rowsToSync.find((r) => Number(r.id) === Number(currentMatch.id)) ??
+      (currentMatch as Record<string, unknown>);
+    const { preservedDroppedFixture } = resolveSummaryAndStatusAfterRefresh(primaryRow, payload);
+
+    let updatedRows = 0;
+    let totalSelected = 0;
     const matched: Array<{ selected: string; provider: string; matchedById: boolean }> = [];
     const unmatched: string[] = [];
-    let updatedRows = 0;
 
-    for (const player of selected) {
-      const idHit = player.provider_player_id ? incomingById.get(player.provider_player_id) : null;
-      const idOk = Boolean(idHit && namesCompatible(player.name, idHit.name));
-      const hit = idOk ? idHit! : findIncomingPlayer(player.name, incomingByVariant);
-      if (!hit) {
-        // Wrong stored UUID (e.g. Kartik vs Jitesh Sharma) and no scorecard row for this name — clear stale stats
-        if (idHit && !idOk) {
-          await supabaseAdmin
-            .from("fantasy_players")
-            .update({
-              runs: 0,
-              wickets: 0,
-              catches: 0,
-              runouts: 0,
-              stumpings: 0,
-              fifty_bonus: 0,
-              hundred_bonus: 0,
-              three_w_bonus: 0,
-              five_w_bonus: 0,
-              mom_bonus: 0,
-              provider_player_id: null,
-            })
-            .eq("id", player.id);
-          updatedRows += 1;
-        }
-        unmatched.push(player.name);
-        continue;
-      }
-
-      matched.push({ selected: player.name, provider: hit.name, matchedById: idOk });
-
-      // Write stats + lazily capture provider_player_id for future ID-based matching
-      const updatePayload: Record<string, unknown> = {
-        runs: hit.runs,
-        wickets: hit.wickets,
-        catches: hit.catches,
-        runouts: hit.runouts ?? 0,
-        stumpings: hit.stumpings ?? 0,
-        fifty_bonus: hit.fifty_bonus,
-        hundred_bonus: hit.hundred_bonus,
-        three_w_bonus: hit.three_w_bonus,
-        five_w_bonus: hit.five_w_bonus,
-      };
-      if (payload.manOfTheMatchSynced) {
-        updatePayload.mom_bonus = hit.mom_bonus ?? 0;
-      }
-      if (hit.id) {
-        updatePayload.provider_player_id = hit.id;
-      }
-
-      await supabaseAdmin
-        .from("fantasy_players")
-        .update(updatePayload)
-        .eq("id", player.id);
-
-      updatedRows += 1;
+    for (const row of rowsToSync) {
+      const r = await applyRefreshPayloadToOneMatch(row, payload, incomingById, incomingByVariant);
+      updatedRows += r.updatedRows;
+      totalSelected += r.selectedCount;
+      matched.push(...r.matched);
+      unmatched.push(...r.unmatched);
     }
 
     const syncedAt = new Date().toISOString();
+
     const {
       live_summary: nextLiveSummary,
       status: nextStatus,
-      preservedDroppedFixture,
-    } = resolveSummaryAndStatusAfterRefresh(currentMatch, payload);
+    } = resolveSummaryAndStatusAfterRefresh(primaryRow, payload);
 
-    await supabaseAdmin
-      .from("matches")
-      .update({
-        status: nextStatus,
-        fixture: payload.fixture || currentMatch.fixture,
-        ...(payload.match_date ? { match_date: payload.match_date } : {}),
-        venue: payload.venue ?? currentMatch.venue,
-        toss_winner: payload.toss_winner ?? currentMatch.toss_winner,
-        live_summary: nextLiveSummary,
-        source_url: payload.source_url ?? currentMatch.source_url,
-        last_synced_at: syncedAt,
-        // Only overwrite squad data if we actually got something from the scorecard
-        ...(payload.rosterNames.length > 0
-          ? { provider_squad_json: { squads: payload.squads, rosterNames: payload.rosterNames } }
-          : {}),
-      })
-      .eq("id", currentMatch.id);
-
-    const resolvedStatus = String(nextStatus || currentMatch.status || "");
-    const liveSum = nextLiveSummary ?? currentMatch.live_summary ?? null;
-    const manualVoid = currentMatch.fantasy_voided === true;
-    if (manualVoid || isPointsVoidedMatchStatus(resolvedStatus, liveSum)) {
-      await supabaseAdmin.from("fantasy_players").update(VOIDED_MATCH_FANTASY_SCORES).eq("match_id", currentMatch.id);
-    }
+    const resolvedStatus = String(nextStatus || primaryRow.status || "");
+    const liveSum = nextLiveSummary ?? primaryRow.live_summary ?? null;
+    const manualVoid = primaryRow.fantasy_voided === true;
+    const voided = manualVoid || isPointsVoidedMatchStatus(resolvedStatus, liveSum);
 
     const providerNames = payload.players.map((p) => p.name).filter(Boolean);
-    const voided = manualVoid || isPointsVoidedMatchStatus(resolvedStatus, liveSum);
+    const matchIdsSynced = rowsToSync.map((r) => Number(r.id));
+    const multi = rowsToSync.length > 1;
 
     return NextResponse.json({
       ok: true,
@@ -353,13 +427,16 @@ export async function GET(request: Request) {
         : payload.players.length === 0
           ? userMessageWhenNoProviderPlayerRows(payload, preservedDroppedFixture)
           : updatedRows > 0
-          ? `Updated ${updatedRows} of ${selected.length} selected players.`
+          ? multi
+            ? `Updated ${updatedRows} player row(s) across ${rowsToSync.length} linked match record(s) — one API fetch.`
+            : `Updated ${updatedRows} of ${totalSelected} selected players.`
           : "Names in lineup didn't match the scorecard — check debug panel.",
       live_summary: nextLiveSummary ?? payload.live_summary,
       debug: {
         matchId: currentMatch.id,
         externalMatchId: currentMatch.external_match_id,
-        selectedCount: selected.length,
+        matchIdsSynced,
+        selectedCount: totalSelected,
         providerRowCount: payload.players.length,
         updatedRows,
         matched,
@@ -420,15 +497,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data: selectedPlayers } = await supabaseAdmin
-      .from("fantasy_players").select("id,name,side,provider_player_id").eq("match_id", currentMatch.id).order("id", { ascending: true });
-
-    const selected = (selectedPlayers ?? []) as SelectedPlayer[];
-    const lastSyncedAt = currentMatch.last_synced_at ? new Date(currentMatch.last_synced_at as string).getTime() : 0;
+    let rowsToSync = await loadMatchesSharingExternalId(String(currentMatch.external_match_id));
+    if (rowsToSync.length === 0) rowsToSync = [currentMatch as Record<string, unknown>];
     const now = Date.now();
+    const lastSyncedMax = maxLastSyncedMsAmong(rowsToSync);
 
-    if (!force && lastSyncedAt && now - lastSyncedAt < REFRESH_COOLDOWN_MS) {
-      const mins = Math.max(1, Math.ceil((REFRESH_COOLDOWN_MS - (now - lastSyncedAt)) / 60_000));
+    if (!force && lastSyncedMax && now - lastSyncedMax < REFRESH_COOLDOWN_MS) {
+      const mins = Math.max(1, Math.ceil((REFRESH_COOLDOWN_MS - (now - lastSyncedMax)) / 60_000));
       return NextResponse.json(
         {
           ok: false,
@@ -439,116 +514,77 @@ export async function POST(req: Request) {
       );
     }
 
-    await createMatchSnapshot({
-      matchId: currentMatch.id as number,
-      source: "pre_sync",
-      summary: "Before API sync",
-    });
+    for (const row of rowsToSync) {
+      await createMatchSnapshot({
+        matchId: Number(row.id),
+        source: "pre_sync",
+        summary: "Before API sync",
+      });
+    }
 
     const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id), {
       storedProviderSquad: currentMatch.provider_squad_json,
     });
 
-    const incomingById      = new Map<string, (typeof payload.players)[number]>();
-    const incomingByVariant = new Map<string, (typeof payload.players)[number]>();
-    for (const player of payload.players) {
-      if (player.id) incomingById.set(player.id, player);
-      for (const variant of buildVariants(player.name)) {
-        if (!incomingByVariant.has(variant)) incomingByVariant.set(variant, player);
-      }
-    }
+    const { incomingById, incomingByVariant } = buildIncomingLookups(payload);
 
+    const primaryRow =
+      rowsToSync.find((r) => Number(r.id) === Number(currentMatch.id)) ??
+      (currentMatch as Record<string, unknown>);
+    const { preservedDroppedFixture: preservedDroppedPost } = resolveSummaryAndStatusAfterRefresh(primaryRow, payload);
+
+    let updatedRows = 0;
+    let totalSelected = 0;
     const matched: Array<{ selected: string; provider: string; matchedById: boolean }> = [];
     const unmatched: string[] = [];
-    let updatedRows = 0;
 
-    for (const player of selected) {
-      const idHit = player.provider_player_id ? incomingById.get(player.provider_player_id) : null;
-      const idOk = Boolean(idHit && namesCompatible(player.name, idHit.name));
-      const hit = idOk ? idHit! : findIncomingPlayer(player.name, incomingByVariant);
-      if (!hit) {
-        if (idHit && !idOk) {
-          await supabaseAdmin
-            .from("fantasy_players")
-            .update({
-              runs: 0,
-              wickets: 0,
-              catches: 0,
-              runouts: 0,
-              stumpings: 0,
-              fifty_bonus: 0,
-              hundred_bonus: 0,
-              three_w_bonus: 0,
-              five_w_bonus: 0,
-              mom_bonus: 0,
-              provider_player_id: null,
-            })
-            .eq("id", player.id);
-          updatedRows += 1;
-        }
-        unmatched.push(player.name);
-        continue;
-      }
-      matched.push({ selected: player.name, provider: hit.name, matchedById: idOk });
-      const updatePayload: Record<string, unknown> = {
-        runs: hit.runs,
-        wickets: hit.wickets,
-        catches: hit.catches,
-        runouts: hit.runouts ?? 0,
-        stumpings: hit.stumpings ?? 0,
-        fifty_bonus: hit.fifty_bonus,
-        hundred_bonus: hit.hundred_bonus,
-        three_w_bonus: hit.three_w_bonus,
-        five_w_bonus: hit.five_w_bonus,
-      };
-      if (payload.manOfTheMatchSynced) {
-        updatePayload.mom_bonus = hit.mom_bonus ?? 0;
-      }
-      if (hit.id) updatePayload.provider_player_id = hit.id;
-      await supabaseAdmin.from("fantasy_players").update(updatePayload).eq("id", player.id);
-      updatedRows += 1;
+    for (const row of rowsToSync) {
+      const r = await applyRefreshPayloadToOneMatch(row, payload, incomingById, incomingByVariant);
+      updatedRows += r.updatedRows;
+      totalSelected += r.selectedCount;
+      matched.push(...r.matched);
+      unmatched.push(...r.unmatched);
     }
 
     const syncedAt = new Date().toISOString();
     const {
       live_summary: nextLiveSummaryPost,
       status: nextStatusPost,
-      preservedDroppedFixture: preservedDroppedPost,
-    } = resolveSummaryAndStatusAfterRefresh(currentMatch, payload);
+    } = resolveSummaryAndStatusAfterRefresh(primaryRow, payload);
 
-    await supabaseAdmin.from("matches").update({
-      status: nextStatusPost,
-      fixture: payload.fixture || currentMatch.fixture,
-      ...(payload.match_date ? { match_date: payload.match_date } : {}),
-      venue: payload.venue ?? currentMatch.venue,
-      toss_winner: payload.toss_winner ?? currentMatch.toss_winner,
-      live_summary: nextLiveSummaryPost,
-      source_url: payload.source_url ?? currentMatch.source_url,
-      last_synced_at: syncedAt,
-      ...(payload.rosterNames.length > 0 ? { provider_squad_json: { squads: payload.squads, rosterNames: payload.rosterNames } } : {}),
-    }).eq("id", currentMatch.id);
-
-    const resolvedStatus = String(nextStatusPost || currentMatch.status || "");
-    const liveSum = nextLiveSummaryPost ?? currentMatch.live_summary ?? null;
-    const manualVoid = currentMatch.fantasy_voided === true;
-    if (manualVoid || isPointsVoidedMatchStatus(resolvedStatus, liveSum)) {
-      await supabaseAdmin.from("fantasy_players").update(VOIDED_MATCH_FANTASY_SCORES).eq("match_id", currentMatch.id);
-    }
+    const resolvedStatus = String(nextStatusPost || primaryRow.status || "");
+    const liveSum = nextLiveSummaryPost ?? primaryRow.live_summary ?? null;
+    const manualVoid = primaryRow.fantasy_voided === true;
     const voided = manualVoid || isPointsVoidedMatchStatus(resolvedStatus, liveSum);
 
+    const matchIdsSynced = rowsToSync.map((r) => Number(r.id));
+    const multi = rowsToSync.length > 1;
+
     return NextResponse.json({
-      ok: true, skipped: false,
+      ok: true,
+      skipped: false,
       message: voided
         ? manualVoid
           ? "Match is voided — fantasy scores cleared (manual void)."
           : "Match voided (washout / no result) — fantasy scores cleared for this fixture."
         : payload.players.length === 0
           ? userMessageWhenNoProviderPlayerRows(payload, preservedDroppedPost)
-          : updatedRows > 0
-          ? `Updated ${updatedRows} of ${selected.length} players.`
+          : updatedRows > 0 ? multi
+            ? `Updated ${updatedRows} player row(s) across ${rowsToSync.length} linked match record(s) — one API fetch.`
+            : `Updated ${updatedRows} of ${totalSelected} players.`
           : "Names in lineup didn't match the scorecard — check spelling.",
       live_summary: nextLiveSummaryPost ?? payload.live_summary,
-      debug: { matchId: currentMatch.id, selectedCount: selected.length, updatedRows, matched, unmatched, providerPlayersSample: summarizeNames(payload.players.map(p => p.name)), syncedAt },
+      debug: {
+        matchId: currentMatch.id,
+        matchIdsSynced,
+        externalMatchId: currentMatch.external_match_id,
+        selectedCount: totalSelected,
+        updatedRows,
+        matched,
+        unmatched,
+        providerPlayersSample: summarizeNames(payload.players.map((p) => p.name)),
+        syncedAt,
+      },
     });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Refresh failed" }, { status: 500 });
