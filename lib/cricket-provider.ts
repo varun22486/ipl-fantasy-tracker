@@ -2798,6 +2798,46 @@ function squadsFromProviderPlayerRows(players: PlayerStats[] | undefined | null)
 }
 
 /**
+ * CricAPI `match_info` often has venue, `teamInfo`, and narrative while `match_scorecard` has the
+ * structured innings. When both were fetched, fill gaps in the primary (scorecard) `data` from `match_info`
+ * so we do not end up with only toss text from a half-empty scorecard object.
+ */
+function mergeCricapiInfoDataIntoPrimary(primary: MaybeRecord, info: MaybeRecord | null): MaybeRecord {
+  if (!info) return primary;
+  if (primary === info) return primary;
+  const out: MaybeRecord = { ...primary };
+  for (const k of Object.keys(info)) {
+    if (k === "data" || k === "apiInfo") continue;
+    const v = (info as any)[k];
+    if (v == null || v === "") continue;
+    const cur = (out as any)[k];
+    const curEmpty =
+      cur == null ||
+      cur === "" ||
+      (Array.isArray(cur) && cur.length === 0) ||
+      (typeof cur === "object" && !Array.isArray(cur) && cur !== null && Object.keys(cur as object).length === 0);
+    if (curEmpty) (out as any)[k] = v;
+  }
+  return out;
+}
+
+/** Prefer currentMatches `update` / `status` when they show a real score the merged tree still has only a toss. */
+function patchNarrationFieldsFromFeed(out: MaybeRecord, feed: MaybeRecord) {
+  for (const k of ["update", "status", "shortStatus", "live", "message"] as const) {
+    const fRaw = (feed as any)[k];
+    if (fRaw == null || fRaw === "") continue;
+    const fStr = safeString(fRaw);
+    const oStr = safeString((out as any)[k]);
+    if (!fStr) continue;
+    if (!oStr) {
+      (out as any)[k] = fRaw;
+      continue;
+    }
+    if (looksLikeTossOrDecisionOnly(oStr) && isLiveOrScoreLikeLine(fStr)) (out as any)[k] = fRaw;
+  }
+}
+
+/**
  * When `match_scorecard` is empty/not found, `match_info` often still has the chase line but no card.
  * The same fixture in `currentMatches` frequently carries striker/bowler + thin scorecard keys — merge those in.
  * Costs one extra API hit per sync on CricAPI.
@@ -2822,6 +2862,9 @@ function mergeMatchDataWithLiveFeedRow(base: MaybeRecord, feed: MaybeRecord): Ma
     "wicket",
     "over",
     "overs",
+    "update",
+    "shortStatus",
+    "live",
   ];
   for (const k of takeKeys) {
     const v = feed[k];
@@ -2849,6 +2892,7 @@ function mergeMatchDataWithLiveFeedRow(base: MaybeRecord, feed: MaybeRecord): Ma
       (out as any)[k] = v;
     }
   }
+  patchNarrationFieldsFromFeed(out, feed);
   return out;
 }
 
@@ -2862,7 +2906,7 @@ function idMatchesCricapi(a: string, b: string): boolean {
 async function fetchCricapiCurrentMatchRowById(externalMatchId: string): Promise<MaybeRecord | null> {
   const want = cleanEnvText(externalMatchId);
   if (!want || !isCricapiBase(envBaseUrl())) return null;
-  const offsets = [0, 20, 40, 60];
+  const offsets = [0, 20, 40, 60, 80, 100];
   try {
     for (const off of offsets) {
       const p = await fetchJson(`/v1/currentMatches?offset=${off}`);
@@ -3139,7 +3183,11 @@ export async function refreshMatchFromProvider(
   }
 
   let data = (payload.data || payload) as MaybeRecord;
-  if (isCricapiBase(envBaseUrl())) {
+  if (isCricapi) {
+    if (cricapiInfoPayload) {
+      const infoData = (cricapiInfoPayload.data || cricapiInfoPayload) as MaybeRecord;
+      data = mergeCricapiInfoDataIntoPrimary(data, infoData);
+    }
     try {
       const feedRow = await fetchCricapiCurrentMatchRowById(id);
       if (feedRow) data = mergeMatchDataWithLiveFeedRow(data, feedRow);
