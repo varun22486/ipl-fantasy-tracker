@@ -2233,6 +2233,39 @@ function parseSimpleLiveScore(data: MaybeRecord): PlayerStats[] {
     }
   }
 
+  const pushFromMiniBatList = (list: unknown) => {
+    if (!Array.isArray(list)) return;
+    for (const item of list) {
+      if (!item || typeof item !== "object") continue;
+      const o = item as MaybeRecord;
+      const name = safeString(
+        o.name ||
+          o.batsmanName ||
+          o.batName ||
+          (typeof o.batsman === "string" ? o.batsman : "") ||
+          (o.batsman && typeof o.batsman === "object" ? safeString((o.batsman as MaybeRecord).name) : "")
+      );
+      if (!name) continue;
+      const runs = numberValue(o.r ?? o.runs ?? o.run ?? o.batRuns ?? o.batsmanRuns ?? o.score);
+      rows.push(
+        bonusify({
+          name,
+          runs,
+          wickets: 0,
+          catches: 0,
+          runouts: 0,
+          stumpings: 0,
+          fifty_bonus: 0,
+          hundred_bonus: 0,
+          three_w_bonus: 0,
+          five_w_bonus: 0,
+        })
+      );
+    }
+  };
+  pushFromMiniBatList((data as any).batsData);
+  pushFromMiniBatList((data as any).batsmen);
+
   const bow = data.bowler;
   if (bow && typeof bow === "object" && !Array.isArray(bow)) {
     const br = bow as MaybeRecord;
@@ -2806,25 +2839,46 @@ function mergeMatchDataWithLiveFeedRow(base: MaybeRecord, feed: MaybeRecord): Ma
   if (Array.isArray((feed as any).innings) && (feed as any).innings.length > 0 && (!Array.isArray((out as any).innings) || (out as any).innings.length === 0)) {
     (out as any).innings = (feed as any).innings;
   }
+  for (const k of ["batsData", "batsmen", "bowlData", "batTeam", "bowlTeam"] as const) {
+    const v = (feed as any)[k];
+    if (v == null) continue;
+    if (
+      (out as any)[k] == null ||
+      (Array.isArray((out as any)[k]) && ((out as any)[k] as unknown[]).length === 0)
+    ) {
+      (out as any)[k] = v;
+    }
+  }
   return out;
+}
+
+function idMatchesCricapi(a: string, b: string): boolean {
+  const x = a.trim().toLowerCase().replace(/-/g, "");
+  const y = b.trim().toLowerCase().replace(/-/g, "");
+  if (x.length >= 8 && y.length >= 8 && x === y) return true;
+  return a.trim() === b.trim();
 }
 
 async function fetchCricapiCurrentMatchRowById(externalMatchId: string): Promise<MaybeRecord | null> {
   const want = cleanEnvText(externalMatchId);
   if (!want || !isCricapiBase(envBaseUrl())) return null;
+  const offsets = [0, 20, 40, 60];
   try {
-    const p = await fetchJson("/v1/currentMatches?offset=0");
-    const raw = p?.data;
-    const arr: MaybeRecord[] = Array.isArray(raw)
-      ? raw
-      : raw && typeof raw === "object" && Array.isArray((raw as MaybeRecord).matches)
-        ? ((raw as MaybeRecord).matches as MaybeRecord[])
-        : [];
-    const hit = arr.find((m) => safeString(m?.id || m?.matchId || m?.match_id) === want);
-    return hit && typeof hit === "object" ? hit : null;
+    for (const off of offsets) {
+      const p = await fetchJson(`/v1/currentMatches?offset=${off}`);
+      const raw = p?.data;
+      const arr: MaybeRecord[] = Array.isArray(raw)
+        ? raw
+        : raw && typeof raw === "object" && Array.isArray((raw as MaybeRecord).matches)
+          ? ((raw as MaybeRecord).matches as MaybeRecord[])
+          : [];
+      const hit = arr.find((m) => idMatchesCricapi(want, safeString(m?.id || m?.matchId || m?.match_id)));
+      if (hit && typeof hit === "object") return hit;
+    }
   } catch {
     return null;
   }
+  return null;
 }
 
 async function tryFetchSquadsFromSquadApi(externalMatchId: string): Promise<SquadTeam[]> {
@@ -2961,8 +3015,20 @@ export async function refreshMatchFromProvider(
   let scorecardFailed = false;
   let lastFailReason = "";
 
-  // Try paths one at a time; stop as soon as we get a response with player/squad data.
-  // Only fall through to the next path when the current one has no usable content.
+  /**
+   * CricAPI `match_info` carries large `teamInfo` squads but often no ball-by-ball scorecard.
+   * The old loop treated "has any squad" as success and stopped at `match_info`, so `providerFetchPath`
+   * became match_info and we never used a successful `match_scorecard` body for merge/parse — only status text.
+   * Here: never short-circuit on match_info; prefer the first successful scorecard/match_points payload for `data`.
+   */
+  let cricapiInfoPayload: MaybeRecord | null = null;
+  let cricapiInfoPath = "";
+  let cricapiScoreOrPointsPayload: MaybeRecord | null = null;
+  let cricapiScoreOrPointsPath = "";
+
+  const isCricapi = isCricapiBase(envBaseUrl());
+  const isMatchInfoPath = (path: string) => isCricapi && /\/v1\/match_info\b/.test(path);
+
   for (const path of candidatePaths) {
     try {
       const p = await fetchJson(path);
@@ -2973,17 +3039,38 @@ export async function refreshMatchFromProvider(
         continue;
       }
       if (!p) continue;
-      // Accept this response if it has any player rows or squad data
       const data = ((p as MaybeRecord).data ?? p) as MaybeRecord;
       const probe: PlayerStats[] = [];
       if (data && typeof data === "object") collectPlayerRows(data, probe);
       const sq = extractSquadsFromPayload(p as MaybeRecord);
-      if (probe.length > 0 || squadPlayerCount(sq) > 0) {
+
+      if (isMatchInfoPath(path)) {
+        if (!cricapiInfoPayload) {
+          cricapiInfoPayload = p as MaybeRecord;
+          cricapiInfoPath = path;
+        }
+        continue;
+      }
+
+      if (probe.length > 0) {
         payload = p as MaybeRecord;
         providerFetchPath = path;
         break;
       }
-      // Response is valid but empty — keep it as a fallback and try next path
+
+      if (isCricapi) {
+        if (!cricapiScoreOrPointsPayload) {
+          cricapiScoreOrPointsPayload = p as MaybeRecord;
+          cricapiScoreOrPointsPath = path;
+        }
+        continue;
+      }
+
+      if (squadPlayerCount(sq) > 0) {
+        payload = p as MaybeRecord;
+        providerFetchPath = path;
+        break;
+      }
       if (!payload) {
         payload = p as MaybeRecord;
         providerFetchPath = path;
@@ -2991,6 +3078,16 @@ export async function refreshMatchFromProvider(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg) lastFailReason = msg;
+    }
+  }
+
+  if (isCricapi && !payload) {
+    if (cricapiScoreOrPointsPayload) {
+      payload = cricapiScoreOrPointsPayload;
+      providerFetchPath = cricapiScoreOrPointsPath;
+    } else if (cricapiInfoPayload) {
+      payload = cricapiInfoPayload;
+      providerFetchPath = cricapiInfoPath;
     }
   }
 
