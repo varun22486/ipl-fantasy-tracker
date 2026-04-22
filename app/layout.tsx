@@ -7,12 +7,14 @@ const fontSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
   variable: "--font-sans-var",
   display: "swap",
+  adjustFontFallback: true,
 });
 
 const fontDisplay = Outfit({
   subsets: ["latin"],
   variable: "--font-display-var",
   display: "swap",
+  adjustFontFallback: true,
 });
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;

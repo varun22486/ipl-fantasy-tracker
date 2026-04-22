@@ -1455,6 +1455,27 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
 }
 
 /**
+ * Parse "c FIELDER b BOWLER" / "caught [by] FIELDER b BOWLER" from a dismissal line.
+ * Does not handle c&b / c and b (callers handle those separately).
+ */
+function parseCaughtFielderFromDismissalText(text: string): string | null {
+  const s = safeString(text).trim();
+  if (!s) return null;
+  if (/^c\s*(?:&|and)\s*b\s+/i.test(s)) return null;
+  let m = s.match(/^c\s+(.+?)\s+b\s+/i);
+  if (m) {
+    const n = m[1].replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+    return n || null;
+  }
+  m = s.match(/^caught\s+(?:by\s+)?(.+?)\s+b\s+/i);
+  if (m) {
+    const n = m[1].replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+    return n || null;
+  }
+  return null;
+}
+
+/**
  * CricAPI newer match_scorecard format stores catches inside:
  *   scorecard[].wickets = [{ kind:"caught", fielder:[{name:"Philip Salt"}], ... }]
  *
@@ -1465,26 +1486,42 @@ function extractCatchesFromWickets(data: MaybeRecord): PlayerStats[] {
   const countByKey = new Map<string, number>();
   const nameByKey  = new Map<string, string>();
 
+  function addFielderCatch(name: string) {
+    const key = name.toLowerCase();
+    nameByKey.set(key, nameByKey.get(key) ?? name);
+    countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+  }
+
   function processWicket(w: any) {
     const kind      = safeString(w.kind ?? w.howOut ?? w.dismissalKind ?? "");
     const dismissal = safeString(w.dismissal ?? w.desc ?? w.dismissalText ?? "");
-    // Caught dismissal: kind contains "caught", OR dismissal text starts with "c <name>" (not "c&b")
+    const dtExtra   = safeString(w["dismissal-text"] ?? w.dismissalText ?? "");
+    // Caught dismissal: kind contains "caught", OR narrative starts with c… / caught…
     const isCaught =
       /caught/i.test(kind) ||
-      /^c\s+(?!&\s*b\s)\w/i.test(dismissal);
+      /^c\s+(?!&\s*b\s)\w/i.test(dismissal) ||
+      /^caught\b/i.test(dismissal) ||
+      /^c\s+(?!&\s*b\s)\w/i.test(dtExtra) ||
+      /^caught\b/i.test(dtExtra);
     if (!isCaught) return;
 
     const raw = w.fielder ?? w.fielders ?? w.catcher_player;
     const fielders: any[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    let addedFromFielders = 0;
     for (const f of fielders) {
       const name =
         typeof f === "string"
           ? f.trim()
           : safeString(f?.name ?? f?.playerName ?? f?.fullName ?? "");
       if (!name) continue;
-      const key = name.toLowerCase();
-      nameByKey.set(key, nameByKey.get(key) ?? name);
-      countByKey.set(key, (countByKey.get(key) ?? 0) + 1);
+      addFielderCatch(name);
+      addedFromFielders++;
+    }
+
+    if (addedFromFielders === 0) {
+      const combined = [dismissal, dtExtra].filter(Boolean).join(" ");
+      const fromText = parseCaughtFielderFromDismissalText(combined) || parseCaughtFielderFromDismissalText(dismissal) || parseCaughtFielderFromDismissalText(dtExtra);
+      if (fromText) addFielderCatch(fromText);
     }
   }
 
@@ -1559,19 +1596,17 @@ function extractCatchesFromBattingDismissals(data: MaybeRecord): PlayerStats[] {
         addCatch(cnb[1].trim(), id);
         return;
       }
-      // "c Name b Bowler" — must run after c-and-b so "c and b X" is not parsed as catcher "and"
-      const caught = dt.match(/^c\s+(.+?)\s+b\s+/i);
-      if (caught) {
-        const namePart = caught[1].trim();
+      const fromText = parseCaughtFielderFromDismissalText(dt);
+      if (fromText) {
         let id: string | undefined;
         const catcherField = b.catcher;
         if (catcherField && typeof catcherField === "object" && typeof catcherField.id === "string") {
           const cn = safeString(catcherField?.name ?? catcherField?.playerName ?? "");
-          if (cn && cn.toLowerCase().trim() === namePart.toLowerCase()) {
+          if (cn && cn.toLowerCase().trim() === fromText.toLowerCase()) {
             id = catcherField.id.trim();
           }
         }
-        addCatch(namePart, id);
+        addCatch(fromText, id);
         return;
       }
     }
@@ -2022,6 +2057,43 @@ function mergePlayers(rows: PlayerStats[]) {
     }));
   }
 
+  return Array.from(byName.values());
+}
+
+/**
+ * Merge duplicate rows for the same player (patchCatches can add an extra row when
+ * name/ID alignment misses the main scorecard row). Take numeric maxima so catches
+ * from dismissal-derived rows are not lost.
+ */
+function consolidatePlayerStats(rows: PlayerStats[]): PlayerStats[] {
+  const byName = new Map<string, PlayerStats>();
+  for (const row of rows) {
+    const key = row.name.toLowerCase().trim();
+    if (!key) continue;
+    const existing = byName.get(key);
+    if (!existing) {
+      byName.set(key, bonusify({ ...row }));
+      continue;
+    }
+    byName.set(
+      key,
+      bonusify({
+        ...existing,
+        id: existing.id ?? row.id,
+        name: existing.name || row.name,
+        runs: Math.max(existing.runs, row.runs),
+        wickets: Math.max(existing.wickets, row.wickets),
+        catches: Math.max(existing.catches, row.catches),
+        runouts: Math.max(existing.runouts ?? 0, row.runouts ?? 0),
+        stumpings: Math.max(existing.stumpings ?? 0, row.stumpings ?? 0),
+        fifty_bonus: Math.max(existing.fifty_bonus ?? 0, row.fifty_bonus ?? 0),
+        hundred_bonus: Math.max(existing.hundred_bonus ?? 0, row.hundred_bonus ?? 0),
+        three_w_bonus: Math.max(existing.three_w_bonus ?? 0, row.three_w_bonus ?? 0),
+        five_w_bonus: Math.max(existing.five_w_bonus ?? 0, row.five_w_bonus ?? 0),
+        mom_bonus: Math.max(existing.mom_bonus ?? 0, row.mom_bonus ?? 0),
+      })
+    );
+  }
   return Array.from(byName.values());
 }
 
@@ -2841,6 +2913,28 @@ export async function fetchMatchRoster(
   return { squads: best, rosterNames: uniqueRosterNames(best), nameToId: buildNameToId(best) };
 }
 
+/**
+ * Collate raw scorecard JSON into merged per-player stats (runs, wickets, catches, etc.).
+ * Used by refresh; exported for tests.
+ */
+export function buildPlayerStatsFromScorecardData(data: MaybeRecord): PlayerStats[] {
+  const rows: PlayerStats[] = [];
+  collectPlayerRows(data, rows);
+  rows.push(...extractCatchesFromWickets(data));
+  const mergedRaw = mergePlayers(rows);
+  const catchRowsFromDismissals = extractCatchesFromBattingDismissals(data);
+  const merged = patchCatches(mergedRaw, catchRowsFromDismissals);
+  const runRowsW = extractRunoutsFromWickets(data);
+  const runRowsB = extractRunoutsFromBattingDismissals(data);
+  const mergedWithRunouts = patchRunouts(patchRunouts(merged, runRowsW), runRowsB);
+  const stRowsW = extractStumpingsFromWickets(data);
+  const stRowsB = extractStumpingsFromBattingDismissals(data);
+  const mergedWithStumps = patchStumpings(patchStumpings(mergedWithRunouts, stRowsW), stRowsB);
+  const mergedConsolidated =
+    mergedWithStumps.length > 0 ? consolidatePlayerStats(mergedWithStumps) : [];
+  return mergedConsolidated.length > 0 ? mergedConsolidated : parseSimpleLiveScore(data);
+}
+
 export async function refreshMatchFromProvider(
   externalMatchId: string,
   options?: RefreshMatchFromProviderOptions
@@ -2957,24 +3051,7 @@ export async function refreshMatchFromProvider(
     }
   }
 
-  const rows: PlayerStats[] = [];
-  collectPlayerRows(data, rows);
-  // Add wicket-fielder catches (newer CricAPI format) into the raw rows first
-  rows.push(...extractCatchesFromWickets(data as MaybeRecord));
-  // Merge by exact lowercase key first
-  const mergedRaw = mergePlayers(rows);
-  // Then patch catches from dismissal-text using variant-based matching.
-  // This handles name mismatches like "Phil Salt" (dismissal-text) vs
-  // "Philip Salt" (batting row) which would otherwise be separate keys.
-  const catchRowsFromDismissals = extractCatchesFromBattingDismissals(data as MaybeRecord);
-  const merged = patchCatches(mergedRaw, catchRowsFromDismissals);
-  const runRowsW = extractRunoutsFromWickets(data as MaybeRecord);
-  const runRowsB = extractRunoutsFromBattingDismissals(data as MaybeRecord);
-  const mergedWithRunouts = patchRunouts(patchRunouts(merged, runRowsW), runRowsB);
-  const stRowsW = extractStumpingsFromWickets(data as MaybeRecord);
-  const stRowsB = extractStumpingsFromBattingDismissals(data as MaybeRecord);
-  const mergedWithStumps = patchStumpings(patchStumpings(mergedWithRunouts, stRowsW), stRowsB);
-  const mergedOrLive = mergedWithStumps.length > 0 ? mergedWithStumps : parseSimpleLiveScore(data);
+  const mergedOrLive = buildPlayerStatsFromScorecardData(data as MaybeRecord);
 
   const dataRec = data as MaybeRecord;
   const pickedApiLine = pickBestApiSummaryLine(dataRec, payload as MaybeRecord);

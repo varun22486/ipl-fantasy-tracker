@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
+  compress: true,
   eslint: {
     // ESLint warnings/errors won't block the production build
     ignoreDuringBuilds: true,

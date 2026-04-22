@@ -9,6 +9,7 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify:catches-live": "python3 scripts/verify_catches_live.py",
     "smoke:ipl": "python3 scripts/smoke_ipl.py",
     "verify:runout": "npx --yes tsx scripts/verify-runout-example.ts"
   },

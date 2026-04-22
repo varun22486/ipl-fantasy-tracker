@@ -46,19 +46,46 @@
   --btn-danger-border: #fecaca;
   --btn-danger-text: #dc2626;
   --settings-row-bg: var(--surface-muted);
+  /* Motion — one curve for product-wide transitions */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-fast: 0.16s;
+  --t-med: 0.24s;
 }
 
 /* ── Reset ───────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-font-smoothing: antialiased; -webkit-text-size-adjust: 100%; color-scheme: light; }
+html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; -webkit-text-size-adjust: 100%; color-scheme: light; }
+/* Dynamic viewport: fewer mobile browser chrome / address-bar jumps */
 body {
+  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   font-family: var(--font-sans);
   color: var(--text);
   background-color: var(--bg);
   background-image: var(--bg-mesh);
-  /* scroll: avoids expensive repaints on mobile vs fixed */
   background-attachment: scroll;
+  position: relative;
+}
+/* Subtle film grain: cheap paint (no images), sits above bg, below app UI */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.4;
+  background-image: repeating-radial-gradient(
+    circle at 22% 18%,
+    rgba(15, 23, 42, 0.045) 0,
+    transparent 1.5px
+  );
+  background-size: 3px 3px;
+  mix-blend-mode: multiply;
+}
+body > * {
+  position: relative;
+  z-index: 1;
 }
 
 /* ── App shell ───────────────────────────────────────────────────────────── */
@@ -157,7 +184,9 @@ summary:focus-visible,
 .app-sidebar__link {
   display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px;
   border-radius: var(--radius-md); text-decoration: none; color: #94a3b8;
-  transition: background .15s, color .15s; border: 1px solid transparent;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    box-shadow var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out);
+  border: 1px solid transparent;
 }
 .app-sidebar__link:hover { background: rgba(255,255,255,.06); color: #e2e8f0; }
 .app-sidebar__link--active {
@@ -232,6 +261,13 @@ summary:focus-visible,
 
 /* ── Content area ────────────────────────────────────────────────────────── */
 .app-content { flex: 1; min-width: 0; }
+#main-content {
+  scroll-margin-top: 1.25rem;
+  outline: none;
+}
+#main-content:focus-visible {
+  box-shadow: none;
+}
 
 /* ── Page main ───────────────────────────────────────────────────────────── */
 .page-main {
@@ -523,6 +559,16 @@ summary:focus-visible,
   font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 1.12;
+  text-wrap: balance;
+  color: var(--text);
+}
+@supports (background-clip: text) {
+  .page-header__title {
+    background: linear-gradient(180deg, #0a0f1a 0%, #334155 96%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
 }
 .page-header__subtitle { margin: 10px 0 0; font-size: 15px; color: var(--text-muted); max-width: 52ch; line-height: 1.55; }
 
@@ -613,6 +659,7 @@ summary:focus-visible,
   font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 1.12;
+  text-wrap: balance;
 }
 .home-hero__lead { margin: 14px 0 0; font-size: 16px; line-height: 1.6; color: #cbd5e1; max-width: 42rem; }
 .home-hero__name--you { color: #93c5fd; font-weight: 700; }
@@ -4361,6 +4408,23 @@ select:focus-visible {
   }
   html {
     color-scheme: dark;
+  }
+  body::after {
+    opacity: 0.22;
+    mix-blend-mode: soft-light;
+    background-image: repeating-radial-gradient(
+      circle at 20% 30%,
+      rgba(255, 255, 255, 0.06) 0,
+      transparent 1.5px
+    );
+  }
+  @supports (background-clip: text) {
+    .page-header__title {
+      background: linear-gradient(180deg, #f8fafc 0%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
   }
   .match-detail-alert-void {
     background: rgba(120, 53, 15, 0.45);
