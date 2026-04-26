@@ -16,7 +16,13 @@ import {
 } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
-import { DEFAULT_LINEUP_LATENESS_POINTS, lateParticipantsList, lineupLatenessSideAdjustment } from "@/lib/lineup-lateness";
+import {
+  DEFAULT_LINEUP_LATENESS_POINTS,
+  hasLineupLatenessActive,
+  lateParticipantsList,
+  lineupLatenessSideAdjustment,
+  matchLineupForCompetition,
+} from "@/lib/lineup-lateness";
 import NavBar from "@/components/NavBar";
 import SyncButton from "@/components/SyncButton";
 import ScoreEditor from "@/components/ScoreEditor";
@@ -233,17 +239,13 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     lineup_late_participant?: string | null;
     lineup_late_participants?: string[] | null;
     lineup_lateness_points?: number | null;
+    lineup_lateness_by_comp?: unknown;
     external_match_id?: string | null;
   };
   const pointsVoided = isPointsVoidedMatchStatus(match.status, match.live_summary, matchRow.fantasy_voided);
   const manuallyVoided = matchRow.fantasy_voided === true;
 
-  const lineupLatenessInput = {
-    lineup_lateness_enabled: matchRow.lineup_lateness_enabled,
-    lineup_late_participant: matchRow.lineup_late_participant,
-    lineup_late_participants: matchRow.lineup_late_participants,
-    lineup_lateness_points: matchRow.lineup_lateness_points,
-  };
+  const lineupLatenessInput = matchLineupForCompetition(matchRow, cid);
 
   const yourRaw = pointsVoided ? 0 : yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
   const oppRaw = pointsVoided ? 0 : oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
@@ -338,11 +340,12 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
               competitionId={cid}
               linked={Boolean(matchRow.external_match_id)}
               participantOptions={isMulti ? compPlayers : [yourName, opponentName]}
-              initialEnabled={matchRow.lineup_lateness_enabled === true}
+              initialEnabled={hasLineupLatenessActive(lineupLatenessInput, pointsVoided)}
               initialLateNames={lateParticipantsList(lineupLatenessInput)}
               initialPoints={
-                typeof matchRow.lineup_lateness_points === "number" && matchRow.lineup_lateness_points > 0
-                  ? matchRow.lineup_lateness_points
+                typeof lineupLatenessInput.lineup_lateness_points === "number" &&
+                lineupLatenessInput.lineup_lateness_points > 0
+                  ? lineupLatenessInput.lineup_lateness_points
                   : DEFAULT_LINEUP_LATENESS_POINTS
               }
             />

@@ -59,6 +59,7 @@ alter table matches add column if not exists lineup_lateness_enabled boolean not
 alter table matches add column if not exists lineup_late_participant text;
 alter table matches add column if not exists lineup_late_participants text[];
 alter table matches add column if not exists lineup_lateness_points integer not null default 250;
+alter table matches add column if not exists lineup_lateness_by_comp jsonb not null default '{}'::jsonb;
 
 -- Cached IPL picker rows (full MatchSeed JSON) so Link IPL can list without hitting CricAPI every time
 create table if not exists ipl_fixture_catalog (

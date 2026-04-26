@@ -8,7 +8,7 @@ import { formatFixture } from "@/lib/format";
 import { isTrackedMatchOnCalendarIstDay } from "@/lib/active-match";
 import { iplCalendarTodayIso, isLiveMatchStatus } from "@/lib/next-match";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
-import { lineupLatenessSideAdjustment } from "@/lib/lineup-lateness";
+import { lineupLatenessSideAdjustment, matchLineupForCompetition } from "@/lib/lineup-lateness";
 import NavBar from "@/components/NavBar";
 import Link from "next/link";
 
@@ -115,15 +115,11 @@ async function getData(competitionId: number | null) {
     lineup_late_participant?: string | null;
     lineup_late_participants?: string[] | null;
     lineup_lateness_points?: number | null;
+    lineup_lateness_by_comp?: unknown;
   }) => {
     const mp = playersByMatch[m.id] ?? [];
     const voided = isPointsVoidedMatchStatus(m.status, m.live_summary, m.fantasy_voided);
-    const lateMeta = {
-      lineup_lateness_enabled: m.lineup_lateness_enabled,
-      lineup_late_participant: m.lineup_late_participant,
-      lineup_late_participants: m.lineup_late_participants,
-      lineup_lateness_points: m.lineup_lateness_points,
-    };
+    const lateMeta = matchLineupForCompetition(m, competitionId);
     const latenessOptsH = (names: string[]) => ({ voided, allParticipantNames: names });
 
     if (isMulti) {

@@ -15,7 +15,7 @@ export {
 export { SNAPSHOT_SOURCE_LABEL } from "@/lib/match-snapshot-constants";
 
 const MATCH_SELECT =
-  "id, status, live_summary, fantasy_voided, fixture, venue, toss_winner, source_url, last_synced_at, provider_squad_json, lineup_lateness_enabled, lineup_late_participant, lineup_late_participants, lineup_lateness_points";
+  "id, status, live_summary, fantasy_voided, fixture, venue, toss_winner, source_url, last_synced_at, provider_squad_json, lineup_lateness_enabled, lineup_late_participant, lineup_late_participants, lineup_lateness_points, lineup_lateness_by_comp";
 
 const PLAYER_SELECT =
   "match_id, side, name, captain, bench, runs, wickets, catches, runouts, stumpings, fifty_bonus, hundred_bonus, three_w_bonus, five_w_bonus, mom_bonus, provider_player_id, competition_id";
@@ -35,6 +35,7 @@ export type MatchSnapshotPayload = {
     lineup_late_participant: string | null;
     lineup_late_participants: string[] | null;
     lineup_lateness_points: number;
+    lineup_lateness_by_comp: unknown | null;
   };
   players: Record<string, unknown>[];
 };
@@ -71,6 +72,10 @@ export async function buildMatchSnapshotPayload(matchId: number): Promise<MatchS
       lineup_late_participant: lateResolved.length === 1 ? lateResolved[0]! : null,
       lineup_late_participants: lateResolved.length > 0 ? lateResolved : null,
       lineup_lateness_points: Math.max(1, Math.floor(Number(m.lineup_lateness_points) || 250)),
+      lineup_lateness_by_comp:
+        m.lineup_lateness_by_comp && typeof m.lineup_lateness_by_comp === "object" && !Array.isArray(m.lineup_lateness_by_comp)
+          ? m.lineup_lateness_by_comp
+          : null,
     },
     players: (players ?? []) as Record<string, unknown>[],
   };
@@ -203,6 +208,10 @@ export async function restoreMatchSnapshotById(
       lineup_late_participant: lateArr && lateArr.length === 1 ? lateArr[0]! : null,
       lineup_late_participants: lateArr,
       lineup_lateness_points: Math.max(1, Math.floor(Number(m.lineup_lateness_points) || 250)),
+      lineup_lateness_by_comp:
+        m.lineup_lateness_by_comp !== undefined && m.lineup_lateness_by_comp !== null
+          ? m.lineup_lateness_by_comp
+          : ({} as Record<string, unknown>),
     })
     .eq("id", matchId);
 

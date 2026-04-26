@@ -3,14 +3,14 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, fantasyPointsCounted, playerPoints } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
-import { lineupLatenessSideAdjustment } from "@/lib/lineup-lateness";
+import { lineupLatenessSideAdjustment, matchLineupForCompetition } from "@/lib/lineup-lateness";
 
 export async function GET() {
   try {
     const [{ data: matches }, { data: allPlayers }, { data: settings }] = await Promise.all([
       supabaseAdmin
         .from("matches")
-        .select("id,fixture,match_date,status,live_summary,fantasy_voided,lineup_lateness_enabled,lineup_late_participant,lineup_late_participants,lineup_lateness_points")
+        .select("id,fixture,match_date,status,live_summary,fantasy_voided,lineup_lateness_enabled,lineup_late_participant,lineup_late_participants,lineup_lateness_points,lineup_lateness_by_comp")
         .order("id", { ascending: true }),
       supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
       supabaseAdmin.from("series_settings").select("opponent_name,your_name").limit(1).single(),
@@ -44,12 +44,7 @@ export async function GET() {
       const oppPlayers = mp.filter((p) => p.side === "Rahul");
       const yourPtsRaw = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p), 0);
       const oppPtsRaw = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p), 0);
-      const lateMeta = {
-        lineup_lateness_enabled: m.lineup_lateness_enabled,
-        lineup_late_participant: m.lineup_late_participant,
-        lineup_late_participants: m.lineup_late_participants,
-        lineup_lateness_points: m.lineup_lateness_points,
-      };
+      const lateMeta = matchLineupForCompetition(m, null);
       const L = { voided, allParticipantNames: allPart2 };
       const yourPts =
         voided ? 0 : yourPtsRaw + lineupLatenessSideAdjustment(lateMeta, yourName, L);

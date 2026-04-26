@@ -8,7 +8,7 @@ import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
-import { lineupLatenessSideAdjustment } from "@/lib/lineup-lateness";
+import { lineupLatenessSideAdjustment, matchLineupForCompetition } from "@/lib/lineup-lateness";
 import nextDynamic from "next/dynamic";
 import HomeHero from "@/components/HomeHero";
 import SeriesStandingsHero from "@/components/SeriesStandingsHero";
@@ -23,7 +23,7 @@ const MultiStatsClient = nextDynamic(() => import("@/components/MultiStatsClient
 });
 
 const HOME_MATCH_COLS =
-  "id, fixture, match_date, status, venue, is_current, external_match_id, live_summary, fantasy_voided, lineup_lateness_enabled, lineup_late_participant, lineup_late_participants, lineup_lateness_points";
+  "id, fixture, match_date, status, venue, is_current, external_match_id, live_summary, fantasy_voided, lineup_lateness_enabled, lineup_late_participant, lineup_late_participants, lineup_lateness_points, lineup_lateness_by_comp";
 
 async function getData(competitionId: number | null) {
   // Use select("*") so the page still works if optional columns (runouts, stumpings, pts_runout, …)
@@ -109,12 +109,7 @@ async function getData(competitionId: number | null) {
     const oppPlayers = mp.filter((p) => p.side !== player1Side);
     const yourPtsRaw = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     const oppPtsRaw = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
-    const lateMeta = {
-      lineup_lateness_enabled: m.lineup_lateness_enabled,
-      lineup_late_participant: m.lineup_late_participant,
-      lineup_late_participants: m.lineup_late_participants,
-      lineup_lateness_points: m.lineup_lateness_points,
-    };
+    const lateMeta = matchLineupForCompetition(m, competitionId);
     const latenessOpts2 = { voided, allParticipantNames: allPart2 };
     const yourAdj = voided ? 0 : lineupLatenessSideAdjustment(lateMeta, yourName, latenessOpts2);
     const oppAdj = voided ? 0 : lineupLatenessSideAdjustment(lateMeta, opponentName, latenessOpts2);
@@ -195,12 +190,7 @@ async function getData(competitionId: number | null) {
         const stumpings: Record<string, number> = {};
         const captainPts: Record<string, number> = {};
         const captainName: Record<string, string> = {};
-        const lateMetaM = {
-          lineup_lateness_enabled: m.lineup_lateness_enabled,
-          lineup_late_participant: m.lineup_late_participant,
-          lineup_late_participants: m.lineup_late_participants,
-          lineup_lateness_points: m.lineup_lateness_points,
-        };
+        const lateMetaM = matchLineupForCompetition(m, competitionId);
         const latenessOptsM = { voided, allParticipantNames: compPlayers };
         for (const name of compPlayers) {
           const sidePlayers = mp.filter((p: any) => p.side === name);

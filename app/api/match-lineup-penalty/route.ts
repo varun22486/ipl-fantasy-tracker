@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { createMatchSnapshot } from "@/lib/match-snapshot";
-import { DEFAULT_LINEUP_LATENESS_POINTS } from "@/lib/lineup-lateness";
+import { compLineupStorageKey, DEFAULT_LINEUP_LATENESS_POINTS } from "@/lib/lineup-lateness";
 
 type Body = {
   matchId?: number;
@@ -57,13 +57,16 @@ export async function POST(req: Request) {
 
     const { data: mrow, error: fetchErr } = await supabaseAdmin
       .from("matches")
-      .select("id, external_match_id")
+      .select("id, external_match_id, lineup_lateness_by_comp")
       .eq("id", matchId)
       .maybeSingle();
 
     if (fetchErr || !mrow) {
       return NextResponse.json({ ok: false, error: "Match not found" }, { status: 404 });
     }
+
+    const compIdForStore =
+      body.competitionId != null && Number.isFinite(Number(body.competitionId)) ? Number(body.competitionId) : null;
 
     const ext = mrow.external_match_id as string | null;
     if (!ext || !String(ext).trim()) {
@@ -81,7 +84,7 @@ export async function POST(req: Request) {
         );
       }
 
-      const compId = body.competitionId != null && Number.isFinite(Number(body.competitionId)) ? Number(body.competitionId) : null;
+      const compId = compIdForStore;
       let allowed: string[] = [];
       if (compId == null) {
         const { data: settings } = await supabaseAdmin.from("series_settings").select("your_name, opponent_name").limit(1).maybeSingle();
@@ -117,24 +120,35 @@ export async function POST(req: Request) {
       summary: enabled ? "Before late-select on-time bonus" : "Before clearing late-select on-time bonus",
     });
 
-    const { error: upErr } = await supabaseAdmin
-      .from("matches")
-      .update(
-        enabled
-          ? {
-              lineup_lateness_enabled: true,
-              lineup_late_participants: lateList,
-              lineup_late_participant: lateList.length === 1 ? lateList[0]! : null,
-              lineup_lateness_points: points,
-            }
-          : {
-              lineup_lateness_enabled: false,
-              lineup_late_participants: null,
-              lineup_late_participant: null,
-              lineup_lateness_points: DEFAULT_LINEUP_LATENESS_POINTS,
-            }
-      )
-      .eq("id", matchId);
+    const rawByComp = mrow.lineup_lateness_by_comp;
+    const prev: Record<string, unknown> =
+      rawByComp && typeof rawByComp === "object" && !Array.isArray(rawByComp)
+        ? { ...(rawByComp as Record<string, unknown>) }
+        : {};
+    const storeKey = compLineupStorageKey(compIdForStore);
+    const next: Record<string, unknown> = { ...prev };
+    if (enabled) {
+      next[storeKey] = { enabled: true, late: lateList, points };
+    } else {
+      delete next[storeKey];
+    }
+
+    const updatePayload: Record<string, unknown> = { lineup_lateness_by_comp: next };
+    if (compIdForStore == null) {
+      if (enabled) {
+        updatePayload.lineup_lateness_enabled = true;
+        updatePayload.lineup_late_participants = lateList;
+        updatePayload.lineup_late_participant = lateList.length === 1 ? lateList[0]! : null;
+        updatePayload.lineup_lateness_points = points;
+      } else {
+        updatePayload.lineup_lateness_enabled = false;
+        updatePayload.lineup_late_participants = null;
+        updatePayload.lineup_late_participant = null;
+        updatePayload.lineup_lateness_points = DEFAULT_LINEUP_LATENESS_POINTS;
+      }
+    }
+
+    const { error: upErr } = await supabaseAdmin.from("matches").update(updatePayload).eq("id", matchId);
 
     if (upErr) {
       return NextResponse.json({ ok: false, error: upErr.message }, { status: 500 });

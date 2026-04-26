@@ -6,7 +6,7 @@ import { Suspense } from "react";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, sortFantasyLineupForDisplay } from "@/lib/scoring";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
-import { hasLineupLatenessActive, type MatchLineupLateness } from "@/lib/lineup-lateness";
+import { hasLineupLatenessActive, matchLineupForCompetition, type MatchLineupLateness } from "@/lib/lineup-lateness";
 import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
@@ -121,18 +121,14 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         lineup_late_participant?: string | null;
         lineup_late_participants?: string[] | null;
         lineup_lateness_points?: number | null;
+        lineup_lateness_by_comp?: unknown;
       } & typeof currentMatch)
     | null;
   const pointsVoided = matchRow
     ? isPointsVoidedMatchStatus(matchRow.status, matchRow.live_summary, matchRow.fantasy_voided)
     : true;
   const lineupLatenessInput: MatchLineupLateness | null = matchRow
-    ? {
-        lineup_lateness_enabled: matchRow.lineup_lateness_enabled,
-        lineup_late_participant: matchRow.lineup_late_participant,
-        lineup_late_participants: matchRow.lineup_late_participants,
-        lineup_lateness_points: matchRow.lineup_lateness_points,
-      }
+    ? matchLineupForCompetition(matchRow, competitionId)
     : null;
   const lineupLatenessActive = Boolean(
     lineupLatenessInput && hasLineupLatenessActive(lineupLatenessInput, pointsVoided)
