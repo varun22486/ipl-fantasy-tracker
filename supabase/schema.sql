@@ -55,6 +55,10 @@ alter table matches add column if not exists last_synced_at timestamp with time 
 alter table matches add column if not exists provider_squad_json jsonb;
 alter table matches add column if not exists is_current boolean not null default false;
 alter table matches add column if not exists fantasy_voided boolean not null default false;
+alter table matches add column if not exists lineup_lateness_enabled boolean not null default false;
+alter table matches add column if not exists lineup_late_participant text;
+alter table matches add column if not exists lineup_late_participants text[];
+alter table matches add column if not exists lineup_lateness_points integer not null default 250;
 
 -- Cached IPL picker rows (full MatchSeed JSON) so Link IPL can list without hitting CricAPI every time
 create table if not exists ipl_fixture_catalog (
@@ -128,9 +132,6 @@ create table if not exists competitions (
 alter table competitions add column if not exists players jsonb;
 update competitions set players = jsonb_build_array(player1_name, player2_name) where players is null;
 
--- Add competition scope to fantasy players
-alter table fantasy_players add column if not exists competition_id bigint references competitions(id) on delete cascade;
-
 -- When you run this for the first time, create the default competition from series_settings
 -- and migrate existing player rows to it:
 -- INSERT INTO competitions (name, player1_name, player2_name)
@@ -138,11 +139,6 @@ alter table fantasy_players add column if not exists competition_id bigint refer
 -- Then: UPDATE fantasy_players SET competition_id = <id above> WHERE competition_id IS NULL;
 
 -- ── End competitions ──────────────────────────────────────────────────────────
-
--- Rename trump → captain (safe to run multiple times; errors if already renamed are fine)
-do $$ begin
-  alter table fantasy_players rename column trump to captain;
-exception when undefined_column then null; end $$;
 
 create table if not exists fantasy_players (
   id bigint generated always as identity primary key,
@@ -165,6 +161,13 @@ create table if not exists fantasy_players (
   bench boolean not null default false
   -- uniqueness enforced by partial indexes below
 );
+
+-- Legacy DBs: rename trump → captain (no-op on new DBs that never had `trump`)
+do $$ begin
+  alter table fantasy_players rename column trump to captain;
+exception when undefined_column then null; end $$;
+
+alter table fantasy_players add column if not exists competition_id bigint references competitions(id) on delete cascade;
 
 -- Allow same player in different competitions, but still unique within one competition.
 -- Default competition (competition_id IS NULL): one row per player per match.

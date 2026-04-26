@@ -8,6 +8,7 @@ import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
+import { lineupLatenessSideAdjustment } from "@/lib/lineup-lateness";
 import nextDynamic from "next/dynamic";
 import HomeHero from "@/components/HomeHero";
 import SeriesStandingsHero from "@/components/SeriesStandingsHero";
@@ -22,7 +23,7 @@ const MultiStatsClient = nextDynamic(() => import("@/components/MultiStatsClient
 });
 
 const HOME_MATCH_COLS =
-  "id, fixture, match_date, status, venue, is_current, external_match_id, live_summary, fantasy_voided";
+  "id, fixture, match_date, status, venue, is_current, external_match_id, live_summary, fantasy_voided, lineup_lateness_enabled, lineup_late_participant, lineup_late_participants, lineup_lateness_points";
 
 async function getData(competitionId: number | null) {
   // Use select("*") so the page still works if optional columns (runouts, stumpings, pts_runout, …)
@@ -100,6 +101,7 @@ async function getData(competitionId: number | null) {
 
   let yourCumulative = 0;
   let oppCumulative = 0;
+  const allPart2 = [yourName, opponentName];
   const matchStats: MatchStatRow[] = (matches ?? []).map((m: any) => {
     const mp = playersByMatch[m.id] ?? [];
     const voided = voidedMatchIds.has(m.id);
@@ -107,13 +109,30 @@ async function getData(competitionId: number | null) {
     const oppPlayers = mp.filter((p) => p.side !== player1Side);
     const yourPtsRaw = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     const oppPtsRaw = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
-    const yourPts = voided ? 0 : yourPtsRaw;
-    const oppPts = voided ? 0 : oppPtsRaw;
+    const lateMeta = {
+      lineup_lateness_enabled: m.lineup_lateness_enabled,
+      lineup_late_participant: m.lineup_late_participant,
+      lineup_late_participants: m.lineup_late_participants,
+      lineup_lateness_points: m.lineup_lateness_points,
+    };
+    const latenessOpts2 = { voided, allParticipantNames: allPart2 };
+    const yourAdj = voided ? 0 : lineupLatenessSideAdjustment(lateMeta, yourName, latenessOpts2);
+    const oppAdj = voided ? 0 : lineupLatenessSideAdjustment(lateMeta, opponentName, latenessOpts2);
+    const yourPts = voided ? 0 : yourPtsRaw + yourAdj;
+    const oppPts = voided ? 0 : oppPtsRaw + oppAdj;
     yourCumulative += yourPts;
     oppCumulative += oppPts;
 
     const winner =
-      voided ? null : yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : yourPts > 0 ? "Tie" : null;
+      voided
+        ? null
+        : yourPts > oppPts
+          ? yourName
+          : oppPts > yourPts
+            ? opponentName
+            : (yourPts !== 0 || oppPts !== 0)
+              ? "Tie"
+              : null;
     const players = mp.map((p) => ({
       name: p.name,
       side: p.side as "You" | string,
@@ -137,7 +156,7 @@ async function getData(competitionId: number | null) {
       oppCumulative,
       winner,
       pointsDiff: Math.abs(yourPts - oppPts),
-      hasData: !voided && (yourPts > 0 || oppPts > 0),
+      hasData: !voided && (yourPts !== 0 || oppPts !== 0 || yourPtsRaw > 0 || oppPtsRaw > 0),
       isCurrent: Boolean(m.is_current),
       players,
     };
@@ -176,9 +195,17 @@ async function getData(competitionId: number | null) {
         const stumpings: Record<string, number> = {};
         const captainPts: Record<string, number> = {};
         const captainName: Record<string, string> = {};
+        const lateMetaM = {
+          lineup_lateness_enabled: m.lineup_lateness_enabled,
+          lineup_late_participant: m.lineup_late_participant,
+          lineup_late_participants: m.lineup_late_participants,
+          lineup_lateness_points: m.lineup_lateness_points,
+        };
+        const latenessOptsM = { voided, allParticipantNames: compPlayers };
         for (const name of compPlayers) {
           const sidePlayers = mp.filter((p: any) => p.side === name);
-          pts[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + fantasyPointsCounted(p, rules), 0);
+          const rawP = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + fantasyPointsCounted(p, rules), 0);
+          pts[name] = rawP + (voided ? 0 : lineupLatenessSideAdjustment(lateMetaM, name, latenessOptsM));
           runs[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.runs ?? 0), 0);
           wickets[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.wickets ?? 0), 0);
           catches[name] = voided ? 0 : sidePlayers.reduce((s: number, p: any) => s + (p.catches ?? 0), 0);
@@ -188,9 +215,9 @@ async function getData(competitionId: number | null) {
           captainPts[name] = voided || !cap ? 0 : fantasyPointsCounted(cap, rules);
           captainName[name] = cap?.name ?? "—";
         }
-        const hasData = !voided && Object.values(pts).some(v => v > 0);
-        const maxPts = Math.max(0, ...Object.values(pts));
-        const leaders = compPlayers.filter(n => pts[n] === maxPts && maxPts > 0);
+        const hasData = !voided && Object.values(pts).some((v) => v !== 0);
+        const maxPts = Math.max(...Object.values(pts), 0);
+        const leaders = compPlayers.filter((n) => pts[n] === maxPts && maxPts > 0);
         const winner = voided ? null : leaders.length === 1 ? leaders[0] : (hasData ? "Tie" : null);
         return {
           matchId: m.id as number,

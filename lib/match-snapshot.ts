@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { lateParticipantsList } from "@/lib/lineup-lateness";
 import {
   MANUAL_SCORE_SNAPSHOT_COOLDOWN_MS,
   MATCH_SNAPSHOT_MAX_PER_MATCH,
@@ -14,7 +15,7 @@ export {
 export { SNAPSHOT_SOURCE_LABEL } from "@/lib/match-snapshot-constants";
 
 const MATCH_SELECT =
-  "id, status, live_summary, fantasy_voided, fixture, venue, toss_winner, source_url, last_synced_at, provider_squad_json";
+  "id, status, live_summary, fantasy_voided, fixture, venue, toss_winner, source_url, last_synced_at, provider_squad_json, lineup_lateness_enabled, lineup_late_participant, lineup_late_participants, lineup_lateness_points";
 
 const PLAYER_SELECT =
   "match_id, side, name, captain, bench, runs, wickets, catches, runouts, stumpings, fifty_bonus, hundred_bonus, three_w_bonus, five_w_bonus, mom_bonus, provider_player_id, competition_id";
@@ -30,6 +31,10 @@ export type MatchSnapshotPayload = {
     source_url: string | null;
     last_synced_at: string | null;
     provider_squad_json: unknown | null;
+    lineup_lateness_enabled: boolean;
+    lineup_late_participant: string | null;
+    lineup_late_participants: string[] | null;
+    lineup_lateness_points: number;
   };
   players: Record<string, unknown>[];
 };
@@ -47,6 +52,10 @@ export async function buildMatchSnapshotPayload(matchId: number): Promise<MatchS
   if (pErr) throw new Error(pErr.message);
 
   const m = match as Record<string, unknown>;
+  const lateResolved = lateParticipantsList({
+    lineup_late_participant: m.lineup_late_participant as string | null,
+    lineup_late_participants: m.lineup_late_participants as string[] | null,
+  });
   return {
     match: {
       status: (m.status as string) ?? null,
@@ -58,6 +67,10 @@ export async function buildMatchSnapshotPayload(matchId: number): Promise<MatchS
       source_url: (m.source_url as string) ?? null,
       last_synced_at: m.last_synced_at != null ? String(m.last_synced_at) : null,
       provider_squad_json: m.provider_squad_json ?? null,
+      lineup_lateness_enabled: Boolean(m.lineup_lateness_enabled as boolean | undefined),
+      lineup_late_participant: lateResolved.length === 1 ? lateResolved[0]! : null,
+      lineup_late_participants: lateResolved.length > 0 ? lateResolved : null,
+      lineup_lateness_points: Math.max(1, Math.floor(Number(m.lineup_lateness_points) || 250)),
     },
     players: (players ?? []) as Record<string, unknown>[],
   };
@@ -165,7 +178,15 @@ export async function restoreMatchSnapshotById(
     }
   }
 
-  const m = payload.match;
+  const m = payload.match as MatchSnapshotPayload["match"] & Record<string, unknown>;
+  const legacyParticipant = m.lineup_late_participant as string | null | undefined;
+  const fromPayloadArr = m.lineup_late_participants;
+  const lateArr =
+    Array.isArray(fromPayloadArr) && fromPayloadArr.length > 0
+      ? (fromPayloadArr as string[]).map((s) => String(s).trim()).filter(Boolean)
+      : legacyParticipant?.trim()
+        ? [legacyParticipant.trim()]
+        : null;
   const { error: uErr } = await supabaseAdmin
     .from("matches")
     .update({
@@ -178,6 +199,10 @@ export async function restoreMatchSnapshotById(
       source_url: m.source_url,
       last_synced_at: m.last_synced_at,
       provider_squad_json: m.provider_squad_json,
+      lineup_lateness_enabled: m.lineup_lateness_enabled === true,
+      lineup_late_participant: lateArr && lateArr.length === 1 ? lateArr[0]! : null,
+      lineup_late_participants: lateArr,
+      lineup_lateness_points: Math.max(1, Math.floor(Number(m.lineup_lateness_points) || 250)),
     })
     .eq("id", matchId);
 

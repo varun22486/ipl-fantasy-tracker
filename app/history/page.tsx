@@ -8,6 +8,7 @@ import { formatFixture } from "@/lib/format";
 import { isTrackedMatchOnCalendarIstDay } from "@/lib/active-match";
 import { iplCalendarTodayIso, isLiveMatchStatus } from "@/lib/next-match";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
+import { lineupLatenessSideAdjustment } from "@/lib/lineup-lateness";
 import NavBar from "@/components/NavBar";
 import Link from "next/link";
 
@@ -101,18 +102,39 @@ async function getData(competitionId: number | null) {
     playersByMatch[mid].push(p);
   }
 
-  const matchRows: HistoryMatchRow[] = (matches ?? []).map((m: { id: number; fixture?: string; match_date?: string; is_current?: boolean; status?: string; live_summary?: string | null; fantasy_voided?: boolean | null }) => {
+  const matchRows: HistoryMatchRow[] = (matches ?? []).map(
+    (m: {
+    id: number;
+    fixture?: string;
+    match_date?: string;
+    is_current?: boolean;
+    status?: string;
+    live_summary?: string | null;
+    fantasy_voided?: boolean | null;
+    lineup_lateness_enabled?: boolean | null;
+    lineup_late_participant?: string | null;
+    lineup_late_participants?: string[] | null;
+    lineup_lateness_points?: number | null;
+  }) => {
     const mp = playersByMatch[m.id] ?? [];
     const voided = isPointsVoidedMatchStatus(m.status, m.live_summary, m.fantasy_voided);
+    const lateMeta = {
+      lineup_lateness_enabled: m.lineup_lateness_enabled,
+      lineup_late_participant: m.lineup_late_participant,
+      lineup_late_participants: m.lineup_late_participants,
+      lineup_lateness_points: m.lineup_lateness_points,
+    };
+    const latenessOptsH = (names: string[]) => ({ voided, allParticipantNames: names });
 
     if (isMulti) {
       const ptsByPlayer: Record<string, number> = {};
       for (const n of compPlayers) {
-        ptsByPlayer[n] = mp.filter((p) => p.side === n).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+        const rawN = voided ? 0 : mp.filter((p) => p.side === n).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+        ptsByPlayer[n] = rawN + (voided ? 0 : lineupLatenessSideAdjustment(lateMeta, n, latenessOptsH(compPlayers)));
       }
       if (voided) for (const n of compPlayers) ptsByPlayer[n] = 0;
-      const hasData = !voided && Object.values(ptsByPlayer).some((v) => v > 0);
-      const maxPts = Math.max(0, ...Object.values(ptsByPlayer));
+      const hasData = !voided && Object.values(ptsByPlayer).some((v) => v !== 0);
+      const maxPts = Math.max(...Object.values(ptsByPlayer), 0);
       const leaders = compPlayers.filter((n) => ptsByPlayer[n] === maxPts && maxPts > 0);
       const winner = voided || !hasData ? null : leaders.length === 1 ? leaders[0]! : "Tie";
       const sorted = [...compPlayers].sort((a, b) => (ptsByPlayer[b] ?? 0) - (ptsByPlayer[a] ?? 0));
@@ -147,10 +169,22 @@ async function getData(competitionId: number | null) {
       competitionId != null
         ? mp.filter((p) => p.side === opponentName).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
         : mp.filter((p) => p.side !== "You").reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
-    const yourPts = voided ? 0 : yourPtsRaw;
-    const oppPts = voided ? 0 : oppPtsRaw;
-    const hasData = !voided && (yourPts > 0 || oppPts > 0);
-    const winner = voided || !hasData ? null : yourPts > oppPts ? yourName : oppPts > yourPts ? opponentName : yourPts > 0 || oppPts > 0 ? "Tie" : null;
+    const twoNames = [yourName, opponentName];
+    const yourPts =
+      voided ? 0 : yourPtsRaw + lineupLatenessSideAdjustment(lateMeta, yourName, latenessOptsH(twoNames));
+    const oppPts =
+      voided ? 0 : oppPtsRaw + lineupLatenessSideAdjustment(lateMeta, opponentName, latenessOptsH(twoNames));
+    const hasData = !voided && (yourPts !== 0 || oppPts !== 0 || yourPtsRaw > 0 || oppPtsRaw > 0);
+    const winner =
+      voided || !hasData
+        ? null
+        : yourPts > oppPts
+          ? yourName
+          : oppPts > yourPts
+            ? opponentName
+            : (yourPts !== 0 || oppPts !== 0)
+              ? "Tie"
+              : null;
 
     return {
       matchId: m.id,

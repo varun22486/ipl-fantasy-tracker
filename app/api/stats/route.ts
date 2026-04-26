@@ -3,16 +3,22 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, fantasyPointsCounted, playerPoints } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
+import { lineupLatenessSideAdjustment } from "@/lib/lineup-lateness";
 
 export async function GET() {
   try {
     const [{ data: matches }, { data: allPlayers }, { data: settings }] = await Promise.all([
-      supabaseAdmin.from("matches").select("id,fixture,match_date,status,live_summary,fantasy_voided").order("id", { ascending: true }),
+      supabaseAdmin
+        .from("matches")
+        .select("id,fixture,match_date,status,live_summary,fantasy_voided,lineup_lateness_enabled,lineup_late_participant,lineup_late_participants,lineup_lateness_points")
+        .order("id", { ascending: true }),
       supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
-      supabaseAdmin.from("series_settings").select("opponent_name").limit(1).single(),
+      supabaseAdmin.from("series_settings").select("opponent_name,your_name").limit(1).single(),
     ]);
 
-    const opponentName = settings?.opponent_name ?? "Rahul";
+    const opponentName = String(settings?.opponent_name ?? "Rahul").trim() || "Rahul";
+    const yourName = String((settings as { your_name?: string } | null)?.your_name ?? "You").trim() || "You";
+    const allPart2 = [yourName, opponentName];
 
     const voidedMatchIds = new Set<number>();
     for (const m of matches ?? []) {
@@ -36,12 +42,31 @@ export async function GET() {
       const voided = voidedMatchIds.has(m.id);
       const yourPlayers = mp.filter((p) => p.side === "You");
       const oppPlayers = mp.filter((p) => p.side === "Rahul");
-      const yourPts = voided ? 0 : yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p), 0);
-      const oppPts = voided ? 0 : oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p), 0);
+      const yourPtsRaw = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p), 0);
+      const oppPtsRaw = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p), 0);
+      const lateMeta = {
+        lineup_lateness_enabled: m.lineup_lateness_enabled,
+        lineup_late_participant: m.lineup_late_participant,
+        lineup_late_participants: m.lineup_late_participants,
+        lineup_lateness_points: m.lineup_lateness_points,
+      };
+      const L = { voided, allParticipantNames: allPart2 };
+      const yourPts =
+        voided ? 0 : yourPtsRaw + lineupLatenessSideAdjustment(lateMeta, yourName, L);
+      const oppPts = voided ? 0 : oppPtsRaw + lineupLatenessSideAdjustment(lateMeta, opponentName, L);
       yourCumulative += yourPts;
       oppCumulative += oppPts;
 
-      const winner = voided ? null : yourPts > oppPts ? "You" : oppPts > yourPts ? opponentName : yourPts > 0 ? "Tie" : null;
+      const winner =
+        voided
+          ? null
+          : yourPts > oppPts
+            ? "You"
+            : oppPts > yourPts
+              ? opponentName
+              : (yourPts !== 0 || oppPts !== 0)
+                ? "Tie"
+                : null;
       const players = mp.map((p) => ({
         name: p.name,
         side: p.side,
@@ -64,7 +89,7 @@ export async function GET() {
         oppCumulative,
         winner,
         pointsDiff: Math.abs(yourPts - oppPts),
-        hasData: !voided && (yourPts > 0 || oppPts > 0),
+        hasData: !voided && (yourPts !== 0 || oppPts !== 0 || yourPtsRaw > 0 || oppPtsRaw > 0),
         players,
       };
     });

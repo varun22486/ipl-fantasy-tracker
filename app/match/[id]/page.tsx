@@ -16,11 +16,13 @@ import {
 } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
+import { DEFAULT_LINEUP_LATENESS_POINTS, lateParticipantsList, lineupLatenessSideAdjustment } from "@/lib/lineup-lateness";
 import NavBar from "@/components/NavBar";
 import SyncButton from "@/components/SyncButton";
 import ScoreEditor from "@/components/ScoreEditor";
 import MatchDetailLineupEditor from "@/components/MatchDetailLineupEditor";
 import VoidMatchControl from "@/components/VoidMatchControl";
+import LineupLatenessControl from "@/components/LineupLatenessControl";
 import Link from "next/link";
 import { formatRelativeTimeAgo, formatUiDateTime } from "@/lib/ui-time";
 
@@ -225,27 +227,47 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     cid == null ? players.filter((p) => p.side !== "You") : players.filter((p) => p.side === opponentName)
   );
 
-  const matchRow = match as typeof match & { fantasy_voided?: boolean | null };
+  const matchRow = match as typeof match & {
+    fantasy_voided?: boolean | null;
+    lineup_lateness_enabled?: boolean | null;
+    lineup_late_participant?: string | null;
+    lineup_late_participants?: string[] | null;
+    lineup_lateness_points?: number | null;
+    external_match_id?: string | null;
+  };
   const pointsVoided = isPointsVoidedMatchStatus(match.status, match.live_summary, matchRow.fantasy_voided);
   const manuallyVoided = matchRow.fantasy_voided === true;
 
-  const yourTotal = pointsVoided ? 0 : yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
-  const oppTotal = pointsVoided ? 0 : oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+  const lineupLatenessInput = {
+    lineup_lateness_enabled: matchRow.lineup_lateness_enabled,
+    lineup_late_participant: matchRow.lineup_late_participant,
+    lineup_late_participants: matchRow.lineup_late_participants,
+    lineup_lateness_points: matchRow.lineup_lateness_points,
+  };
+
+  const yourRaw = pointsVoided ? 0 : yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+  const oppRaw = pointsVoided ? 0 : oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+  const allPart = isMulti ? compPlayers : [yourName, opponentName];
+  const latenessOpts = { voided: pointsVoided, allParticipantNames: allPart };
+  const yourTotal = yourRaw + lineupLatenessSideAdjustment(lineupLatenessInput, yourName, latenessOpts);
+  const oppTotal = oppRaw + lineupLatenessSideAdjustment(lineupLatenessInput, opponentName, latenessOpts);
 
   const participantBlocks = isMulti
     ? compPlayers.map((name, i) => ({
         name,
         color: MULTI_COLORS[i % MULTI_COLORS.length],
         players: sortFantasyLineupForDisplay(players.filter((p) => p.side === name)),
-        total: pointsVoided
-          ? 0
-          : players.filter((p) => p.side === name).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0),
+        total:
+          (pointsVoided
+            ? 0
+            : players.filter((p) => p.side === name).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)) +
+          lineupLatenessSideAdjustment(lineupLatenessInput, name, latenessOpts),
       }))
     : null;
 
   const hasData = !pointsVoided && (isMulti
-    ? (participantBlocks ?? []).some((b) => b.total > 0)
-    : yourTotal > 0 || oppTotal > 0);
+    ? (participantBlocks ?? []).some((b) => b.total !== 0)
+    : yourTotal !== 0 || oppTotal !== 0 || yourRaw > 0 || oppRaw > 0);
 
   let winner: string | null = null;
   let diff = 0;
@@ -311,6 +333,19 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
               <SyncButton matchId={matchId} lastSyncedAt={match.last_synced_at ?? null} />
               <VoidMatchControl matchId={matchId} initialVoided={manuallyVoided} />
             </div>
+            <LineupLatenessControl
+              matchId={matchId}
+              competitionId={cid}
+              linked={Boolean(matchRow.external_match_id)}
+              participantOptions={isMulti ? compPlayers : [yourName, opponentName]}
+              initialEnabled={matchRow.lineup_lateness_enabled === true}
+              initialLateNames={lateParticipantsList(lineupLatenessInput)}
+              initialPoints={
+                typeof matchRow.lineup_lateness_points === "number" && matchRow.lineup_lateness_points > 0
+                  ? matchRow.lineup_lateness_points
+                  : DEFAULT_LINEUP_LATENESS_POINTS
+              }
+            />
             <div className="match-detail-hero__lineup">
               <MatchDetailLineupEditor
                 yourName={yourName}
