@@ -5,6 +5,8 @@ export const revalidate = 0;
 import { Suspense } from "react";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { FantasyPlayer, sortFantasyLineupForDisplay } from "@/lib/scoring";
+import { isPointsVoidedMatchStatus } from "@/lib/match-void";
+import { hasLineupLatenessActive, type MatchLineupLateness } from "@/lib/lineup-lateness";
 import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
@@ -110,11 +112,42 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
   const yourLineupSaved = yourPlayers.length > 0;
   const oppLineupSaved = oppPlayers.length > 0;
 
+  const matchRow = currentMatch as
+    | ({
+        status?: string | null;
+        live_summary?: string | null;
+        fantasy_voided?: boolean | null;
+        lineup_lateness_enabled?: boolean | null;
+        lineup_late_participant?: string | null;
+        lineup_late_participants?: string[] | null;
+        lineup_lateness_points?: number | null;
+      } & typeof currentMatch)
+    | null;
+  const pointsVoided = matchRow
+    ? isPointsVoidedMatchStatus(matchRow.status, matchRow.live_summary, matchRow.fantasy_voided)
+    : true;
+  const lineupLatenessInput: MatchLineupLateness | null = matchRow
+    ? {
+        lineup_lateness_enabled: matchRow.lineup_lateness_enabled,
+        lineup_late_participant: matchRow.lineup_late_participant,
+        lineup_late_participants: matchRow.lineup_late_participants,
+        lineup_lateness_points: matchRow.lineup_lateness_points,
+      }
+    : null;
+  const lineupLatenessActive = Boolean(
+    lineupLatenessInput && hasLineupLatenessActive(lineupLatenessInput, pointsVoided)
+  );
+
+  const nobodySavedBoth =
+    compPlayers.length > 2
+      ? allParticipantPlayers.length === 0 || allParticipantPlayers.every((b) => b.players.length === 0)
+      : !yourLineupSaved && !oppLineupSaved;
+
   const subtitle = !currentMatch
     ? "No match linked"
-    : !yourLineupSaved && !oppLineupSaved
-    ? `${currentMatch.fixture} — pick your teams to start`
-    : currentMatch.fixture;
+    : nobodySavedBoth && !lineupLatenessActive
+      ? `${String(currentMatch.fixture)} — pick your teams to start`
+      : currentMatch.fixture;
 
   const competitionSuffix = competitionId != null ? `&c=${encodeURIComponent(String(competitionId))}` : "";
   const selectedTabId = currentMatch?.id ?? 0;
@@ -157,6 +190,9 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         }))}
         competitionId={competitionId}
         allParticipants={allParticipantPlayers}
+        pointsVoided={pointsVoided}
+        lineupLatenessMeta={lineupLatenessInput}
+        lineupLatenessActive={lineupLatenessActive}
         />
       </Suspense>
     </main>

@@ -8,6 +8,8 @@ import PlayerTable from "@/components/PlayerTable";
 import ManualScorePanel from "@/components/ManualScorePanel";
 import SelectClient from "@/components/SelectClient";
 import { FantasyPlayer, teamPoints } from "@/lib/scoring";
+import type { MatchLineupLateness } from "@/lib/lineup-lateness";
+import { lineupLatenessSideAdjustment } from "@/lib/lineup-lateness";
 import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
@@ -66,9 +68,33 @@ type Props = {
   competitionId?: number | null;
   /** For 3+ player competitions — all participants and their picks */
   allParticipants?: { name: string; players: FantasyPlayer[] }[];
+  pointsVoided?: boolean;
+  lineupLatenessMeta?: MatchLineupLateness | null;
+  /** True when on-time bonus rule applies (show scores even if no lineups). */
+  lineupLatenessActive?: boolean;
 };
 
-export default function MatchClient({ yourName, opponentName, yourFantasyPlayers, opponentFantasyPlayers, matchId, currentMatch, hasLinkedMatch, yourLineupSaved, opponentLineupSaved, rosterNames, squads, nameToId, existingYourPlayers, existingOppPlayers, competitionId, allParticipants }: Props) {
+export default function MatchClient({
+  yourName,
+  opponentName,
+  yourFantasyPlayers,
+  opponentFantasyPlayers,
+  matchId,
+  currentMatch,
+  hasLinkedMatch,
+  yourLineupSaved,
+  opponentLineupSaved,
+  rosterNames,
+  squads,
+  nameToId,
+  existingYourPlayers,
+  existingOppPlayers,
+  competitionId,
+  allParticipants,
+  pointsVoided = false,
+  lineupLatenessMeta = null,
+  lineupLatenessActive = false,
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   /** Prefer `?m=` from the URL when set so Sync matches the tab/chip the user opened (same as server RSC after navigation). */
@@ -81,10 +107,11 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   // Show inline team picker only when NO ONE has saved yet (truly fresh start).
   // Once any participant has saved, show the live view — the pending banner
   // guides remaining participants to pick via "Pick teams →".
+  // On-time lineup bonus active: show points (bonus-only may apply) even if no lineups.
   const nobodyHasSaved = isMultiPlayer
     ? (allParticipants ?? []).length === 0 || (allParticipants ?? []).every(p => p.players.length === 0)
     : !yourLineupSaved && !opponentLineupSaved;
-  const needsSetup = nobodyHasSaved && hasLinkedMatch;
+  const needsSetup = nobodyHasSaved && hasLinkedMatch && !lineupLatenessActive;
   const [teamPickerOpen, setTeamPickerOpen] = useState(needsSetup);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
@@ -127,6 +154,10 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     refreshKeyStatsBundle();
   }, [refreshKeyStatsBundle]);
 
+  useEffect(() => {
+    if (lineupLatenessActive) setTeamPickerOpen(false);
+  }, [lineupLatenessActive]);
+
   const addUsage = useCallback((n: number) => {
     setApiUsed((prev) => { const next = prev + n; saveQuota(next); return next; });
   }, []);
@@ -137,15 +168,26 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
   const isNearLimit = apiUsed >= warnAt && remaining > 0;
   const isAtLimit = remaining <= 0;
 
-  const yourTotal = teamPoints(yourFantasyPlayers);
-  const oppTotal = teamPoints(opponentFantasyPlayers);
+  const allPartNames = isMultiPlayer
+    ? (allParticipants ?? []).map((p) => p.name)
+    : [yourName, opponentName];
+  const latenessOpts = { voided: pointsVoided, allParticipantNames: allPartNames };
+  const withLateness = (name: string, raw: number) =>
+    raw + (lineupLatenessMeta ? lineupLatenessSideAdjustment(lineupLatenessMeta, name, latenessOpts) : 0);
+
+  const yourTotal = withLateness(yourName, teamPoints(yourFantasyPlayers));
+  const oppTotal = withLateness(opponentName, teamPoints(opponentFantasyPlayers));
   const leader = yourTotal === oppTotal ? "Tied" : yourTotal > oppTotal ? `You +${yourTotal - oppTotal}` : `${opponentName} +${oppTotal - yourTotal}`;
 
   /** Per-participant totals for 3+ player comps — do not use opponentFantasyPlayers (that merges everyone except player 1). */
   const multiScoreboard =
     isMultiPlayer && allParticipants && allParticipants.length > 0
       ? allParticipants
-          .map((p) => ({ name: p.name, players: p.players, total: teamPoints(p.players) }))
+          .map((p) => ({
+            name: p.name,
+            players: p.players,
+            total: withLateness(p.name, teamPoints(p.players)),
+          }))
           .sort((a, b) => b.total - a.total)
       : null;
 
@@ -416,7 +458,7 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
     <div style={{ display: "grid", gap: 20 }}>
 
       {/* Pending lineups banner */}
-      {pendingPickers.length > 0 && (
+      {pendingPickers.length > 0 && !lineupLatenessActive && (
         <div style={{ padding: "12px 16px", borderRadius: 14, background: "#fffbeb", border: "1px solid #fde68a", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <div style={{ fontSize: 14, color: "#92400e" }}>
             ⏳ <strong>{pendingPickers.join(", ")}</strong> {pendingPickers.length === 1 ? "hasn't" : "haven't"} picked {pendingPickers.length === 1 ? "their" : "their"} team yet — scores will show as 0.
@@ -438,6 +480,29 @@ export default function MatchClient({ yourName, opponentName, yourFantasyPlayers
           >
             Pick teams →
           </button>
+        </div>
+      )}
+
+      {pendingPickers.length > 0 && lineupLatenessActive && (
+        <div
+          style={{
+            padding: "12px 16px",
+            borderRadius: 14,
+            background: "#f0fdf4",
+            border: "1px solid #bbf7d0",
+            fontSize: 14,
+            color: "#166534",
+          }}
+        >
+          On-time lineup bonus is on: totals show fantasy points plus the bonus for anyone who was not late. You can still{" "}
+          <button
+            type="button"
+            onClick={() => setTeamPickerOpen(true)}
+            style={{ padding: 0, border: "none", background: "none", color: "#15803d", fontWeight: 700, textDecoration: "underline", cursor: "pointer" }}
+          >
+            add lineups
+          </button>{" "}
+          if needed.
         </div>
       )}
 
