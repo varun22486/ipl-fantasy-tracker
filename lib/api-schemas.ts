@@ -29,6 +29,8 @@ export const refreshPostSchema = z.preprocess(
         .optional(),
       /** When true, skip the 15‑minute cooldown (user confirmed in the UI). */
       force: z.boolean().optional(),
+      /** When true, after CricAPI yields no scorecard rows, try the optional Cricbuzz HTML fallback. */
+      cricbuzzFallback: z.boolean().optional(),
     })
     .passthrough()
 );

@@ -1,11 +1,73 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { refreshMatchFromProvider } from "@/lib/cricket-provider";
+import { refreshMatchFromProvider, isAppUsingCricapiProvider, type ProviderRefresh } from "@/lib/cricket-provider";
 import { refreshPostSchema } from "@/lib/api-schemas";
 import { getDefaultActiveMatchRowForSync } from "@/lib/active-match";
 import { VOIDED_MATCH_FANTASY_SCORES, isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { createMatchSnapshot } from "@/lib/match-snapshot";
 import { REFRESH_COOLDOWN_MS } from "@/lib/refresh-cooldown";
+import { recordFantasyAuditEvent } from "@/lib/match-audit";
+
+function canTryCricbuzzFallback(opts: {
+  voided: boolean;
+  providerRowCount: number;
+  providerFetchPath: string | undefined;
+  linked: boolean;
+  cricapiProvider: boolean;
+}): boolean {
+  if (!opts.cricapiProvider || !opts.linked || opts.voided) return false;
+  if (opts.providerRowCount > 0) return false;
+  if (String(opts.providerFetchPath ?? "").startsWith("cricbuzz:")) return false;
+  return true;
+}
+
+function extractCricbuzzNumericId(path: string | undefined): string | null {
+  const p = String(path ?? "");
+  const m = /^cricbuzz:\/\/live-cricket-scorecard\/(\d+)/i.exec(p);
+  return m ? m[1]! : null;
+}
+
+async function maybeRecordCricbuzzAudit(opts: {
+  matchId: number;
+  externalMatchId: string;
+  payload: ProviderRefresh;
+  manualCricbuzzRequest: boolean;
+}): Promise<void> {
+  const path = opts.payload.providerFetchPath ?? "";
+  const fromCricbuzz = path.startsWith("cricbuzz:");
+  if (fromCricbuzz && opts.payload.players.length > 0) {
+    await recordFantasyAuditEvent({
+      matchId: opts.matchId,
+      competitionId: null,
+      action: "cricbuzz_scorecard",
+      side: null,
+      summary: `Cricbuzz scorecard: ${opts.payload.players.length} provider row(s)`,
+      detail: {
+        externalMatchId: opts.externalMatchId,
+        providerFetchPath: path,
+        cricbuzzMatchId: extractCricbuzzNumericId(path),
+        providerRowCount: opts.payload.players.length,
+        manualRequest: opts.manualCricbuzzRequest,
+        outcome: "parsed_rows",
+      },
+    });
+    return;
+  }
+  if (opts.manualCricbuzzRequest && !fromCricbuzz && opts.payload.players.length === 0) {
+    await recordFantasyAuditEvent({
+      matchId: opts.matchId,
+      competitionId: null,
+      action: "cricbuzz_scorecard",
+      side: null,
+      summary: "Cricbuzz fallback: no scorecard rows after fetch",
+      detail: {
+        externalMatchId: opts.externalMatchId,
+        outcome: "no_rows",
+        manualRequest: true,
+      },
+    });
+  }
+}
 
 type SelectedPlayer = {
   id: number;
@@ -345,7 +407,9 @@ async function doRefresh(matchId?: number) {
 
 export async function GET(request: Request) {
   try {
-    const force = new URL(request.url).searchParams.get("force") === "1";
+    const url = new URL(request.url);
+    const force = url.searchParams.get("force") === "1";
+    const cricbuzzFallback = url.searchParams.get("cricbuzz") === "1";
     const currentMatch = await doRefresh();
 
     if (!currentMatch?.external_match_id) {
@@ -357,7 +421,7 @@ export async function GET(request: Request) {
     const now = Date.now();
     const lastSyncedMax = maxLastSyncedMsAmong(rowsToSync);
 
-    if (!force && lastSyncedMax && now - lastSyncedMax < REFRESH_COOLDOWN_MS) {
+    if (!force && !cricbuzzFallback && lastSyncedMax && now - lastSyncedMax < REFRESH_COOLDOWN_MS) {
       const mins = Math.max(1, Math.ceil((REFRESH_COOLDOWN_MS - (now - lastSyncedMax)) / 60_000));
       return NextResponse.json(
         {
@@ -379,6 +443,8 @@ export async function GET(request: Request) {
 
     const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id), {
       storedProviderSquad: currentMatch.provider_squad_json,
+      fixtureFromDb: String(currentMatch.fixture ?? "").trim() || undefined,
+      cricbuzzFallback: cricbuzzFallback || undefined,
     });
 
     const { incomingById, incomingByVariant } = buildIncomingLookups(payload);
@@ -417,6 +483,16 @@ export async function GET(request: Request) {
     const matchIdsSynced = rowsToSync.map((r) => Number(r.id));
     const multi = rowsToSync.length > 1;
 
+    const cricapiProviderMode = isAppUsingCricapiProvider();
+    if (!voided) {
+      await maybeRecordCricbuzzAudit({
+        matchId: Number(currentMatch.id),
+        externalMatchId: String(currentMatch.external_match_id),
+        payload,
+        manualCricbuzzRequest: cricbuzzFallback,
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       skipped: false,
@@ -447,6 +523,15 @@ export async function GET(request: Request) {
         status: payload.status || currentMatch.status,
         syncedAt,
         sourceUrl: payload.source_url ?? currentMatch.source_url,
+        providerFetchPath: payload.providerFetchPath ?? null,
+        canTryCricbuzzFallback: canTryCricbuzzFallback({
+          voided,
+          providerRowCount: payload.players.length,
+          providerFetchPath: payload.providerFetchPath,
+          linked: Boolean(currentMatch.external_match_id),
+          cricapiProvider: cricapiProviderMode,
+        }),
+        cricapiProviderMode,
       },
     });
   } catch (error) {
@@ -477,6 +562,7 @@ export async function POST(req: Request) {
     }
     const matchId = parsed.data.matchId;
     const force = parsed.data.force === true;
+    const cricbuzzFallback = parsed.data.cricbuzzFallback === true;
 
     const currentMatch = await doRefresh(matchId);
 
@@ -502,7 +588,7 @@ export async function POST(req: Request) {
     const now = Date.now();
     const lastSyncedMax = maxLastSyncedMsAmong(rowsToSync);
 
-    if (!force && lastSyncedMax && now - lastSyncedMax < REFRESH_COOLDOWN_MS) {
+    if (!force && !cricbuzzFallback && lastSyncedMax && now - lastSyncedMax < REFRESH_COOLDOWN_MS) {
       const mins = Math.max(1, Math.ceil((REFRESH_COOLDOWN_MS - (now - lastSyncedMax)) / 60_000));
       return NextResponse.json(
         {
@@ -524,6 +610,8 @@ export async function POST(req: Request) {
 
     const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id), {
       storedProviderSquad: currentMatch.provider_squad_json,
+      fixtureFromDb: String(currentMatch.fixture ?? "").trim() || undefined,
+      cricbuzzFallback: cricbuzzFallback || undefined,
     });
 
     const { incomingById, incomingByVariant } = buildIncomingLookups(payload);
@@ -560,6 +648,16 @@ export async function POST(req: Request) {
     const matchIdsSynced = rowsToSync.map((r) => Number(r.id));
     const multi = rowsToSync.length > 1;
 
+    const cricapiProviderMode = isAppUsingCricapiProvider();
+    if (!voided) {
+      await maybeRecordCricbuzzAudit({
+        matchId: Number(currentMatch.id),
+        externalMatchId: String(currentMatch.external_match_id),
+        payload,
+        manualCricbuzzRequest: cricbuzzFallback,
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       skipped: false,
@@ -579,11 +677,25 @@ export async function POST(req: Request) {
         matchIdsSynced,
         externalMatchId: currentMatch.external_match_id,
         selectedCount: totalSelected,
+        providerRowCount: payload.players.length,
         updatedRows,
         matched,
         unmatched,
         providerPlayersSample: summarizeNames(payload.players.map((p) => p.name)),
+        rosterCount: payload.rosterNames.length,
+        fixture: payload.fixture || currentMatch.fixture,
+        status: payload.status || currentMatch.status,
         syncedAt,
+        sourceUrl: payload.source_url ?? currentMatch.source_url,
+        providerFetchPath: payload.providerFetchPath ?? null,
+        canTryCricbuzzFallback: canTryCricbuzzFallback({
+          voided,
+          providerRowCount: payload.players.length,
+          providerFetchPath: payload.providerFetchPath,
+          linked: Boolean(currentMatch.external_match_id),
+          cricapiProvider: cricapiProviderMode,
+        }),
+        cricapiProviderMode,
       },
     });
   } catch (error) {

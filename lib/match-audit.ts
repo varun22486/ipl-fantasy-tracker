@@ -33,7 +33,7 @@ export function isLateMatchChangeContext(
   return Date.now() > t0 + LATE_CHANGE_GRACE_MS;
 }
 
-export type AuditAction = "lineup_change" | "manual_score";
+export type AuditAction = "lineup_change" | "manual_score" | "cricbuzz_scorecard";
 
 export async function recordFantasyAuditEvent(opts: {
   matchId: number;

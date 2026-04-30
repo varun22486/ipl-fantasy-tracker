@@ -14,6 +14,7 @@ import {
 } from "@/lib/ipl-series-feed";
 import { parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { parseStoredProviderSquad } from "@/lib/provider-squad-json";
+import { tryCricbuzzScorecardFallback } from "@/lib/cricbuzz-scorecard-fallback";
 
 const DEFAULT_BASE_URL = "https://api.cricapi.com";
 
@@ -198,6 +199,10 @@ export type RefreshMatchFromProviderOptions = {
    * and extra `match_squad` API calls are skipped (scorecard still fetched for stats).
    */
   storedProviderSquad?: unknown;
+  /** DB `matches.fixture` — helps optional Cricbuzz HTML fallback resolve the right Cricbuzz match id. */
+  fixtureFromDb?: string;
+  /** Manual sync: try Cricbuzz HTML when env auto-fallback is off. */
+  cricbuzzFallback?: boolean;
 };
 
 function cleanEnvText(value: string | undefined | null) {
@@ -266,6 +271,11 @@ function isQuotaErrorMsg(msg: string): boolean {
 
 function isCricapiBase(baseUrl: string) {
   return /api\.cricapi\.com$/i.test(baseUrl);
+}
+
+/** True when the app targets CricketData/CricAPI — HTML fallback only runs in this mode. */
+export function isAppUsingCricapiProvider(): boolean {
+  return isCricapiBase(envBaseUrl());
 }
 
 function buildHeaders(apiKey: string): Record<string, string> {
@@ -1360,7 +1370,10 @@ function collectPlayerRows(node: any, bucket: PlayerStats[]) {
   //   Old: { bowler: "Krunal Pandya", w: 2, o: "4.0", r: 28 }
   //   New: { bowler: { id: "...", name: "Krunal Pandya" }, w: 2, o: 4, r: 26 }
   // "r" here = runs CONCEDED, not scored. Some feeds use `overs` instead of `o`.
-  const bowlerName = playerName(node.bowler);
+  let bowlerName = playerName(node.bowler);
+  if (!bowlerName && ("w" in node || "wickets" in node || "o" in node || "overs" in node)) {
+    bowlerName = playerName((node as MaybeRecord).player);
+  }
   if (bowlerName && ("w" in node || "o" in node || "overs" in node)) {
     bucket.push(bonusify({
       id: playerId(node.bowler),
@@ -3196,9 +3209,30 @@ export async function refreshMatchFromProvider(
     }
   }
 
-  const mergedOrLive = buildPlayerStatsFromScorecardData(data as MaybeRecord);
+  let dataRec = data as MaybeRecord;
+  let mergedOrLive = buildPlayerStatsFromScorecardData(dataRec);
+  let cricbuzzFallbackPath: string | undefined;
 
-  const dataRec = data as MaybeRecord;
+  const cricbuzzFromEnv = /^1|true|yes$/i.test(cleanEnvText(process.env.CRICKET_CRICBUZZ_FALLBACK));
+  const cricbuzzManual = options?.cricbuzzFallback === true;
+  if (mergedOrLive.length === 0 && isCricapi && (cricbuzzFromEnv || cricbuzzManual)) {
+    const fixtureForCb =
+      cleanEnvText(options?.fixtureFromDb) ||
+      safeString(dataRec.name || dataRec.title || dataRec.fixture || "");
+    try {
+      const fb = await tryCricbuzzScorecardFallback(fixtureForCb);
+      if (fb?.tree) {
+        dataRec = { ...dataRec, ...(fb.tree as MaybeRecord) };
+        mergedOrLive = buildPlayerStatsFromScorecardData(dataRec);
+        if (mergedOrLive.length > 0) {
+          cricbuzzFallbackPath = `cricbuzz://live-cricket-scorecard/${fb.matchId}`;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   const pickedApiLine = pickBestApiSummaryLine(dataRec, payload as MaybeRecord);
   const statusBlob =
     pickedApiLine || safeString(data.update || data.status || (payload as MaybeRecord).status || "");
@@ -3303,7 +3337,7 @@ export async function refreshMatchFromProvider(
     nameToId,
     raw: payload,
     mergedParseTree: options?.includeMergedParseTree ? (dataRec as MaybeRecord) : undefined,
-    providerFetchPath: providerFetchPath || undefined,
+    providerFetchPath: cricbuzzFallbackPath || providerFetchPath || undefined,
     manOfTheMatchSynced,
   };
 }

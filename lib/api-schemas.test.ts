@@ -32,9 +32,13 @@ describe("refreshPostSchema", () => {
     expect(refreshPostSchema.safeParse({ matchId: -1 }).success).toBe(false);
     expect(refreshPostSchema.safeParse({ matchId: "x" }).success).toBe(false);
   });
-  it("treats null matchId as omitted", () => {
-    const r = refreshPostSchema.safeParse({ matchId: null });
+  it("accepts cricbuzzFallback with matchId", () => {
+    const r = refreshPostSchema.safeParse({ matchId: 5, force: true, cricbuzzFallback: true });
     expect(r.success).toBe(true);
-    if (r.success) expect(r.data.matchId).toBeUndefined();
+    if (r.success) {
+      expect(r.data.matchId).toBe(5);
+      expect(r.data.force).toBe(true);
+      expect(r.data.cricbuzzFallback).toBe(true);
+    }
   });
 });

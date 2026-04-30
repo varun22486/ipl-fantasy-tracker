@@ -228,7 +228,7 @@ create table if not exists fantasy_audit_events (
   summary text not null,
   detail jsonb not null default '{}'::jsonb,
   created_at timestamp with time zone not null default now(),
-  constraint fantasy_audit_events_action_check check (action in ('lineup_change', 'manual_score'))
+  constraint fantasy_audit_events_action_check check (action in ('lineup_change', 'manual_score', 'cricbuzz_scorecard'))
 );
 create index if not exists fantasy_audit_events_match_created_idx
   on fantasy_audit_events (match_id, created_at desc);

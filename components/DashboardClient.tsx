@@ -163,6 +163,7 @@ export default function DashboardClient({
   const [apiUsed, setApiUsed] = useState(0);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number; label: string } | null>(null);
   const [showSyncCooldownPrompt, setShowSyncCooldownPrompt] = useState(false);
+  const [showCricbuzzFallbackBtn, setShowCricbuzzFallbackBtn] = useState(false);
   const [keyStats, setKeyStats] = useState<{ alias: string; hits: number; remaining: number; blocked?: boolean }[]>([]);
   const [quotaCap, setQuotaCap] = useState(FALLBACK_QUOTA_CAP);
 
@@ -360,26 +361,37 @@ export default function DashboardClient({
     await doRefreshNow();
   }
 
-  async function doRefreshNow(opts?: { force?: boolean }) {
-    const force = opts?.force === true;
+  async function doRefreshNow(opts?: { force?: boolean; cricbuzzFallback?: boolean }) {
+    const force = opts?.force === true || opts?.cricbuzzFallback === true;
+    const cricbuzzFallback = opts?.cricbuzzFallback === true;
     setShowSyncCooldownPrompt(false);
     setSyncing(true);
     setMessage("Syncing from cricket source...");
     try {
-      const res = await fetch("/api/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force }) });
+      const res = await fetch("/api/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force, cricbuzzFallback }),
+      });
       const json = await res.json();
       setSyncing(false);
       recordSyncDebugClient(null, json as Record<string, unknown>, "dashboard-refresh");
       if (json.ok) {
         addUsage(1);
         refreshKeyStatsBundle();
+        const canTry = Boolean((json.debug as { canTryCricbuzzFallback?: boolean } | undefined)?.canTryCricbuzzFallback);
+        setShowCricbuzzFallbackBtn(canTry);
         setMessage(json.message || "Scores updated!");
-        window.setTimeout(() => window.location.reload(), 1200);
+        if (!canTry) {
+          window.setTimeout(() => window.location.reload(), 1200);
+        }
       } else {
+        setShowCricbuzzFallbackBtn(false);
         setMessage(json.error || "Refresh failed.");
       }
     } catch {
       setSyncing(false);
+      setShowCricbuzzFallbackBtn(false);
       setMessage("Network error during sync.");
     }
   }
@@ -524,6 +536,22 @@ export default function DashboardClient({
             <span style={{ fontSize: 13, color: "#475569" }}>{message}</span>
           )}
         </div>
+
+        {showCricbuzzFallbackBtn && (
+          <div style={{ ...syncBarStyle, flexDirection: "column", alignItems: "stretch", gap: 10, marginTop: 4 }}>
+            <span style={{ fontSize: 13, color: "#64748b" }}>
+              CricketData returned no scorecard rows. Pull <strong>runs and wickets</strong> from Cricbuzz (unofficial).
+            </span>
+            <button
+              type="button"
+              disabled={syncing || isAtLimit}
+              style={buttonStyleSecondary}
+              onClick={() => guardedRun(1, "Cricbuzz scorecard", () => doRefreshNow({ cricbuzzFallback: true }))}
+            >
+              {syncing ? "Loading…" : "Pull from Cricbuzz"}
+            </button>
+          </div>
+        )}
 
         {showSyncCooldownPrompt && (
           <div style={{ ...quotaWarnPanelStyle, borderColor: "#bfdbfe", background: "#f0f9ff" }}>

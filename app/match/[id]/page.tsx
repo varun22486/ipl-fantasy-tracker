@@ -332,7 +332,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
               <div className="match-detail-hero__sub match-detail-hero__sub--tight">Toss: {match.toss_winner}</div>
             )}
             <div className="match-detail-hero__actions">
-              <SyncButton matchId={matchId} lastSyncedAt={match.last_synced_at ?? null} />
+              <SyncButton matchId={matchId} lastSyncedAt={match.last_synced_at ?? null} pointsVoided={pointsVoided} />
               <VoidMatchControl matchId={matchId} initialVoided={manuallyVoided} />
             </div>
             <LineupLatenessControl

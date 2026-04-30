@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Smoke test: CricAPI reachability, IPL-only filtering, scorecard roster shape."""
+"""Smoke test: CricAPI reachability, IPL-only filtering, scorecard roster shape.
+
+Usage:
+  python3 scripts/smoke_ipl.py
+      Run full flow: currentMatches → pick first IPL → scorecard + match_points.
+
+  python3 scripts/smoke_ipl.py 05d33d50-3efe-42f9-98f7-1f363a2f153a
+      Debug one linked fixture by CricAPI match UUID (skips currentMatches).
+
+App-side parsing (same as Sync scores): with Next running,
+  curl -sS "http://localhost:3000/api/debug-scorecard?id=<uuid>" | python3 -m json.tool
+"""
 from __future__ import annotations
 
 import json
@@ -169,51 +180,68 @@ def test_ipl_filter_offline() -> None:
 
 
 def main() -> int:
+    argv_id = sys.argv[1].strip() if len(sys.argv) > 1 else ""
+    # Optional: `python3 scripts/smoke_ipl.py <cricapi-match-uuid>` — debug one linked fixture (no currentMatches pick).
+    direct_mid = argv_id if re.match(r"^[0-9a-f-]{32,}$", argv_id, re.I) else ""
+
     print("0) Offline IPL filter checks …")
     test_ipl_filter_offline()
 
     keys = load_cricket_keys()
-    print(f"1) Fetching currentMatches ({len(keys)} key(s) to try) …")
-    try:
-        data, _ = api_get("/v1/currentMatches", keys, "currentMatches")
-    except urllib.error.HTTPError as e:
-        print(f"FAIL: HTTP {e.code}")
-        return 1
-    except RuntimeError as e:
-        print(f"SKIP (live): {e}")
-        print("   Logic tests passed; re-run when API quota resets to validate live + scorecard.")
-        return 0
-    except Exception as e:
-        print(f"FAIL: {e}")
-        return 1
 
-    raw_matches = data.get("data") or []
-    if not isinstance(raw_matches, list):
-        raw_matches = []
+    if direct_mid:
+        mid = direct_mid
+        print(f"1) Using CricAPI match id from argv: {mid!r}")
+        desc = "(argv — skipped currentMatches)"
+        print(f"2) Target fixture: {desc}")
+    else:
+        print(f"1) Fetching currentMatches ({len(keys)} key(s) to try) …")
+        try:
+            data, _ = api_get("/v1/currentMatches", keys, "currentMatches")
+        except urllib.error.HTTPError as e:
+            print(f"FAIL: HTTP {e.code}")
+            return 1
+        except RuntimeError as e:
+            print(f"SKIP (live): {e}")
+            print("   Logic tests passed; re-run when API quota resets to validate live + scorecard.")
+            return 0
+        except Exception as e:
+            print(f"FAIL: {e}")
+            return 1
 
-    print(f"   Raw match count: {len(raw_matches)}")
+        raw_matches = data.get("data") or []
+        if not isinstance(raw_matches, list):
+            raw_matches = []
 
-    ipl = [m for m in raw_matches if isinstance(m, dict) and is_probably_ipl(m)]
-    print(f"   After IPL filter: {len(ipl)}")
+        print(f"   Raw match count: {len(raw_matches)}")
 
-    if not ipl:
-        print("WARN: No IPL matches in currentMatches right now (off-season or empty feed). IPL filter logic ran OK.")
-        print("PASS: API + filter (no fixture to scorecard-test)")
-        return 0
+        ipl = [m for m in raw_matches if isinstance(m, dict) and is_probably_ipl(m)]
+        print(f"   After IPL filter: {len(ipl)}")
 
-    pick = ipl[0]
-    mid = pick.get("id") or pick.get("matchId")
-    desc = pick.get("name") or pick.get("matchDesc") or pick.get("title") or str(mid)
-    print(f"2) Picked IPL fixture: {desc!r} id={mid!r}")
+        if not ipl:
+            print("WARN: No IPL matches in currentMatches right now (off-season or empty feed). IPL filter logic ran OK.")
+            print("PASS: API + filter (no fixture to scorecard-test)")
+            print("   Tip: pass a match UUID:  python3 scripts/smoke_ipl.py <cricapi-uuid>")
+            return 0
+
+        pick = ipl[0]
+        mid = pick.get("id") or pick.get("matchId")
+        desc = pick.get("name") or pick.get("matchDesc") or pick.get("title") or str(mid)
+        print(f"2) Picked IPL fixture: {desc!r} id={mid!r}")
 
     print("3) Fetching match_scorecard (roster / sync shape) …")
     try:
         sc, _ = api_get(f"/v1/match_scorecard?id={urllib.parse.quote(str(mid))}", keys, "match_scorecard")
-    except RuntimeError as e:
+    except (RuntimeError, Exception) as e:
         print(f"FAIL: scorecard {e}")
-        return 1
-    except Exception as e:
-        print(f"FAIL: scorecard {e}")
+        print("   (Probing match_points on same id — sometimes scorecard 404s first.)")
+        try:
+            mp, mp_key = api_get(f"/v1/match_points?id={urllib.parse.quote(str(mid))}", keys, "match_points")
+            mp_data = mp.get("data") or {}
+            print(f"   match_points: OK with key {mp_key!r}, data keys: {list(mp_data)[:12] if isinstance(mp_data, dict) else type(mp_data)}")
+        except Exception as mp_e:
+            print(f"   match_points: {mp_e}")
+        print("   If both fail, the UUID is wrong or CricAPI no longer has this fixture; re-link from currentMatches.")
         return 1
 
     inner = sc.get("data") or {}
@@ -237,8 +265,35 @@ def main() -> int:
     if inn_n == 1:
         print("   NOTE: Single-innings scorecard → ~6 batters + ~6 bowlers without match_squad merge.")
 
+    # Quick batting-row shape probe (first innings)
+    if isinstance(scorecard, list) and scorecard and isinstance(scorecard[0], dict):
+        inn0 = scorecard[0]
+        for key in ("batting", "batsman", "batsmen", "batters"):
+            rows = inn0.get(key)
+            if isinstance(rows, list) and rows:
+                print(f"   innings[0].{key}: {len(rows)} row(s); first keys: {list(rows[0].keys()) if isinstance(rows[0], dict) else type(rows[0])}")
+                break
+        else:
+            print("   innings[0]: no batting/batsman/batsmen/batters array found (keys: %s)" % list(inn0.keys())[:20])
+
+    print("4) Fetching match_points (alternate path app tries on sync) …")
+    try:
+        mp, mp_key = api_get(f"/v1/match_points?id={urllib.parse.quote(str(mid))}", keys, "match_points")
+        mp_data = mp.get("data") or {}
+        if isinstance(mp_data, dict):
+            mp_sc = mp_data.get("scorecard")
+            mp_inn = len(mp_sc) if isinstance(mp_sc, list) else 0
+            print(f"   match_points scorecard innings: {mp_inn} (key {mp_key})")
+        else:
+            print(f"   match_points data type: {type(mp_data)}")
+    except Exception as e:
+        print(f"   match_points: {e}")
+
     if team_players < 4 and inn_n < 1 and not (isinstance(batting_top, list) and len(batting_top) > 0):
         print("WARN: Unexpected scorecard shape; app still has batting / squad fallbacks.")
+        if direct_mid:
+            print("   Full app pipeline: run dev server then:")
+            print(f"   curl -sS \"http://localhost:3000/api/debug-scorecard?id={mid}\" | python3 -m json.tool | head -80")
     else:
         print("   Roster-related fields look usable (mergeSparseSquadsWithFullRoster if strings-only teams).")
 

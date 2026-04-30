@@ -113,7 +113,7 @@ export default function AuditTrailPanel({
       </button>
       <div style={{ fontSize: 11, color: "#a16207", marginTop: open ? 6 : 0, lineHeight: 1.4 }}>
         {open
-          ? "Logged when a lineup is saved or scores are edited manually after the match has started (or 5+ min past the scheduled start). You can restore a player’s stats from any “before” snapshot on manual score entries. Void/sync are not logged here — use ✏️ Edit if there is no audit row."
+          ? "Logged when a lineup is saved or scores are edited manually after the match has started (or 5+ min past the scheduled start), and when a Cricbuzz fallback scorecard fetch runs (for debugging). You can restore a player’s stats from any “before” snapshot on manual score entries. Void-only actions are not logged — use ✏️ Edit if there is no audit row."
           : "Hidden until expanded."}
       </div>
       {open && (
@@ -153,7 +153,11 @@ export default function AuditTrailPanel({
                     {formatUiDateTime(ev.created_at)} — {ev.summary}
                   </div>
                   <div style={{ fontSize: 11, color: "#78350f", marginBottom: 6 }}>
-                    {ev.action === "lineup_change" ? "Lineup" : "Manual scores"}
+                    {ev.action === "lineup_change"
+                      ? "Lineup"
+                      : ev.action === "cricbuzz_scorecard"
+                        ? "Cricbuzz fallback"
+                        : "Manual scores"}
                     {ev.side ? ` · ${ev.side}` : ""}
                   </div>
                   {restoreTarget && (

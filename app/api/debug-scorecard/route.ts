@@ -149,7 +149,10 @@ export async function GET(req: NextRequest) {
   try {
     const [{ data: settings }, payload] = await Promise.all([
       supabaseAdmin.from("series_settings").select("*").limit(1).maybeSingle(),
-      refreshMatchFromProvider(id, { includeMergedParseTree: true }),
+      refreshMatchFromProvider(id, {
+      includeMergedParseTree: true,
+      fixtureFromDb: req.nextUrl.searchParams.get("fixture")?.trim() || undefined,
+    }),
     ]);
     const rules = scoringFromSettings(settings as Record<string, unknown> | null);
 
