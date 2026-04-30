@@ -211,7 +211,19 @@ export function cricbuzzScorecardApiDataToProviderTree(apiData: MaybeRecord): Ma
         const br = b as MaybeRecord;
         const name = typeof br.batName === "string" ? br.batName.trim() : "";
         if (!name) continue;
-        batting.push({ batsman: name, r: num(br.runs) });
+        const row: MaybeRecord = { batsman: name, r: num(br.runs) };
+        // Cricbuzz uses outDesc ("c Fielder b Bowler", "c&b X", "not out", etc.).
+        // cricket-provider extractCatchesFromBattingDismissals reads dismissal-text.
+        const outDesc =
+          typeof br.outDesc === "string"
+            ? br.outDesc.trim()
+            : typeof br.wktTxt === "string"
+              ? br.wktTxt.trim()
+              : "";
+        if (outDesc) row["dismissal-text"] = outDesc;
+        const ct = num(br.ct ?? br.catches ?? br.catchCount);
+        if (ct > 0) row.ct = ct;
+        batting.push(row);
       }
     }
 
