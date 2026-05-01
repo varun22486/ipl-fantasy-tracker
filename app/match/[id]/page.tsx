@@ -16,6 +16,7 @@ import {
 } from "@/lib/scoring";
 import { formatFixture } from "@/lib/format";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
+import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
 import {
   DEFAULT_LINEUP_LATENESS_POINTS,
   hasLineupLatenessActive,
@@ -295,6 +296,11 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
   const statusPillClass =
     match.status === "LIVE" ? "match-detail-status-pill match-detail-status-pill--live" : "match-detail-status-pill match-detail-status-pill--default";
 
+  const cricbuzzScoreSyncEnabled =
+    isAppUsingCricapiProvider() &&
+    Boolean(String(matchRow.external_match_id ?? "").trim()) &&
+    !pointsVoided;
+
   return (
     <main className="page-main match-detail">
       <NavBar title={fixtureName} subtitle={navSubtitle} />
@@ -332,7 +338,12 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
               <div className="match-detail-hero__sub match-detail-hero__sub--tight">Toss: {match.toss_winner}</div>
             )}
             <div className="match-detail-hero__actions">
-              <SyncButton matchId={matchId} lastSyncedAt={match.last_synced_at ?? null} pointsVoided={pointsVoided} />
+              <SyncButton
+                matchId={matchId}
+                lastSyncedAt={match.last_synced_at ?? null}
+                pointsVoided={pointsVoided}
+                cricbuzzSyncEnabled={cricbuzzScoreSyncEnabled}
+              />
               <VoidMatchControl matchId={matchId} initialVoided={manuallyVoided} />
             </div>
             <LineupLatenessControl

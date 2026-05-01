@@ -10,22 +10,22 @@ function isManualEditHint(msg: string) {
   return /\u270f|manual|paid|plan|subscri|not available/i.test(msg);
 }
 
-type DebugShape = { canTryCricbuzzFallback?: boolean };
-
 export default function SyncButton({
   matchId,
   lastSyncedAt,
   pointsVoided = false,
+  cricbuzzSyncEnabled = false,
 }: {
   matchId: number;
   lastSyncedAt?: string | null;
   pointsVoided?: boolean;
+  /** CricketData/CricAPI mode with a linked fixture — show optional Cricbuzz scorecard sync. */
+  cricbuzzSyncEnabled?: boolean;
 }) {
   const router = useRouter();
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "warn" | "error">("idle");
   const [message, setMessage] = useState("");
   const [showCooldownPrompt, setShowCooldownPrompt] = useState(false);
-  const [showCricbuzzBtn, setShowCricbuzzBtn] = useState(false);
 
   async function runSync(force: boolean, cricbuzzFallback = false) {
     setShowCooldownPrompt(false);
@@ -45,18 +45,14 @@ export default function SyncButton({
         const noStats = json.debug?.updatedRows === 0 || isManualEditHint(msg);
         setStatus(noStats ? "warn" : "ok");
         setMessage(msg);
-        const dbg = json.debug as DebugShape | undefined;
-        setShowCricbuzzBtn(Boolean(dbg?.canTryCricbuzzFallback) && !pointsVoided);
         router.refresh();
       } else {
         setStatus("error");
         setMessage(json.error ?? "Sync failed.");
-        setShowCricbuzzBtn(false);
       }
     } catch {
       setStatus("error");
       setMessage("Network error.");
-      setShowCricbuzzBtn(false);
     }
   }
 
@@ -91,6 +87,17 @@ export default function SyncButton({
         <button type="button" className="match-sync__btn" onClick={onSyncClick} disabled={status === "loading"}>
           {status === "loading" ? "Syncing…" : "\u21bb Sync scores"}
         </button>
+        {cricbuzzSyncEnabled && !pointsVoided ? (
+          <button
+            type="button"
+            className="match-sync__btn match-sync__btn--secondary"
+            disabled={status === "loading"}
+            onClick={() => void runSync(false, true)}
+            title="Unofficial — pulls runs and wickets from the public Cricbuzz scorecard page"
+          >
+            {status === "loading" ? "Syncing…" : "Sync from Cricbuzz"}
+          </button>
+        ) : null}
         {lastSynced ? <span className="match-sync__stamp">Last synced: {lastSynced}</span> : null}
       </div>
 
@@ -134,21 +141,11 @@ export default function SyncButton({
         </div>
       ) : null}
 
-      {showCricbuzzBtn && (
-        <div className="match-sync__banner match-sync__banner--warn" style={{ marginTop: 10 }}>
-          <p className="match-sync__msg match-sync__msg--warn" style={{ marginBottom: 10 }}>
-            CricketData/CricAPI did not return scorecard rows. Pull <strong>runs and wickets</strong> from the public Cricbuzz scorecard page (unofficial — may break).
-          </p>
-          <button
-            type="button"
-            className="match-sync__btn"
-            disabled={status === "loading"}
-            onClick={() => void runSync(false, true)}
-          >
-            {status === "loading" ? "Loading…" : "Pull from Cricbuzz"}
-          </button>
-        </div>
-      )}
+      {cricbuzzSyncEnabled && !pointsVoided ? (
+        <p className="match-sync__hint" style={{ marginTop: 0 }}>
+          <strong>Sync from Cricbuzz</strong> uses the public scorecard page (no extra API key). It can drift from CricketData — use when you want that source.
+        </p>
+      ) : null}
     </div>
   );
 }

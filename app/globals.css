@@ -4254,6 +4254,15 @@ select:focus-visible {
   cursor: not-allowed;
   box-shadow: none;
 }
+.match-sync__btn--secondary {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
+}
+.match-sync__btn--secondary:not(:disabled):hover {
+  background: var(--surface-muted);
+}
 .match-sync__stamp {
   font-size: 12px;
   color: var(--text-muted);

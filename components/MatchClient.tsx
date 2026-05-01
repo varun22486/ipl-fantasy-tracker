@@ -72,6 +72,8 @@ type Props = {
   lineupLatenessMeta?: MatchLineupLateness | null;
   /** True when on-time bonus rule applies (show scores even if no lineups). */
   lineupLatenessActive?: boolean;
+  /** CricketData mode + linked CricAPI id — show Cricbuzz scorecard sync. */
+  cricbuzzScoreSyncEnabled?: boolean;
 };
 
 export default function MatchClient({
@@ -94,6 +96,7 @@ export default function MatchClient({
   pointsVoided = false,
   lineupLatenessMeta = null,
   lineupLatenessActive = false,
+  cricbuzzScoreSyncEnabled = false,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -128,7 +131,6 @@ export default function MatchClient({
   const [quotaCap, setQuotaCap] = useState(FALLBACK_QUOTA_CAP);
   const [pendingAction, setPendingAction] = useState<{ fn: () => Promise<void>; cost: number } | null>(null);
   const [showRefreshCooldownPrompt, setShowRefreshCooldownPrompt] = useState(false);
-  const [showCricbuzzFallbackBtn, setShowCricbuzzFallbackBtn] = useState(false);
 
   const refreshKeyStatsBundle = useCallback(() => {
     fetch("/api/key-stats")
@@ -261,7 +263,6 @@ export default function MatchClient({
     try {
       if (syncMatchId == null) {
         setSyncing(false);
-        setShowCricbuzzFallbackBtn(false);
         setApiMsg({
           type: "error",
           title: "Cannot sync — no match id",
@@ -280,7 +281,6 @@ export default function MatchClient({
       recordSyncDebugClient(syncMatchId, json as Record<string, unknown>, "match-detail");
 
       if (!json.ok) {
-        setShowCricbuzzFallbackBtn(false);
         const errorText = json.error || "Refresh failed";
         if (res.status === 409 && json.code === "RECENT_SYNC") {
           setApiMsg({
@@ -303,14 +303,11 @@ export default function MatchClient({
 
       addUsage(1);
       refreshKeyStatsBundle();
-      const dbg = json.debug as { canTryCricbuzzFallback?: boolean } | undefined;
-      setShowCricbuzzFallbackBtn(Boolean(dbg?.canTryCricbuzzFallback) && !pointsVoided);
       const successMsg: ApiMsg = { type: "success", title: json.message || "Scores updated!" };
       setApiMsg(successMsg);
       router.refresh();
     } catch (e) {
       setSyncing(false);
-      setShowCricbuzzFallbackBtn(false);
       setApiMsg(classifyApiMsg(e instanceof Error ? e.message : "Network error during sync.", "Sync scores"));
     }
   }
@@ -558,6 +555,17 @@ export default function MatchClient({
           <button onClick={() => guardedRun(1, beginUserSyncScores)} disabled={syncing} style={{ ...btnPrimary, flex: "1 1 auto", textAlign: "center" as const }}>
             {syncing ? "Syncing…" : "⟳ Sync Scores"}
           </button>
+          {cricbuzzScoreSyncEnabled && hasLinkedMatch && syncMatchId != null && !pointsVoided ? (
+            <button
+              type="button"
+              onClick={() => guardedRun(1, () => doRefreshNow({ cricbuzzFallback: true }))}
+              disabled={syncing}
+              title="Unofficial — runs and wickets from the public Cricbuzz scorecard"
+              style={{ ...btnSecondary, flex: "1 1 auto", textAlign: "center" as const, fontWeight: 600 }}
+            >
+              {syncing ? "Syncing…" : "Sync from Cricbuzz"}
+            </button>
+          ) : null}
           <button onClick={() => guardedRun(0, doStartLinkMatch)} disabled={syncing} style={{ ...btnSecondary, flex: "1 1 auto", textAlign: "center" as const }}>
             {syncing ? "Loading…" : "Link Match"}
           </button>
@@ -575,21 +583,11 @@ export default function MatchClient({
             }
           </div>
         )}
-        {showCricbuzzFallbackBtn && hasLinkedMatch && syncMatchId != null && !pointsVoided && (
-          <div style={{ padding: "0 14px 14px", borderTop: "1px solid #f1f5f9" }}>
-            <p style={{ fontSize: 13, color: "#64748b", margin: "0 0 10px" }}>
-              CricketData did not return scorecard rows. Pull <strong>runs and wickets</strong> from the public Cricbuzz page (unofficial).
-            </p>
-            <button
-              type="button"
-              onClick={() => guardedRun(1, () => doRefreshNow({ cricbuzzFallback: true }))}
-              disabled={syncing}
-              style={{ ...btnSecondary, width: "100%", textAlign: "center" as const, fontWeight: 600 }}
-            >
-              {syncing ? "Loading…" : "Pull from Cricbuzz"}
-            </button>
+        {cricbuzzScoreSyncEnabled && hasLinkedMatch && syncMatchId != null && !pointsVoided ? (
+          <div style={{ padding: "0 14px 12px", fontSize: 12, color: "#94a3b8", lineHeight: 1.45 }}>
+            <strong style={{ color: "#64748b" }}>Sync from Cricbuzz</strong> uses the public scorecard (no extra API key). Optional when CricketData is slow or incomplete.
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Quota warning */}

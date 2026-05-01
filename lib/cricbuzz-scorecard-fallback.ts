@@ -193,10 +193,194 @@ function num(v: unknown): number {
   return 0;
 }
 
-/** Shape compatible with collectPlayerRows in cricket-provider.ts */
+// --- Man of the Match from embedded scorecardApiData (no import from cricket-provider — avoids circular deps) ---
+
+function normalizeMomJsonKey(key: string): string {
+  return key.toLowerCase().replace(/[-_]/g, "");
+}
+
+function isLikelyMomJsonKey(key: string): boolean {
+  const n = normalizeMomJsonKey(key);
+  return (
+    n === "mom" ||
+    n === "potm" ||
+    n === "pom" ||
+    n === "manofthematch" ||
+    n === "manofmatch" ||
+    n === "matchmanofthematch" ||
+    n === "playerofthematch" ||
+    n === "playeroftmatch" ||
+    n === "matchplayerofthematch" ||
+    n === "playerofmatch" ||
+    n === "playerofmatchaward" ||
+    n === "manofthematchaward" ||
+    n === "playeraward" ||
+    n === "playerofthematchaward"
+  );
+}
+
+function isPlaceholderMomName(s: string): boolean {
+  return /^(tba|tbd|n\/a|na|[-–—]|pending|not\s+announced|to\s+be\s+announced)$/i.test(s.trim());
+}
+
+/** Strip team abbreviations in parentheses / trailing team dash (aligns loosely with cricket-provider). */
+function stripMomDecorators(name: string): string {
+  let s = name.replace(/[\u200B-\u200D\uFEFF]/g, "").trim();
+  s = s.replace(/\s*[–—-]\s*[A-Z]{2,}.*$/i, "").trim();
+  s = s.replace(/\s*\([^)]*\)\s*/g, " ").trim();
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
+function pickNameFromMomField(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const t = raw.replace(/[\u200B-\u200D\uFEFF]/g, "").trim();
+    return t || null;
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      const n = pickNameFromMomField(item);
+      if (n) return n;
+    }
+    return null;
+  }
+  if (typeof raw === "object") {
+    const o = raw as MaybeRecord;
+    const nested = o.player ?? o.Player ?? o.cricketPlayer ?? o.batsman ?? o.bowler;
+    if (nested && nested !== raw) {
+      const inner = pickNameFromMomField(nested);
+      if (inner) return inner;
+    }
+    const n = [
+      o.name,
+      o.playerName,
+      o.fullName,
+      o.shortName,
+      o.shortname,
+      o.displayName,
+      o.batName,
+      o.bowlName,
+      o.text,
+      o.label,
+      o.title,
+    ].find((x) => typeof x === "string" && (x as string).trim());
+    return typeof n === "string" ? n.trim() : null;
+  }
+  return null;
+}
+
+function findMomByKeyWalk(obj: unknown, depth: number): string | null {
+  if (depth > 22 || obj == null) return null;
+  if (typeof obj !== "object") return null;
+  if (Array.isArray(obj)) {
+    for (const x of obj) {
+      const h = findMomByKeyWalk(x, depth + 1);
+      if (h) return h;
+    }
+    return null;
+  }
+  const o = obj as MaybeRecord;
+  for (const k of Object.keys(o)) {
+    if (isLikelyMomJsonKey(k)) {
+      const n = pickNameFromMomField(o[k]);
+      if (n && !isPlaceholderMomName(n)) {
+        const w = stripMomDecorators(n);
+        if (w && !isPlaceholderMomName(w)) return w;
+      }
+    }
+  }
+  for (const v of Object.values(o)) {
+    const h = findMomByKeyWalk(v, depth + 1);
+    if (h) return h;
+  }
+  return null;
+}
+
+function momFromFreeText(text: string): string | null {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  const patterns = [
+    /\b(?:player|man)\s+of\s+the\s+match\s*(?:is|goes\s+to|:)\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\bman\s+of\s+the\s+match\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\bplayer\s+of\s+the\s+match\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\bm\.?\s*o\.?\s*m\.?\b\s*:?\s*([^,.|]+?)(?:\s*[,.|]|$)/i,
+    /\b(?:mom|potm)\s*[:-–—]\s*([A-Za-z][A-Za-z\s.'-]+?)(?:\s*[,.]|$)/i,
+    /\b([A-Z][a-z]+(?:\s+[A-Z][a-z.]+)+)\s+won\s+the\s+(?:player|man)\s+of\s+the\s+match\b/i,
+  ];
+  for (const re of patterns) {
+    const m = t.match(re);
+    if (m?.[1]) {
+      const name = m[1].trim();
+      if (name && !isPlaceholderMomName(name)) {
+        const w = stripMomDecorators(name);
+        if (w && !isPlaceholderMomName(w)) return w;
+      }
+    }
+  }
+  return null;
+}
+
+/** String fields Cricbuzz often uses for status / result copy that may mention MoM. */
+const CRICBUZZ_MOM_TEXT_KEYS = [
+  "matchDesc",
+  "matchDESC",
+  "matchDescription",
+  "status",
+  "matchStatus",
+  "header",
+  "result",
+  "matchResult",
+  "matchState",
+  "seriesDescription",
+  "summary",
+  "notes",
+  "update",
+  "liveSummary",
+  "live_summary",
+];
+
+function scanObjectsForMomFreeText(obj: unknown, depth: number): string | null {
+  if (depth > 14 || obj == null || typeof obj !== "object") return null;
+  if (Array.isArray(obj)) {
+    for (const x of obj) {
+      const h = scanObjectsForMomFreeText(x, depth + 1);
+      if (h) return h;
+    }
+    return null;
+  }
+  const rec = obj as MaybeRecord;
+  for (const k of CRICBUZZ_MOM_TEXT_KEYS) {
+    const v = rec[k];
+    if (typeof v === "string") {
+      const m = momFromFreeText(v);
+      if (m) return m;
+    }
+  }
+  for (const v of Object.values(rec)) {
+    if (v && typeof v === "object") {
+      const h = scanObjectsForMomFreeText(v, depth + 1);
+      if (h) return h;
+    }
+  }
+  return null;
+}
+
+function extractCricbuzzMomFromApiData(apiData: MaybeRecord): string | null {
+  const fromKeys = findMomByKeyWalk(apiData, 0);
+  if (fromKeys) return fromKeys;
+  return scanObjectsForMomFreeText(apiData, 0);
+}
+
+/** Shape compatible with collectPlayerRows + extractManOfTheMatchName in cricket-provider.ts */
 export function cricbuzzScorecardApiDataToProviderTree(apiData: MaybeRecord): MaybeRecord {
+  const momName = extractCricbuzzMomFromApiData(apiData);
   const scoreCard = apiData.scoreCard;
-  if (!Array.isArray(scoreCard)) return { scorecard: [] };
+  if (!Array.isArray(scoreCard)) {
+    const base: MaybeRecord = { scorecard: [] };
+    if (momName) base.manOfTheMatch = momName;
+    return base;
+  }
 
   const inningsOut: MaybeRecord[] = [];
   for (const inn of scoreCard) {
@@ -243,7 +427,9 @@ export function cricbuzzScorecardApiDataToProviderTree(apiData: MaybeRecord): Ma
     inningsOut.push({ batting, bowling });
   }
 
-  return { scorecard: inningsOut };
+  const out: MaybeRecord = { scorecard: inningsOut };
+  if (momName) out.manOfTheMatch = momName;
+  return out;
 }
 
 export async function tryCricbuzzScorecardFallback(

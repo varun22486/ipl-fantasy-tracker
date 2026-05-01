@@ -3215,16 +3215,24 @@ export async function refreshMatchFromProvider(
 
   const cricbuzzFromEnv = /^1|true|yes$/i.test(cleanEnvText(process.env.CRICKET_CRICBUZZ_FALLBACK));
   const cricbuzzManual = options?.cricbuzzFallback === true;
-  if (mergedOrLive.length === 0 && isCricapi && (cricbuzzFromEnv || cricbuzzManual)) {
+  /** Env fallback only when the API had no rows; explicit UI sync always tries Cricbuzz (prefer its scorecard when it parses). */
+  const shouldTryCricbuzzHtml =
+    isCricapi &&
+    (cricbuzzFromEnv || cricbuzzManual) &&
+    (mergedOrLive.length === 0 || cricbuzzManual);
+  if (shouldTryCricbuzzHtml) {
     const fixtureForCb =
       cleanEnvText(options?.fixtureFromDb) ||
       safeString(dataRec.name || dataRec.title || dataRec.fixture || "");
     try {
       const fb = await tryCricbuzzScorecardFallback(fixtureForCb);
       if (fb?.tree) {
-        dataRec = { ...dataRec, ...(fb.tree as MaybeRecord) };
-        mergedOrLive = buildPlayerStatsFromScorecardData(dataRec);
-        if (mergedOrLive.length > 0) {
+        const mergedRec = { ...dataRec, ...(fb.tree as MaybeRecord) };
+        const fromCb = buildPlayerStatsFromScorecardData(mergedRec);
+        const useCricbuzzRows = fromCb.length > 0 && (cricbuzzManual || mergedOrLive.length === 0);
+        if (useCricbuzzRows) {
+          dataRec = mergedRec;
+          mergedOrLive = fromCb;
           cricbuzzFallbackPath = `cricbuzz://live-cricket-scorecard/${fb.matchId}`;
         }
       }

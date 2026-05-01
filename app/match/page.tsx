@@ -11,6 +11,7 @@ import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
 import { pickTrackedMatchRowFromList } from "@/lib/active-match";
+import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -148,6 +149,14 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
   const competitionSuffix = competitionId != null ? `&c=${encodeURIComponent(String(competitionId))}` : "";
   const selectedTabId = currentMatch?.id ?? 0;
 
+  const cricbuzzScoreSyncEnabled =
+    isAppUsingCricapiProvider() &&
+    Boolean(
+      currentMatch &&
+        String((currentMatch as { external_match_id?: string | null }).external_match_id ?? "").trim()
+    ) &&
+    !pointsVoided;
+
   return (
     <main className="page-main">
       <NavBar title="Match" subtitle={subtitle} />
@@ -189,6 +198,7 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         pointsVoided={pointsVoided}
         lineupLatenessMeta={lineupLatenessInput}
         lineupLatenessActive={lineupLatenessActive}
+        cricbuzzScoreSyncEnabled={cricbuzzScoreSyncEnabled}
         />
       </Suspense>
     </main>
