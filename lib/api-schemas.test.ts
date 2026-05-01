@@ -41,4 +41,12 @@ describe("refreshPostSchema", () => {
       expect(r.data.cricbuzzFallback).toBe(true);
     }
   });
+  it("accepts cricbuzzOnly with matchId", () => {
+    const r = refreshPostSchema.safeParse({ matchId: 12, cricbuzzOnly: true });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.matchId).toBe(12);
+      expect(r.data.cricbuzzOnly).toBe(true);
+    }
+  });
 });

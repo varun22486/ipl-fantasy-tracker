@@ -151,10 +151,7 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
 
   const cricbuzzScoreSyncEnabled =
     isAppUsingCricapiProvider() &&
-    Boolean(
-      currentMatch &&
-        String((currentMatch as { external_match_id?: string | null }).external_match_id ?? "").trim()
-    ) &&
+    Boolean(currentMatch && String((currentMatch as { fixture?: string | null }).fixture ?? "").trim()) &&
     !pointsVoided;
 
   return (

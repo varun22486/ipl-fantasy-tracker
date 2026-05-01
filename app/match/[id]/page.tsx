@@ -298,7 +298,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
 
   const cricbuzzScoreSyncEnabled =
     isAppUsingCricapiProvider() &&
-    Boolean(String(matchRow.external_match_id ?? "").trim()) &&
+    Boolean(String(match.fixture ?? "").trim()) &&
     !pointsVoided;
 
   return (

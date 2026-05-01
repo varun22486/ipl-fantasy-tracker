@@ -205,6 +205,11 @@ export type RefreshMatchFromProviderOptions = {
   cricbuzzFallback?: boolean;
 };
 
+export type RefreshFromCricbuzzOnlyOptions = {
+  storedProviderSquad?: unknown;
+  includeMergedParseTree?: boolean;
+};
+
 function cleanEnvText(value: string | undefined | null) {
   return (value || "").replace(/[\u200B-\u200D\uFEFF]/g, "").trim();
 }
@@ -3044,6 +3049,128 @@ export function buildPlayerStatsFromScorecardData(data: MaybeRecord): PlayerStat
   const mergedConsolidated =
     mergedWithStumps.length > 0 ? consolidatePlayerStats(mergedWithStumps) : [];
   return mergedConsolidated.length > 0 ? mergedConsolidated : parseSimpleLiveScore(data);
+}
+
+const EMPTY_PROVIDER_REFRESH_BASE: Omit<ProviderRefresh, "live_summary"> = {
+  status: "LIVE",
+  fixture: undefined,
+  match_date: undefined,
+  venue: null,
+  toss_winner: null,
+  source_url: null,
+  players: [],
+  squads: [],
+  rosterNames: [],
+  nameToId: {},
+  raw: undefined,
+  mergedParseTree: undefined,
+  providerFetchPath: undefined,
+  manOfTheMatchSynced: false,
+};
+
+/**
+ * Public Cricbuzz scorecard HTML only — no CricAPI, no match_squad API, no web MoM search.
+ * Requires a non-empty `fixture` string (from DB) so the series matches page can resolve the fixture.
+ */
+export async function refreshMatchFromCricbuzzOnly(
+  fixtureFromDb: string,
+  options?: RefreshFromCricbuzzOnlyOptions
+): Promise<ProviderRefresh> {
+  const fixtureForCb = cleanEnvText(fixtureFromDb) || "";
+  if (!fixtureForCb) {
+    return {
+      ...EMPTY_PROVIDER_REFRESH_BASE,
+      live_summary: "Missing fixture on the match — cannot resolve the Cricbuzz scorecard.",
+    };
+  }
+
+  let fb: { matchId: string; tree: MaybeRecord } | null = null;
+  try {
+    fb = await tryCricbuzzScorecardFallback(fixtureForCb);
+  } catch {
+    fb = null;
+  }
+  if (!fb?.tree) {
+    return {
+      ...EMPTY_PROVIDER_REFRESH_BASE,
+      live_summary:
+        "Could not load this match from Cricbuzz. Check CRICKET_CRICBUZZ_SERIES_MATCHES_URL and that the fixture names both teams clearly.",
+    };
+  }
+
+  const dataRec = { ...(fb.tree as MaybeRecord) };
+  const mergedOrLive = buildPlayerStatsFromScorecardData(dataRec);
+  if (mergedOrLive.length === 0) {
+    return {
+      ...EMPTY_PROVIDER_REFRESH_BASE,
+      live_summary: "Cricbuzz page loaded but no batting or bowling rows were parsed.",
+      providerFetchPath: `cricbuzz://live-cricket-scorecard/${fb.matchId}`,
+    };
+  }
+
+  const providerFetchPath = `cricbuzz://live-cricket-scorecard/${fb.matchId}`;
+  const payload = { data: dataRec, status: "success" } as MaybeRecord;
+  const data = dataRec;
+
+  const pickedApiLine = pickBestApiSummaryLine(dataRec, payload as MaybeRecord);
+
+  let momName = extractManOfTheMatchName(dataRec, payload as MaybeRecord);
+  if (momName) {
+    momName = stripMomDecorators(momName);
+    if (!momName || isPlaceholderMomName(momName)) momName = null;
+  }
+
+  let { players: withMom, synced: manOfTheMatchSynced } = applyManOfTheMatch(mergedOrLive, momName);
+
+  withMom = ensureMomPlayerRowOnPayload(withMom, momName);
+  let squads = extractSquadsFromPayload(payload);
+  let count = squadPlayerCount(squads);
+  if (count < 8) {
+    const fromBatting = extractSquadsFromBatting(dataRec);
+    if (squadPlayerCount(fromBatting) > count) {
+      squads = fromBatting;
+      count = squadPlayerCount(squads);
+    }
+  }
+
+  const storedSquad = parseStoredProviderSquad(options?.storedProviderSquad ?? null);
+  if (storedSquad && storedSquad.rosterNames.length > 0) {
+    squads =
+      storedSquad.squads.length > 0
+        ? storedSquad.squads
+        : [{ teamName: "Squad", players: [...storedSquad.rosterNames] }];
+  }
+
+  let rosterNames = uniqueRosterNames(squads);
+  if (rosterNames.length === 0 && withMom.length) {
+    rosterNames = [...new Set(withMom.map((p) => p.name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    squads = rosterNames.length ? [{ teamName: "From live scorecard", players: rosterNames }] : [];
+  }
+
+  const nameToId =
+    storedSquad && storedSquad.rosterNames.length > 0
+      ? { ...buildNameToId(squads), ...storedSquad.nameToId }
+      : buildNameToId(squads);
+
+  const metaDate = extractProviderMatchDate(dataRec);
+  const statusForParse = pickedApiLine || safeString((payload as MaybeRecord).status || data.status || "LIVE");
+  return {
+    status: parseStatus(statusForParse),
+    live_summary: buildDisplayLiveSummary(dataRec, payload as MaybeRecord, pickedApiLine),
+    fixture: safeString(data.title || data.fixture || data.name || "") || undefined,
+    match_date: metaDate || undefined,
+    venue: safeString(data.venue || data.ground || "") || null,
+    toss_winner: safeString(data.toss_winner || data.tossWinner || "") || null,
+    source_url: safeString(data.url || data.source_url || "") || null,
+    players: withMom,
+    squads,
+    rosterNames,
+    nameToId,
+    raw: payload,
+    mergedParseTree: options?.includeMergedParseTree ? (dataRec as MaybeRecord) : undefined,
+    providerFetchPath: providerFetchPath,
+    manOfTheMatchSynced,
+  };
 }
 
 export async function refreshMatchFromProvider(

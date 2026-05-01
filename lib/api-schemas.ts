@@ -31,6 +31,8 @@ export const refreshPostSchema = z.preprocess(
       force: z.boolean().optional(),
       /** When true, after CricAPI yields no scorecard rows, try the optional Cricbuzz HTML fallback. */
       cricbuzzFallback: z.boolean().optional(),
+      /** When true, load stats from Cricbuzz HTML only — no CricAPI, no refresh cooldown, no API quota. */
+      cricbuzzOnly: z.boolean().optional(),
     })
     .passthrough()
 );

@@ -27,16 +27,15 @@ export default function SyncButton({
   const [message, setMessage] = useState("");
   const [showCooldownPrompt, setShowCooldownPrompt] = useState(false);
 
-  async function runSync(force: boolean, cricbuzzFallback = false) {
+  async function runSync(force: boolean) {
     setShowCooldownPrompt(false);
     setStatus("loading");
     setMessage("");
-    const forceBody = force || cricbuzzFallback;
     try {
       const res = await fetch("/api/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId, force: forceBody, cricbuzzFallback }),
+        body: JSON.stringify({ matchId, force }),
       });
       const json = await res.json();
       recordSyncDebugClient(matchId, json as Record<string, unknown>, "match-detail-sync");
@@ -62,6 +61,34 @@ export default function SyncButton({
       return;
     }
     void runSync(false);
+  }
+
+  async function runCricbuzzOnly() {
+    setShowCooldownPrompt(false);
+    setStatus("loading");
+    setMessage("");
+    try {
+      const res = await fetch("/api/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId, cricbuzzOnly: true }),
+      });
+      const json = await res.json();
+      recordSyncDebugClient(matchId, json as Record<string, unknown>, "match-detail-sync-cricbuzz");
+      if (json.ok) {
+        const msg = json.reason ?? json.message ?? "Scores updated from Cricbuzz!";
+        const noStats = json.debug?.updatedRows === 0 || isManualEditHint(msg);
+        setStatus(noStats ? "warn" : "ok");
+        setMessage(msg);
+        router.refresh();
+      } else {
+        setStatus("error");
+        setMessage(json.error ?? "Cricbuzz sync failed.");
+      }
+    } catch {
+      setStatus("error");
+      setMessage("Network error.");
+    }
   }
 
   const lastSynced = lastSyncedAt ? formatUiDateTime(lastSyncedAt) : null;
@@ -92,8 +119,8 @@ export default function SyncButton({
             type="button"
             className="match-sync__btn match-sync__btn--secondary"
             disabled={status === "loading"}
-            onClick={() => void runSync(false, true)}
-            title="Unofficial — pulls runs and wickets from the public Cricbuzz scorecard page"
+            onClick={() => void runCricbuzzOnly()}
+            title="Public Cricbuzz scorecard only — does not use CricketData or API quota"
           >
             {status === "loading" ? "Syncing…" : "Sync from Cricbuzz"}
           </button>
@@ -143,7 +170,7 @@ export default function SyncButton({
 
       {cricbuzzSyncEnabled && !pointsVoided ? (
         <p className="match-sync__hint" style={{ marginTop: 0 }}>
-          <strong>Sync from Cricbuzz</strong> uses the public scorecard page (no extra API key). It can drift from CricketData — use when you want that source.
+          <strong>Sync from Cricbuzz</strong> uses only the public scorecard page — no CricketData call and no API credits.
         </p>
       ) : null}
     </div>

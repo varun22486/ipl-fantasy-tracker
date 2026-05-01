@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { refreshMatchFromProvider, isAppUsingCricapiProvider, type ProviderRefresh } from "@/lib/cricket-provider";
+import {
+  refreshMatchFromProvider,
+  refreshMatchFromCricbuzzOnly,
+  isAppUsingCricapiProvider,
+  type ProviderRefresh,
+} from "@/lib/cricket-provider";
 import { refreshPostSchema } from "@/lib/api-schemas";
 import { getDefaultActiveMatchRowForSync } from "@/lib/active-match";
 import { VOIDED_MATCH_FANTASY_SCORES, isPointsVoidedMatchStatus } from "@/lib/match-void";
@@ -562,7 +567,8 @@ export async function POST(req: Request) {
     }
     const matchId = parsed.data.matchId;
     const force = parsed.data.force === true;
-    const cricbuzzFallback = parsed.data.cricbuzzFallback === true;
+    const cricbuzzOnly = parsed.data.cricbuzzOnly === true;
+    const cricbuzzFallback = parsed.data.cricbuzzFallback === true && !cricbuzzOnly;
 
     const currentMatch = await doRefresh(matchId);
 
@@ -576,19 +582,35 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!currentMatch.external_match_id) {
+    if (!cricbuzzOnly && !currentMatch.external_match_id) {
       return NextResponse.json(
         { ok: false, error: "This match is not linked to CricAPI (missing external_match_id)." },
         { status: 400 }
       );
     }
 
-    let rowsToSync = await loadMatchesSharingExternalId(String(currentMatch.external_match_id));
-    if (rowsToSync.length === 0) rowsToSync = [currentMatch as Record<string, unknown>];
+    if (cricbuzzOnly && !String(currentMatch.fixture ?? "").trim()) {
+      return NextResponse.json(
+        { ok: false, error: "Set a fixture name on this match before syncing from Cricbuzz." },
+        { status: 400 }
+      );
+    }
+
+    let rowsToSync: Record<string, unknown>[];
+    if (cricbuzzOnly) {
+      const ext = currentMatch.external_match_id;
+      rowsToSync = ext
+        ? await loadMatchesSharingExternalId(String(ext))
+        : [currentMatch as Record<string, unknown>];
+      if (rowsToSync.length === 0) rowsToSync = [currentMatch as Record<string, unknown>];
+    } else {
+      rowsToSync = await loadMatchesSharingExternalId(String(currentMatch.external_match_id));
+      if (rowsToSync.length === 0) rowsToSync = [currentMatch as Record<string, unknown>];
+    }
     const now = Date.now();
     const lastSyncedMax = maxLastSyncedMsAmong(rowsToSync);
 
-    if (!force && !cricbuzzFallback && lastSyncedMax && now - lastSyncedMax < REFRESH_COOLDOWN_MS) {
+    if (!force && !cricbuzzFallback && !cricbuzzOnly && lastSyncedMax && now - lastSyncedMax < REFRESH_COOLDOWN_MS) {
       const mins = Math.max(1, Math.ceil((REFRESH_COOLDOWN_MS - (now - lastSyncedMax)) / 60_000));
       return NextResponse.json(
         {
@@ -604,15 +626,19 @@ export async function POST(req: Request) {
       await createMatchSnapshot({
         matchId: Number(row.id),
         source: "pre_sync",
-        summary: "Before API sync",
+        summary: cricbuzzOnly ? "Before Cricbuzz-only sync" : "Before API sync",
       });
     }
 
-    const payload = await refreshMatchFromProvider(String(currentMatch.external_match_id), {
-      storedProviderSquad: currentMatch.provider_squad_json,
-      fixtureFromDb: String(currentMatch.fixture ?? "").trim() || undefined,
-      cricbuzzFallback: cricbuzzFallback || undefined,
-    });
+    const payload = cricbuzzOnly
+      ? await refreshMatchFromCricbuzzOnly(String(currentMatch.fixture ?? "").trim(), {
+          storedProviderSquad: currentMatch.provider_squad_json,
+        })
+      : await refreshMatchFromProvider(String(currentMatch.external_match_id), {
+          storedProviderSquad: currentMatch.provider_squad_json,
+          fixtureFromDb: String(currentMatch.fixture ?? "").trim() || undefined,
+          cricbuzzFallback: cricbuzzFallback || undefined,
+        });
 
     const { incomingById, incomingByVariant } = buildIncomingLookups(payload);
 
@@ -652,9 +678,9 @@ export async function POST(req: Request) {
     if (!voided) {
       await maybeRecordCricbuzzAudit({
         matchId: Number(currentMatch.id),
-        externalMatchId: String(currentMatch.external_match_id),
+        externalMatchId: String(currentMatch.external_match_id ?? ""),
         payload,
-        manualCricbuzzRequest: cricbuzzFallback,
+        manualCricbuzzRequest: cricbuzzFallback || cricbuzzOnly,
       });
     }
 
@@ -667,10 +693,15 @@ export async function POST(req: Request) {
           : "Match voided (washout / no result) — fantasy scores cleared for this fixture."
         : payload.players.length === 0
           ? userMessageWhenNoProviderPlayerRows(payload, preservedDroppedPost)
-          : updatedRows > 0 ? multi
-            ? `Updated ${updatedRows} player row(s) across ${rowsToSync.length} linked match record(s) — one API fetch.`
-            : `Updated ${updatedRows} of ${totalSelected} players.`
-          : "Names in lineup didn't match the scorecard — check spelling.",
+          : updatedRows > 0
+            ? multi
+              ? cricbuzzOnly
+                ? `Updated ${updatedRows} player row(s) across ${rowsToSync.length} match record(s) from Cricbuzz (no API).`
+                : `Updated ${updatedRows} player row(s) across ${rowsToSync.length} linked match record(s) — one API fetch.`
+              : cricbuzzOnly
+                ? `Updated ${updatedRows} of ${totalSelected} players from Cricbuzz.`
+                : `Updated ${updatedRows} of ${totalSelected} players.`
+            : "Names in lineup didn't match the scorecard — check spelling.",
       live_summary: nextLiveSummaryPost ?? payload.live_summary,
       debug: {
         matchId: currentMatch.id,
@@ -696,6 +727,7 @@ export async function POST(req: Request) {
           cricapiProvider: cricapiProviderMode,
         }),
         cricapiProviderMode,
+        cricbuzzOnly,
       },
     });
   } catch (error) {

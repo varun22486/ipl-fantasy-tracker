@@ -254,12 +254,16 @@ export default function MatchClient({
     await doRefreshNow();
   }
 
-  async function doRefreshNow(opts?: { force?: boolean; cricbuzzFallback?: boolean }) {
-    const force = opts?.force === true || opts?.cricbuzzFallback === true;
-    const cricbuzzFallback = opts?.cricbuzzFallback === true;
+  async function doRefreshNow(opts?: { force?: boolean; cricbuzzFallback?: boolean; cricbuzzOnly?: boolean }) {
+    const cricbuzzOnly = opts?.cricbuzzOnly === true;
+    const force = opts?.force === true || (!!opts?.cricbuzzFallback && !cricbuzzOnly);
+    const cricbuzzFallback = opts?.cricbuzzFallback === true && !cricbuzzOnly;
     setShowRefreshCooldownPrompt(false);
     setSyncing(true);
-    setApiMsg({ type: "loading", title: "Syncing scores…" });
+    setApiMsg({
+      type: "loading",
+      title: cricbuzzOnly ? "Loading Cricbuzz scorecard…" : "Syncing scores…",
+    });
     try {
       if (syncMatchId == null) {
         setSyncing(false);
@@ -274,7 +278,7 @@ export default function MatchClient({
       const res = await fetch("/api/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId: syncMatchId, force, cricbuzzFallback }),
+        body: JSON.stringify({ matchId: syncMatchId, force, cricbuzzFallback, cricbuzzOnly }),
       });
       const json = await res.json();
       setSyncing(false);
@@ -290,9 +294,9 @@ export default function MatchClient({
           });
           return;
         }
-        const classified = classifyApiMsg(errorText, "Sync scores");
+        const classified = classifyApiMsg(errorText, cricbuzzOnly ? "Cricbuzz sync" : "Sync scores");
         setApiMsg(classified);
-        if (classified.type === "warning" || classified.type === "error") {
+        if (!cricbuzzOnly && (classified.type === "warning" || classified.type === "error")) {
           const blocked = /rate.?limit|block|quota|exhausted/i.test(errorText);
           if (blocked && (yourFantasyPlayers.length > 0 || opponentFantasyPlayers.length > 0)) {
             setShowManual(true);
@@ -301,8 +305,10 @@ export default function MatchClient({
         return;
       }
 
-      addUsage(1);
-      refreshKeyStatsBundle();
+      if (!cricbuzzOnly) {
+        addUsage(1);
+        refreshKeyStatsBundle();
+      }
       const successMsg: ApiMsg = { type: "success", title: json.message || "Scores updated!" };
       setApiMsg(successMsg);
       router.refresh();
@@ -558,9 +564,9 @@ export default function MatchClient({
           {cricbuzzScoreSyncEnabled && hasLinkedMatch && syncMatchId != null && !pointsVoided ? (
             <button
               type="button"
-              onClick={() => guardedRun(1, () => doRefreshNow({ cricbuzzFallback: true }))}
+              onClick={() => guardedRun(0, () => doRefreshNow({ cricbuzzOnly: true }))}
               disabled={syncing}
-              title="Unofficial — runs and wickets from the public Cricbuzz scorecard"
+              title="Public Cricbuzz scorecard only — does not use CricketData or your API quota"
               style={{ ...btnSecondary, flex: "1 1 auto", textAlign: "center" as const, fontWeight: 600 }}
             >
               {syncing ? "Syncing…" : "Sync from Cricbuzz"}
@@ -585,7 +591,7 @@ export default function MatchClient({
         )}
         {cricbuzzScoreSyncEnabled && hasLinkedMatch && syncMatchId != null && !pointsVoided ? (
           <div style={{ padding: "0 14px 12px", fontSize: 12, color: "#94a3b8", lineHeight: 1.45 }}>
-            <strong style={{ color: "#64748b" }}>Sync from Cricbuzz</strong> uses the public scorecard (no extra API key). Optional when CricketData is slow or incomplete.
+            <strong style={{ color: "#64748b" }}>Sync from Cricbuzz</strong> loads the public scorecard only — it does not call CricketData or count toward API credits.
           </div>
         ) : null}
       </div>

@@ -361,28 +361,31 @@ export default function DashboardClient({
     await doRefreshNow();
   }
 
-  async function doRefreshNow(opts?: { force?: boolean; cricbuzzFallback?: boolean }) {
-    const force = opts?.force === true || opts?.cricbuzzFallback === true;
-    const cricbuzzFallback = opts?.cricbuzzFallback === true;
+  async function doRefreshNow(opts?: { force?: boolean; cricbuzzFallback?: boolean; cricbuzzOnly?: boolean }) {
+    const cricbuzzOnly = opts?.cricbuzzOnly === true;
+    const force = opts?.force === true || (!!opts?.cricbuzzFallback && !cricbuzzOnly);
+    const cricbuzzFallback = opts?.cricbuzzFallback === true && !cricbuzzOnly;
     setShowSyncCooldownPrompt(false);
     setSyncing(true);
-    setMessage("Syncing from cricket source...");
+    setMessage(cricbuzzOnly ? "Loading Cricbuzz scorecard…" : "Syncing from cricket source...");
     try {
       const res = await fetch("/api/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ force, cricbuzzFallback }),
+        body: JSON.stringify({ force, cricbuzzFallback, cricbuzzOnly }),
       });
       const json = await res.json();
       setSyncing(false);
       recordSyncDebugClient(null, json as Record<string, unknown>, "dashboard-refresh");
       if (json.ok) {
-        addUsage(1);
-        refreshKeyStatsBundle();
+        if (!cricbuzzOnly) {
+          addUsage(1);
+          refreshKeyStatsBundle();
+        }
         const canTry = Boolean((json.debug as { canTryCricbuzzFallback?: boolean } | undefined)?.canTryCricbuzzFallback);
-        setShowCricbuzzFallbackBtn(canTry);
+        setShowCricbuzzFallbackBtn(canTry && !cricbuzzOnly);
         setMessage(json.message || "Scores updated!");
-        if (!canTry) {
+        if (!canTry || cricbuzzOnly) {
           window.setTimeout(() => window.location.reload(), 1200);
         }
       } else {
@@ -544,9 +547,9 @@ export default function DashboardClient({
             </span>
             <button
               type="button"
-              disabled={syncing || isAtLimit}
+              disabled={syncing}
               style={buttonStyleSecondary}
-              onClick={() => guardedRun(1, "Cricbuzz scorecard", () => doRefreshNow({ cricbuzzFallback: true }))}
+              onClick={() => guardedRun(0, "Cricbuzz scorecard", () => doRefreshNow({ cricbuzzOnly: true }))}
             >
               {syncing ? "Loading…" : "Pull from Cricbuzz"}
             </button>
