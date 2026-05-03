@@ -74,6 +74,8 @@ type Props = {
   lineupLatenessActive?: boolean;
   /** CricketData mode + linked CricAPI id — show Cricbuzz scorecard sync. */
   cricbuzzScoreSyncEnabled?: boolean;
+  /** Per-name pick counts for this competition — roster picker sorts by frequency first. */
+  rosterPickCounts?: Record<string, number> | null;
 };
 
 export default function MatchClient({
@@ -97,6 +99,7 @@ export default function MatchClient({
   lineupLatenessMeta = null,
   lineupLatenessActive = false,
   cricbuzzScoreSyncEnabled = false,
+  rosterPickCounts = null,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -438,6 +441,7 @@ export default function MatchClient({
             bench: fp.bench,
             provider_player_id: fp.provider_player_id ?? null,
           }))) : undefined}
+          pickCounts={rosterPickCounts}
         />
       </div>
     );

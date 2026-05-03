@@ -8,6 +8,7 @@ import NavBar from "@/components/NavBar";
 import SelectClient from "@/components/SelectClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
 import { pickTrackedMatchRowFromList } from "@/lib/active-match";
+import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -113,6 +114,8 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
         )
       : undefined;
 
+  const pickCounts = await fetchFantasyPickCountsByCompetition(competitionId);
+
   const isMultiSubtitle = compPlayers.length > 2;
   const competitionSuffix =
     competitionId != null ? `&c=${encodeURIComponent(String(competitionId))}` : "";
@@ -149,6 +152,7 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
         competitionId={competitionId}
         compPlayers={compPlayers.length >= 3 ? compPlayers : undefined}
         existingPicks={existingPicks}
+        pickCounts={pickCounts}
       />
     </main>
   );

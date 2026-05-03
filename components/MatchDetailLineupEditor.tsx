@@ -20,6 +20,8 @@ type Props = {
   competitionId: number | null;
   isMulti: boolean;
   compPlayers: string[];
+  /** Roster chip order: most-picked in this competition first */
+  rosterPickCounts?: Record<string, number> | null;
 };
 
 const btnSecondary: CSSProperties = {
@@ -46,6 +48,7 @@ export default function MatchDetailLineupEditor({
   competitionId,
   isMulti,
   compPlayers,
+  rosterPickCounts = null,
 }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -99,6 +102,7 @@ export default function MatchDetailLineupEditor({
         compPlayers={isMulti ? compPlayers : undefined}
         existingPicks={existingPicks}
         afterLineupSaveHref={`/match/${matchId}${competitionId != null ? `?c=${encodeURIComponent(String(competitionId))}` : ""}`}
+        pickCounts={rosterPickCounts}
       />
     </div>
   );

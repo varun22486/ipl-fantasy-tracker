@@ -17,6 +17,7 @@ import {
 import { formatFixture } from "@/lib/format";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
+import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
 import {
   DEFAULT_LINEUP_LATENESS_POINTS,
   hasLineupLatenessActive,
@@ -211,6 +212,8 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
 
   const { match, players, yourName, opponentName, compPlayers, isMulti, rules, competitionId: cid } = await getData(matchId, competitionId);
 
+  const rosterPickCounts = await fetchFantasyPickCountsByCompetition(cid);
+
   const historyHref = cid != null ? `/history?c=${cid}` : "/history";
   const matchLiveHref =
     cid != null ? `/match?c=${encodeURIComponent(String(cid))}&m=${matchId}` : `/match?m=${matchId}`;
@@ -374,6 +377,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
                 competitionId={cid}
                 isMulti={isMulti}
                 compPlayers={compPlayers}
+                rosterPickCounts={rosterPickCounts}
               />
             </div>
           </div>

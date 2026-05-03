@@ -7,6 +7,7 @@ import type { CSSProperties } from "react";
 import ApiMessage from "@/components/ApiMessage";
 import { classifyApiMsg, type ApiMsg } from "@/lib/api-message";
 import { navigateToMatchAfterSeed } from "@/lib/post-seed-nav-client";
+import { rosterNameKey, sortRosterByPickCountThenName } from "@/lib/roster-pick-order";
 import {
   emptyRosterSlots,
   ROSTER_MAX_PLAYERS,
@@ -115,29 +116,6 @@ function SelectQuotaCluster({
   );
 }
 
-/** Stable key so roster labels match stored lineup names (trim, case, Unicode NFC). */
-function rosterNameKey(n: string): string {
-  const t = n.trim().toLowerCase();
-  try {
-    return t.normalize("NFC");
-  } catch {
-    return t;
-  }
-}
-
-/** Sort A–Z by first name (first word), then full name */
-function sortRosterByFirstName(names: string[]): string[] {
-  return [...names].sort((a, b) => {
-    const ta = a.trim();
-    const tb = b.trim();
-    const fa = (ta.split(/\s+/)[0] ?? "").toLowerCase();
-    const fb = (tb.split(/\s+/)[0] ?? "").toLowerCase();
-    const c = fa.localeCompare(fb, undefined, { sensitivity: "base" });
-    if (c !== 0) return c;
-    return ta.localeCompare(tb, undefined, { sensitivity: "base" });
-  });
-}
-
 type Player = RosterSlotPlayer;
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -164,9 +142,29 @@ type Props = {
   existingPicks?: Array<Array<{ name: string; captain: boolean; bench?: boolean | null; provider_player_id?: string | null }>>;
   /** When set (e.g. history detail editor), navigate here after save instead of /match?m=… */
   afterLineupSaveHref?: string | null;
+  /**
+   * Keys from `rosterNameKey(name)` → times this player was saved in any lineup for this competition.
+   * When set, roster chips list most-picked names first (then A–Z).
+   */
+  pickCounts?: Record<string, number> | null;
 };
 
-export default function SelectClient({ yourName, opponentName, yourPlayers, opponentPlayers, rosterNames, squads, nameToId, hasLinkedMatch, matchId, competitionId, compPlayers, existingPicks, afterLineupSaveHref }: Props) {
+export default function SelectClient({
+  yourName,
+  opponentName,
+  yourPlayers,
+  opponentPlayers,
+  rosterNames,
+  squads,
+  nameToId,
+  hasLinkedMatch,
+  matchId,
+  competitionId,
+  compPlayers,
+  existingPicks,
+  afterLineupSaveHref,
+  pickCounts = null,
+}: Props) {
   // Multi-player mode: 3+ participants
   const isMulti = (compPlayers?.length ?? 0) >= 3;
   const multiPlayers = compPlayers ?? [];
@@ -942,7 +940,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                 }}
               >
                 {squads.map((team) => {
-                  const avail = sortRosterByFirstName(team.players).filter(
+                  const avail = sortRosterByPickCountThenName(team.players, pickCounts).filter(
                     (n) => !allTakenKeysMulti.has(rosterNameKey(n))
                   );
                   const ac = COLORS[activeMultiIdx % COLORS.length];
@@ -980,7 +978,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
             ) : (
               <div className="select-roster-grid">
                 {(() => {
-                  const avail = sortRosterByFirstName(rosterNames).filter(
+                  const avail = sortRosterByPickCountThenName(rosterNames, pickCounts).filter(
                     (n) => !allTakenKeysMulti.has(rosterNameKey(n))
                   );
                   const ac = COLORS[activeMultiIdx % COLORS.length];
@@ -1403,13 +1401,13 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
                         <div className="select-squad-head__bar" aria-hidden />
                         <span className="select-squad-head__name">{team.teamName}</span>
                         <span className="select-squad-head__meta">
-                          {sortRosterByFirstName(team.players).filter((n) => !takenNames.has(rosterNameKey(n))).length}{" "}
+                          {team.players.filter((n) => !takenNames.has(rosterNameKey(n))).length}{" "}
                           available · {team.players.length} in squad
                         </span>
                       </div>
                       <div className="select-roster-below-team">
                         {(() => {
-                          const avail = sortRosterByFirstName(team.players).filter((n) => !takenNames.has(rosterNameKey(n)));
+                          const avail = sortRosterByPickCountThenName(team.players, pickCounts).filter((n) => !takenNames.has(rosterNameKey(n)));
                           if (avail.length === 0) {
                             return <p className="select-roster-empty-hint">Everyone here is already on a lineup</p>;
                           }
@@ -1434,7 +1432,7 @@ export default function SelectClient({ yourName, opponentName, yourPlayers, oppo
               ) : (
                 <div className="select-roster-grid">
                   {(() => {
-                    const avail = sortRosterByFirstName(rosterNames).filter((n) => !takenNames.has(rosterNameKey(n)));
+                    const avail = sortRosterByPickCountThenName(rosterNames, pickCounts).filter((n) => !takenNames.has(rosterNameKey(n)));
                     if (avail.length === 0) {
                       return <p className="select-roster-empty-hint">Everyone is on a lineup — clear a slot to return someone here</p>;
                     }

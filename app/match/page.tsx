@@ -12,6 +12,7 @@ import MatchClient from "@/components/MatchClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
 import { pickTrackedMatchRowFromList } from "@/lib/active-match";
 import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
+import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -154,6 +155,8 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
     Boolean(currentMatch && String((currentMatch as { fixture?: string | null }).fixture ?? "").trim()) &&
     !pointsVoided;
 
+  const pickCounts = await fetchFantasyPickCountsByCompetition(competitionId);
+
   return (
     <main className="page-main">
       <NavBar title="Match" subtitle={subtitle} />
@@ -196,6 +199,7 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
         lineupLatenessMeta={lineupLatenessInput}
         lineupLatenessActive={lineupLatenessActive}
         cricbuzzScoreSyncEnabled={cricbuzzScoreSyncEnabled}
+        rosterPickCounts={pickCounts}
         />
       </Suspense>
     </main>
