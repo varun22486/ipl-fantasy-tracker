@@ -403,6 +403,12 @@ export default function SelectClient({
     return s;
   }, [allPicks]);
 
+  /** Pick-frequency order for roster chips — used in both multi (3+) and H2H layouts. */
+  const orderNamesForRosterChips = useCallback(
+    (names: string[]) => sortRosterByPickCountThenName(names, pickCounts),
+    [pickCounts]
+  );
+
   const hasRoster = rosterNames.length > 0 || squads.some((t) => t.players.length > 0);
 
   const showMsg = useCallback((text: string, context?: string) => {
@@ -940,7 +946,7 @@ export default function SelectClient({
                 }}
               >
                 {squads.map((team) => {
-                  const avail = sortRosterByPickCountThenName(team.players, pickCounts).filter(
+                  const avail = orderNamesForRosterChips(team.players).filter(
                     (n) => !allTakenKeysMulti.has(rosterNameKey(n))
                   );
                   const ac = COLORS[activeMultiIdx % COLORS.length];
@@ -978,7 +984,7 @@ export default function SelectClient({
             ) : (
               <div className="select-roster-grid">
                 {(() => {
-                  const avail = sortRosterByPickCountThenName(rosterNames, pickCounts).filter(
+                  const avail = orderNamesForRosterChips(rosterNames).filter(
                     (n) => !allTakenKeysMulti.has(rosterNameKey(n))
                   );
                   const ac = COLORS[activeMultiIdx % COLORS.length];
@@ -1407,7 +1413,7 @@ export default function SelectClient({
                       </div>
                       <div className="select-roster-below-team">
                         {(() => {
-                          const avail = sortRosterByPickCountThenName(team.players, pickCounts).filter((n) => !takenNames.has(rosterNameKey(n)));
+                          const avail = orderNamesForRosterChips(team.players).filter((n) => !takenNames.has(rosterNameKey(n)));
                           if (avail.length === 0) {
                             return <p className="select-roster-empty-hint">Everyone here is already on a lineup</p>;
                           }
@@ -1432,7 +1438,7 @@ export default function SelectClient({
               ) : (
                 <div className="select-roster-grid">
                   {(() => {
-                    const avail = sortRosterByPickCountThenName(rosterNames, pickCounts).filter((n) => !takenNames.has(rosterNameKey(n)));
+                    const avail = orderNamesForRosterChips(rosterNames).filter((n) => !takenNames.has(rosterNameKey(n)));
                     if (avail.length === 0) {
                       return <p className="select-roster-empty-hint">Everyone is on a lineup — clear a slot to return someone here</p>;
                     }

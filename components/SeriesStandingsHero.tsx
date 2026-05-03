@@ -9,7 +9,14 @@ function initials(name: string) {
   return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
-type Participant = { name: string; totalPoints: number; wins: number; matches: number };
+type Participant = {
+  name: string;
+  totalPoints: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  matches: number;
+};
 
 function tierClass(i: number) {
   if (i === 0) return "standings-panel__row--t1";
@@ -50,11 +57,16 @@ export default function SeriesStandingsHero({
           <ol className="standings-panel__tbody">
             {participants.map((p, i) => {
               const behind = i > 0 ? Math.max(0, lead - p.totalPoints) : 0;
-              const losses = Math.max(0, p.matches - p.wins);
               const winPct = p.matches > 0 ? Math.round((p.wins / p.matches) * 100) : null;
               const record =
                 p.matches > 0
-                  ? `${p.wins}–${losses}${winPct != null ? ` · ${winPct}%` : ""}`
+                  ? (() => {
+                      const core =
+                        p.ties > 0
+                          ? `${p.wins}–${p.losses}–${p.ties}`
+                          : `${p.wins}–${p.losses}`;
+                      return `${core}${winPct != null ? ` · ${winPct}%` : ""}`;
+                    })()
                   : "—";
               const bg = MONO_BG[i % MONO_BG.length];
               const label = `${i + 1}. ${p.name}, ${p.totalPoints.toLocaleString()} points, ${record}`;

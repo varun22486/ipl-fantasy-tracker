@@ -7,6 +7,7 @@ import { FantasyPlayer, fantasyPointsCounted, isFantasyBench, playerPoints, scor
 import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
+import { buildMultiParticipantSeasonRows } from "@/lib/multi-participant-record";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { lineupLatenessSideAdjustment, matchLineupForCompetition } from "@/lib/lineup-lateness";
 import nextDynamic from "next/dynamic";
@@ -228,12 +229,8 @@ async function getData(competitionId: number | null) {
       })
     : [];
 
-  const participantTotals: { name: string; totalPoints: number; wins: number; matches: number }[] = isMultiPlayer
-    ? compPlayers.map(name => {
-        const totalPoints = participantMatchStats.reduce((s, m) => s + (m.pts[name] ?? 0), 0);
-        const wins = participantMatchStats.filter(m => m.winner === name).length;
-        return { name, totalPoints, wins, matches: participantMatchStats.filter(m => m.hasData).length };
-      }).sort((a, b) => b.totalPoints - a.totalPoints)
+  const participantTotals = isMultiPlayer
+    ? buildMultiParticipantSeasonRows(participantMatchStats, compPlayers)
     : [];
 
   const matchIdsWithPlayers = new Set<number>();

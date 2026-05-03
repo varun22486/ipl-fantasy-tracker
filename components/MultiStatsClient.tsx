@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import type { CSSProperties } from "react";
 import Link from "next/link";
+import { outcomeForMultiParticipantMatch } from "@/lib/multi-participant-record";
 
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#ea580c"];
 
@@ -27,7 +28,14 @@ type MatchStat = {
   winner: string | null;
 };
 
-type Participant = { name: string; totalPoints: number; wins: number; matches: number };
+type Participant = {
+  name: string;
+  totalPoints: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  matches: number;
+};
 
 type Props = {
   participants: Participant[];
@@ -175,8 +183,15 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
             fixture: m.fixture,
           };
           for (const n of compPlayers) {
-            const wins = slice.filter((x) => x.winner === n).length;
-            row[n] = Math.round((wins / (i + 1)) * 100);
+            let w = 0;
+            let t = 0;
+            for (const x of slice) {
+              const o = outcomeForMultiParticipantMatch(x, n, compPlayers);
+              if (o === "win") w += 1;
+              else if (o === "tie") t += 1;
+            }
+            const games = slice.length;
+            row[n] = games > 0 ? Math.round(((w + 0.5 * t) / games) * 100) : 0;
           }
           return row;
         })
@@ -261,7 +276,7 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
             key={p.name}
             label={`${p.name} total`}
             value={p.totalPoints}
-            sub={`${p.wins}W · ${p.matches} played`}
+            sub={`${p.wins}W · ${p.losses}L${p.ties > 0 ? ` · ${p.ties}T` : ""} · ${p.matches} gp`}
             color={colorFor(p.name, compPlayers)}
             accent={colorFor(p.name, compPlayers)}
           />
