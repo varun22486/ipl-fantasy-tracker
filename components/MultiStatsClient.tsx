@@ -8,6 +8,7 @@ import {
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { outcomeForMultiParticipantMatch } from "@/lib/multi-participant-record";
+import { areaSeriesProps, useChartDotsOnly } from "@/lib/use-chart-dots-only";
 
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#ea580c"];
 
@@ -117,6 +118,7 @@ function computeMultiInsights(played: MatchStat[], compPlayers: string[]) {
 }
 
 export default function MultiStatsClient({ participants, matchStats, compPlayers }: Props) {
+  const chartDotsOnly = useChartDotsOnly();
   const played = matchStats.filter((m) => m.hasData);
   const ins = computeMultiInsights(played, compPlayers);
   const leader = participants[0]?.name ?? compPlayers[0];
@@ -353,11 +355,14 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
                 key={n}
                 type="monotone"
                 dataKey={n}
-                stroke={COLORS[i % COLORS.length]}
-                strokeWidth={3}
-                fill={`url(#gPts${i})`}
-                dot={{ r: 5, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
-                activeDot={{ r: 7 }}
+                {...areaSeriesProps(
+                  chartDotsOnly,
+                  COLORS[i % COLORS.length],
+                  3,
+                  `url(#gPts${i})`,
+                  { r: 5, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 },
+                  { r: 7 }
+                )}
               />
             ))}
           </AreaChart>
@@ -422,10 +427,13 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
                     key={n}
                     type="monotone"
                     dataKey={n}
-                    stroke={COLORS[i % COLORS.length]}
-                    strokeWidth={2.5}
-                    fill={`url(#gRun${i})`}
-                    dot={{ r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
+                    {...areaSeriesProps(
+                      chartDotsOnly,
+                      COLORS[i % COLORS.length],
+                      2.5,
+                      `url(#gRun${i})`,
+                      { r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }
+                    )}
                   />
                 ))}
               </AreaChart>
@@ -473,10 +481,13 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
                       key={n}
                       type="monotone"
                       dataKey={n}
-                      stroke={COLORS[i % COLORS.length]}
-                      strokeWidth={2.5}
-                      fill={`url(#gWkt${i})`}
-                      dot={{ r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
+                      {...areaSeriesProps(
+                        chartDotsOnly,
+                        COLORS[i % COLORS.length],
+                        2.5,
+                        `url(#gWkt${i})`,
+                        { r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }
+                      )}
                     />
                   ))}
                 </AreaChart>
@@ -528,10 +539,13 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
                     key={n}
                     type="monotone"
                     dataKey={n}
-                    stroke={COLORS[i % COLORS.length]}
-                    strokeWidth={2.5}
-                    fill={`url(#gCt${i})`}
-                    dot={{ r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
+                    {...areaSeriesProps(
+                      chartDotsOnly,
+                      COLORS[i % COLORS.length],
+                      2.5,
+                      `url(#gCt${i})`,
+                      { r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }
+                    )}
                   />
                 ))}
               </AreaChart>
@@ -579,10 +593,13 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
                       key={n}
                       type="monotone"
                       dataKey={n}
-                      stroke={COLORS[i % COLORS.length]}
-                      strokeWidth={2.5}
-                      fill={`url(#gRO${i})`}
-                      dot={{ r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
+                      {...areaSeriesProps(
+                        chartDotsOnly,
+                        COLORS[i % COLORS.length],
+                        2.5,
+                        `url(#gRO${i})`,
+                        { r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }
+                      )}
                     />
                   ))}
                 </AreaChart>
@@ -631,10 +648,13 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
                       key={n}
                       type="monotone"
                       dataKey={n}
-                      stroke={COLORS[i % COLORS.length]}
-                      strokeWidth={2.5}
-                      fill={`url(#gST${i})`}
-                      dot={{ r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
+                      {...areaSeriesProps(
+                        chartDotsOnly,
+                        COLORS[i % COLORS.length],
+                        2.5,
+                        `url(#gST${i})`,
+                        { r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }
+                      )}
                     />
                   ))}
                 </AreaChart>
@@ -716,10 +736,13 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
                       key={n}
                       type="monotone"
                       dataKey={n}
-                      stroke={COLORS[i % COLORS.length]}
-                      strokeWidth={2.5}
-                      fill={`url(#gCap${i})`}
-                      dot={{ r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
+                      {...areaSeriesProps(
+                        chartDotsOnly,
+                        COLORS[i % COLORS.length],
+                        2.5,
+                        `url(#gCap${i})`,
+                        { r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }
+                      )}
                     />
                   ))}
                 </AreaChart>
@@ -756,11 +779,14 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
                     key={n}
                     type="monotone"
                     dataKey={n}
-                    stroke={COLORS[i % COLORS.length]}
-                    strokeWidth={2.5}
-                    fill={`url(#gWin${i})`}
-                    dot={{ r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }}
-                    activeDot={{ r: 6 }}
+                    {...areaSeriesProps(
+                      chartDotsOnly,
+                      COLORS[i % COLORS.length],
+                      2.5,
+                      `url(#gWin${i})`,
+                      { r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 },
+                      { r: 6 }
+                    )}
                   />
                 ))}
               </ComposedChart>

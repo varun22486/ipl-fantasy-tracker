@@ -4,8 +4,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area,
-  ComposedChart, Line, ReferenceLine,
+  ComposedChart, ReferenceLine,
 } from "recharts";
+import { areaSeriesProps, useChartDotsOnly } from "@/lib/use-chart-dots-only";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { DEFAULT_SCORING, isFantasyBench } from "@/lib/scoring";
@@ -132,6 +133,7 @@ function computeInsights(played: MatchStat[], yourName: string, opponentName: st
 
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function StatsClient({ yourName, opponentName, youSide = "You", matchStats, leaderboard, summary }: Props) {
+  const chartDotsOnly = useChartDotsOnly();
   const played = matchStats.filter((m) => m.hasData);
   const ins = computeInsights(played, yourName, opponentName, youSide);
 
@@ -404,8 +406,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
                 <YAxis tick={{ fontSize: 12, fill: "#64748b" }} />
                 <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} pts`} />} />
                 <Legend wrapperStyle={{ fontSize: 13 }} />
-                <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={3} fill="url(#gradYou)" dot={{ r: 5, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} activeDot={{ r: 7 }} />
-                <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={3} fill="url(#gradOpp)" dot={{ r: 5, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} activeDot={{ r: 7 }} />
+                <Area type="monotone" dataKey={yourName} {...areaSeriesProps(chartDotsOnly, YOU_COLOR, 3, "url(#gradYou)", { r: 5, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }, { r: 7 })} />
+                <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(chartDotsOnly, OPP_COLOR, 3, "url(#gradOpp)", { r: 5, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }, { r: 7 })} />
               </AreaChart>
             </ResponsiveContainer>
             <div style={{ marginTop: 24 }}>
@@ -458,8 +460,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
                       <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
                       <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} runs`} />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#runsGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
-                      <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#runsGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                      <Area type="monotone" dataKey={yourName} {...areaSeriesProps(chartDotsOnly, YOU_COLOR, 2.5, "url(#runsGradYou)", { r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 })} />
+                      <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(chartDotsOnly, OPP_COLOR, 2.5, "url(#runsGradOpp)", { r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 })} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -495,8 +497,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
                         <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
                         <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} wkt${v !== 1 ? "s" : ""}`} />} />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#wktsGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
-                        <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#wktsGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                        <Area type="monotone" dataKey={yourName} {...areaSeriesProps(chartDotsOnly, YOU_COLOR, 2.5, "url(#wktsGradYou)", { r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 })} />
+                        <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(chartDotsOnly, OPP_COLOR, 2.5, "url(#wktsGradOpp)", { r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 })} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -538,8 +540,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
                       <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
                       <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} catch${v !== 1 ? "es" : ""}`} />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#ctGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
-                      <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#ctGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                      <Area type="monotone" dataKey={yourName} {...areaSeriesProps(chartDotsOnly, YOU_COLOR, 2.5, "url(#ctGradYou)", { r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 })} />
+                      <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(chartDotsOnly, OPP_COLOR, 2.5, "url(#ctGradOpp)", { r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 })} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -575,8 +577,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
                         <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
                         <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} credit${v !== 1 ? "s" : ""}`} />} />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#roGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
-                        <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#roGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                        <Area type="monotone" dataKey={yourName} {...areaSeriesProps(chartDotsOnly, YOU_COLOR, 2.5, "url(#roGradYou)", { r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 })} />
+                        <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(chartDotsOnly, OPP_COLOR, 2.5, "url(#roGradOpp)", { r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 })} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -613,8 +615,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
                         <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
                         <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} stump${v !== 1 ? "s" : ""}`} />} />
                         <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#stGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
-                        <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#stGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                        <Area type="monotone" dataKey={yourName} {...areaSeriesProps(chartDotsOnly, YOU_COLOR, 2.5, "url(#stGradYou)", { r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 })} />
+                        <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(chartDotsOnly, OPP_COLOR, 2.5, "url(#stGradOpp)", { r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 })} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -667,8 +669,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
                     <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} />
                     <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} pts`} />} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#capGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} />
-                    <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#capGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} />
+                    <Area type="monotone" dataKey={yourName} {...areaSeriesProps(chartDotsOnly, YOU_COLOR, 2.5, "url(#capGradYou)", { r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 })} />
+                    <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(chartDotsOnly, OPP_COLOR, 2.5, "url(#capGradOpp)", { r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 })} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -703,8 +705,8 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
                     <ReferenceLine y={50} stroke="#cbd5e1" strokeDasharray="4 3" label={{ value: "50%", fill: "#94a3b8", fontSize: 11 }} />
                     <Tooltip content={<ChartTooltip formatter={(v: number) => `${v}%`} />} />
                     <Legend wrapperStyle={{ fontSize: 13 }} />
-                    <Area type="monotone" dataKey={yourName} stroke={YOU_COLOR} strokeWidth={2.5} fill="url(#winGradYou)" dot={{ r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }} activeDot={{ r: 6 }} />
-                    <Area type="monotone" dataKey={opponentName} stroke={OPP_COLOR} strokeWidth={2.5} fill="url(#winGradOpp)" dot={{ r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                    <Area type="monotone" dataKey={yourName} {...areaSeriesProps(chartDotsOnly, YOU_COLOR, 2.5, "url(#winGradYou)", { r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 }, { r: 6 })} />
+                    <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(chartDotsOnly, OPP_COLOR, 2.5, "url(#winGradOpp)", { r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 }, { r: 6 })} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
