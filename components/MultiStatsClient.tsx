@@ -9,8 +9,6 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { outcomeForMultiParticipantMatch } from "@/lib/multi-participant-record";
 import { areaSeriesProps } from "@/lib/use-chart-dots-only";
-import { MomAwardBars, type MomPlotRow } from "@/components/MomAwardBars";
-
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#ea580c"];
 
 type MatchStat = {
@@ -25,6 +23,8 @@ type MatchStat = {
   stumpings: Record<string, number>;
   captainPts: Record<string, number>;
   captainName: Record<string, string>;
+  /** 1 if that participant's playing XI included official MoM this match, else 0. */
+  mom: Record<string, number>;
   hasData: boolean;
   isCurrent: boolean;
   winner: string | null;
@@ -43,8 +43,6 @@ type Props = {
   participants: Participant[];
   matchStats: MatchStat[];
   compPlayers: string[];
-  /** Season total: matches where each participant's XI included official MoM (this competition). */
-  participantMomTotals: Record<string, number>;
 };
 
 function shortFix(f: string) {
@@ -120,7 +118,7 @@ function computeMultiInsights(played: MatchStat[], compPlayers: string[]) {
   return { best, closest, closestSpread, avgs, sortedByAvg, streak, lastWinner };
 }
 
-export default function MultiStatsClient({ participants, matchStats, compPlayers, participantMomTotals }: Props) {
+export default function MultiStatsClient({ participants, matchStats, compPlayers }: Props) {
   const played = matchStats.filter((m) => m.hasData);
   const ins = computeMultiInsights(played, compPlayers);
   const leader = participants[0]?.name ?? compPlayers[0];
@@ -146,7 +144,7 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
     ...Object.fromEntries(compPlayers.map((n) => [n, m.pts[n] ?? 0])),
   }));
 
-  const buildStatRows = (key: keyof Pick<MatchStat, "runs" | "wickets" | "catches" | "runouts" | "stumpings" | "captainPts">) => {
+  const buildStatRows = (key: keyof Pick<MatchStat, "runs" | "wickets" | "catches" | "runouts" | "stumpings" | "captainPts" | "mom">) => {
     const perMatch = played.map((m) => ({
       name: shortFix(m.fixture),
       fullName: m.fixture,
@@ -176,13 +174,7 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
   const runoutsCharts = buildStatRows("runouts");
   const stumpingsCharts = buildStatRows("stumpings");
   const capCharts = buildStatRows("captainPts");
-
-  const momPlotRows: MomPlotRow[] = compPlayers.map((n) => ({
-    participant: n,
-    mom: participantMomTotals[n] ?? 0,
-    matches: participants.find((p) => p.name === n)?.matches ?? 0,
-    fill: colorFor(n, compPlayers),
-  }));
+  const momRunningData = buildStatRows("mom").running;
 
   const winRateData =
     played.length >= 2
@@ -495,11 +487,36 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
         </div>
       </div>
 
-      {/* Man of the Match — total per participant vs matches entered */}
+      {/* Man of the Match — cumulative only */}
       <div style={panel}>
         <h2 style={sectionTitle}>Man of the Match</h2>
-        <p style={sectionSub}>Total MoM in your XIs this season, by participant (bar height). Matches = competitions with synced lineups for that person.</p>
-        <MomAwardBars rows={momPlotRows} />
+        <p style={sectionSub}>Cumulative MoM awards: running total of synced matches where each participant&apos;s XI included the official Man of the Match</p>
+        <div style={miniChartLabel}>Cumulative total</div>
+        <ResponsiveContainer width="100%" height={240}>
+          <AreaChart data={momRunningData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
+            <defs>
+              {compPlayers.map((n, i) => (
+                <linearGradient key={n} id={`gMomCum${i}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.18} />
+                  <stop offset="95%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0} />
+                </linearGradient>
+              ))}
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+            <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} award${v !== 1 ? "s" : ""}`} />} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            {compPlayers.map((n, i) => (
+              <Area
+                key={n}
+                type="monotone"
+                dataKey={n}
+                {...areaSeriesProps(COLORS[i % COLORS.length], 2.5, `url(#gMomCum${i})`)}
+              />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
       </div>
 
       {/* Catches & captain */}

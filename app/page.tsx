@@ -192,6 +192,7 @@ async function getData(competitionId: number | null) {
         const stumpings: Record<string, number> = {};
         const captainPts: Record<string, number> = {};
         const captainName: Record<string, string> = {};
+        const mom: Record<string, number> = {};
         const lateMetaM = matchLineupForCompetition(m, competitionId);
         const latenessOptsM = { voided, allParticipantNames: compPlayers };
         for (const name of compPlayers) {
@@ -206,6 +207,10 @@ async function getData(competitionId: number | null) {
           const cap = sidePlayers.find((p: any) => p.captain && !isFantasyBench(p));
           captainPts[name] = voided || !cap ? 0 : fantasyPointsCounted(cap, rules);
           captainName[name] = cap?.name ?? "—";
+          const momHits = voided
+            ? []
+            : sidePlayers.filter((p: any) => !isFantasyBench(p) && (p.mom_bonus ?? 0) > 0);
+          mom[name] = momHits.length > 0 ? 1 : 0;
         }
         const hasData = !voided && Object.values(pts).some((v) => v !== 0);
         const maxPts = Math.max(...Object.values(pts), 0);
@@ -223,6 +228,7 @@ async function getData(competitionId: number | null) {
           stumpings,
           captainPts,
           captainName,
+          mom,
           hasData,
           isCurrent: Boolean(m.is_current),
           winner,
@@ -253,23 +259,6 @@ async function getData(competitionId: number | null) {
 
   const nextMatch = nextMatchRow ?? null;
 
-  const participantMomTotals = isMultiPlayer
-    ? Object.fromEntries(
-        compPlayers.map((name) => {
-          let total = 0;
-          for (const m of matches ?? []) {
-            const mid = m.id as number;
-            if (voidedMatchIds.has(mid)) continue;
-            const mp = playersByMatch[mid] ?? [];
-            const sidePlayers = mp.filter((p: any) => p.side === name);
-            const hit = sidePlayers.some((p: any) => !isFantasyBench(p) && (p.mom_bonus ?? 0) > 0);
-            if (hit) total += 1;
-          }
-          return [name, total] as const;
-        }),
-      )
-    : ({} as Record<string, number>);
-
   return {
     yourName,
     opponentName,
@@ -279,7 +268,6 @@ async function getData(competitionId: number | null) {
     compPlayers,
     participantTotals,
     participantMatchStats,
-    participantMomTotals,
     nextMatch: nextMatch
       ? {
           fixture: formatFixture(nextFixture || nextMatch.fixture) || nextFixture || nextMatch.fixture || "TBD",
@@ -319,7 +307,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
           participants={data.participantTotals}
           matchStats={data.participantMatchStats}
           compPlayers={data.compPlayers}
-          participantMomTotals={data.participantMomTotals}
         />
       ) : (
         <StatsClient

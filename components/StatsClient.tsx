@@ -7,7 +7,6 @@ import {
   ComposedChart, ReferenceLine,
 } from "recharts";
 import { areaSeriesProps } from "@/lib/use-chart-dots-only";
-import { MomAwardBars, type MomPlotRow } from "@/components/MomAwardBars";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { DEFAULT_SCORING, isFantasyBench } from "@/lib/scoring";
@@ -239,23 +238,21 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
     };
   });
 
-  const matchesWithLineup = (you: boolean) =>
-    matchStats.filter((m) => m.players.some((p) => (you ? xiYou(p, youSide) : xiOpp(p, youSide)) && !isFantasyBench(p))).length;
-
-  const momPlotRows: MomPlotRow[] = [
-    {
-      participant: yourName,
-      mom: matchStats.filter((m) => m.players.some((p) => xiYou(p, youSide) && (p.mom_bonus ?? 0) > 0)).length,
-      matches: matchesWithLineup(true),
-      fill: YOU_COLOR,
-    },
-    {
-      participant: opponentName,
-      mom: matchStats.filter((m) => m.players.some((p) => xiOpp(p, youSide) && (p.mom_bonus ?? 0) > 0)).length,
-      matches: matchesWithLineup(false),
-      fill: OPP_COLOR,
-    },
-  ];
+  const momRunningData = played.map((m, i) => {
+    const slice = played.slice(0, i + 1);
+    return {
+      name: shortFixture(m.fixture),
+      fullName: m.fixture,
+      [yourName]: slice.reduce(
+        (s, x) => s + (x.players.some((p) => xiYou(p, youSide) && (p.mom_bonus ?? 0) > 0) ? 1 : 0),
+        0,
+      ),
+      [opponentName]: slice.reduce(
+        (s, x) => s + (x.players.some((p) => xiOpp(p, youSide) && (p.mom_bonus ?? 0) > 0) ? 1 : 0),
+        0,
+      ),
+    };
+  });
 
   // 5b. Cumulative captain points
   const captainPtsRunningData = played.map((m, i) => {
@@ -525,12 +522,36 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
             </div>
           )}
 
-          {/* Man of the Match — total per side vs matches entered */}
+          {/* Man of the Match — cumulative only */}
           {(
             <div style={sectionStyle}>
               <h2 style={sectionTitle}>Man of the Match</h2>
-              <p style={sectionSub}>Total MoM in your XIs this season, by side (bar height). Matches = weeks with a saved lineup for that side.</p>
-              <MomAwardBars rows={momPlotRows} />
+              <p style={sectionSub}>
+                Cumulative MoM awards: running total of synced matches where each side&apos;s XI included the official Man of
+                the Match
+              </p>
+              <div style={miniChartLabel}>Cumulative total</div>
+              <ResponsiveContainer width="100%" height={240}>
+                <AreaChart data={momRunningData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="momCumGradYou" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} />
+                      <stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="momCumGradOpp" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} />
+                      <stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                  <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} award${v !== 1 ? "s" : ""}`} />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Area type="monotone" dataKey={yourName} {...areaSeriesProps(YOU_COLOR, 2.5, "url(#momCumGradYou)")} />
+                  <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(OPP_COLOR, 2.5, "url(#momCumGradOpp)")} />
+                </AreaChart>
+              </ResponsiveContainer>
             </div>
           )}
 
