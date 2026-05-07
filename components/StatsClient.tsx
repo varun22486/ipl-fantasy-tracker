@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area,
   ComposedChart, ReferenceLine,
@@ -12,7 +12,7 @@ import Link from "next/link";
 import { DEFAULT_SCORING, isFantasyBench } from "@/lib/scoring";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type PlayerStat = { name: string; side: string; captain: boolean; bench?: boolean; points: number; runs: number; wickets: number; catches: number; runouts?: number; stumpings?: number };
+type PlayerStat = { name: string; side: string; captain: boolean; bench?: boolean; points: number; runs: number; wickets: number; catches: number; runouts?: number; stumpings?: number; mom_bonus?: number };
 
 type MatchStat = {
   matchId: number; fixture: string; date: string;
@@ -238,6 +238,50 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
       [opponentName]: slice.reduce((s, x) => s + x.players.filter((p) => xiOpp(p, youSide)).reduce((a, p) => a + (p.stumpings ?? 0), 0), 0),
     };
   });
+
+  const momMatchData = played.map((m) => ({
+    name: shortFixture(m.fixture), fullName: m.fixture,
+    [yourName]:     m.players.filter((p) => xiYou(p, youSide)).reduce((s, p) => s + (p.mom_bonus ?? 0), 0) > 0 ? 1 : 0,
+    [opponentName]: m.players.filter((p) => xiOpp(p, youSide)).reduce((s, p) => s + (p.mom_bonus ?? 0), 0) > 0 ? 1 : 0,
+  }));
+
+  const momRunningData = played.map((m, i) => {
+    const slice = played.slice(0, i + 1);
+    return {
+      name: shortFixture(m.fixture), fullName: m.fixture,
+      [yourName]: slice.reduce((s, x) => {
+        const hit = x.players.some((p) => xiYou(p, youSide) && (p.mom_bonus ?? 0) > 0);
+        return s + (hit ? 1 : 0);
+      }, 0),
+      [opponentName]: slice.reduce((s, x) => {
+        const hit = x.players.some((p) => xiOpp(p, youSide) && (p.mom_bonus ?? 0) > 0);
+        return s + (hit ? 1 : 0);
+      }, 0),
+    };
+  });
+
+  const momPlayerAgg = new Map<string, { count: number; displayName: string; teamYou: boolean }>();
+  for (const m of played) {
+    for (const p of m.players) {
+      if (isFantasyBench(p)) continue;
+      if ((p.mom_bonus ?? 0) <= 0) continue;
+      const k = `${p.side}::${p.name}`;
+      const prev = momPlayerAgg.get(k);
+      if (prev) prev.count += 1;
+      else momPlayerAgg.set(k, { count: 1, displayName: p.name, teamYou: p.side === youSide });
+    }
+  }
+  const momPlayerRows = [...momPlayerAgg.values()].sort((a, b) => b.count - a.count || a.displayName.localeCompare(b.displayName));
+  const dupNames = new Set<string>();
+  const nameFreq = new Map<string, number>();
+  for (const r of momPlayerRows) nameFreq.set(r.displayName, (nameFreq.get(r.displayName) ?? 0) + 1);
+  for (const [nm, c] of nameFreq) if (c > 1) dupNames.add(nm);
+  const momPlayerBarData = momPlayerRows.map((r) => ({
+    axisLabel: dupNames.has(r.displayName) ? `${r.displayName} (${r.teamYou ? yourName : opponentName})` : r.displayName,
+    fullName: r.displayName,
+    count: r.count,
+    fill: r.teamYou ? YOU_COLOR : OPP_COLOR,
+  }));
 
   // 5b. Cumulative captain points
   const captainPtsRunningData = played.map((m, i) => {
@@ -504,6 +548,82 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Man of the Match — team trend + per fantasy player */}
+          {(
+            <div style={sectionStyle}>
+              <h2 style={sectionTitle}>Man of the Match</h2>
+              <p style={sectionSub}>When your lineup includes the official MoM winner (synced from scores). Per-match indicator and season tally by side; bar chart counts MoM per fantasy pick.</p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px,100%), 1fr))", gap: 20 }}>
+                <div>
+                  <div style={miniChartLabel}>Per match (1 = your XI had MoM)</div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={momMatchData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="30%">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} domain={[0, 1]} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<ChartTooltip formatter={(v: number) => (v >= 1 ? "MoM in XI" : "—")} />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey={yourName} fill={YOU_COLOR} radius={[5, 5, 0, 0]} />
+                      <Bar dataKey={opponentName} fill={OPP_COLOR} radius={[5, 5, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div>
+                  <div style={miniChartLabel}>Cumulative MoM count</div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={momRunningData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="momGradYou" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={YOU_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={YOU_COLOR} stopOpacity={0} /></linearGradient>
+                        <linearGradient id="momGradOpp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={OPP_COLOR} stopOpacity={0.18} /><stop offset="95%" stopColor={OPP_COLOR} stopOpacity={0} /></linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                      <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} award${v !== 1 ? "s" : ""}`} />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Area type="monotone" dataKey={yourName} {...areaSeriesProps(chartDotsOnly, YOU_COLOR, 2.5, "url(#momGradYou)", { r: 4, fill: YOU_COLOR, stroke: "white", strokeWidth: 2 })} />
+                      <Area type="monotone" dataKey={opponentName} {...areaSeriesProps(chartDotsOnly, OPP_COLOR, 2.5, "url(#momGradOpp)", { r: 4, fill: OPP_COLOR, stroke: "white", strokeWidth: 2 })} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              {momPlayerBarData.length > 0 && (
+                <div style={{ marginTop: 24 }}>
+                  <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>MoM per fantasy player</h2>
+                  <p style={sectionSub}>Total times each pick in your playing XIs was the match MoM winner</p>
+                  <ResponsiveContainer width="100%" height={Math.min(420, 48 + momPlayerBarData.length * 36)}>
+                    <BarChart layout="vertical" data={momPlayerBarData} margin={{ top: 8, right: 20, left: 4, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                      <YAxis type="category" dataKey="axisLabel" width={148} tick={{ fontSize: 11, fill: "#64748b" }} />
+                      <Tooltip
+                        content={({ active, payload }: any) => {
+                          if (!active || !payload?.length) return null;
+                          const d = payload[0]?.payload;
+                          return (
+                            <div className="chart-tooltip">
+                              <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a" }}>{d?.fullName}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ width: 10, height: 10, borderRadius: 2, background: d?.fill, display: "inline-block" }} />
+                                <span style={{ color: "#475569" }}>MoM wins:</span>
+                                <span style={{ fontWeight: 700, color: "#0f172a" }}>{d?.count}</span>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                        {momPlayerBarData.map((e, i) => (
+                          <Cell key={`${e.axisLabel}-${i}`} fill={e.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           )}
 

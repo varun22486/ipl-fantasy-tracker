@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  AreaChart, Area, BarChart, Bar,
+  AreaChart, Area, BarChart, Bar, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   ComposedChart, ReferenceLine,
 } from "recharts";
@@ -24,6 +24,8 @@ type MatchStat = {
   stumpings: Record<string, number>;
   captainPts: Record<string, number>;
   captainName: Record<string, string>;
+  mom: Record<string, number>;
+  momPlayerName: Record<string, string>;
   hasData: boolean;
   isCurrent: boolean;
   winner: string | null;
@@ -42,6 +44,7 @@ type Props = {
   participants: Participant[];
   matchStats: MatchStat[];
   compPlayers: string[];
+  multiMomByPlayer: { player: string; participant: string; count: number }[];
 };
 
 function shortFix(f: string) {
@@ -117,7 +120,7 @@ function computeMultiInsights(played: MatchStat[], compPlayers: string[]) {
   return { best, closest, closestSpread, avgs, sortedByAvg, streak, lastWinner };
 }
 
-export default function MultiStatsClient({ participants, matchStats, compPlayers }: Props) {
+export default function MultiStatsClient({ participants, matchStats, compPlayers, multiMomByPlayer }: Props) {
   const chartDotsOnly = useChartDotsOnly();
   const played = matchStats.filter((m) => m.hasData);
   const ins = computeMultiInsights(played, compPlayers);
@@ -144,7 +147,7 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
     ...Object.fromEntries(compPlayers.map((n) => [n, m.pts[n] ?? 0])),
   }));
 
-  const buildStatRows = (key: keyof Pick<MatchStat, "runs" | "wickets" | "catches" | "runouts" | "stumpings" | "captainPts">) => {
+  const buildStatRows = (key: keyof Pick<MatchStat, "runs" | "wickets" | "catches" | "runouts" | "stumpings" | "captainPts" | "mom">) => {
     const perMatch = played.map((m) => ({
       name: shortFix(m.fixture),
       fullName: m.fixture,
@@ -174,6 +177,28 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
   const runoutsCharts = buildStatRows("runouts");
   const stumpingsCharts = buildStatRows("stumpings");
   const capCharts = buildStatRows("captainPts");
+  const momCharts = buildStatRows("mom");
+
+  const momPerMatchDetail = played.map((m) => ({
+    name: shortFix(m.fixture),
+    fullName: m.fixture,
+    fixture: m.fixture,
+    ...Object.fromEntries(compPlayers.map((n) => [n, m.mom[n] ?? 0])),
+    ...Object.fromEntries(compPlayers.map((n) => [`${n}__momPick`, m.momPlayerName[n] ?? "—"])),
+  }));
+
+  const momParticipantSets = new Map<string, Set<string>>();
+  for (const r of multiMomByPlayer) {
+    if (!momParticipantSets.has(r.player)) momParticipantSets.set(r.player, new Set());
+    momParticipantSets.get(r.player)!.add(r.participant);
+  }
+  const momPlayerBarData = multiMomByPlayer.map((r) => ({
+    axisLabel: (momParticipantSets.get(r.player)?.size ?? 0) > 1 ? `${r.player} (${r.participant})` : r.player,
+    fullName: r.player,
+    participant: r.participant,
+    count: r.count,
+    fill: colorFor(r.participant, compPlayers),
+  }));
 
   const winRateData =
     played.length >= 2
@@ -495,6 +520,116 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Man of the Match */}
+      <div style={panel}>
+        <h2 style={sectionTitle}>Man of the Match</h2>
+        <p style={sectionSub}>Per-match MoM in each participant&apos;s XI (1 = lineup included official MoM) and cumulative awards</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(280px, 100%), 1fr))", gap: 20 }}>
+          <div>
+            <div style={miniChartLabel}>Per match</div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={momPerMatchDetail} margin={{ top: 5, right: 16, left: 0, bottom: 0 }} barCategoryGap="25%">
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} domain={[0, 1]} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  content={({ active, payload, label: lbl }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0]?.payload;
+                    return (
+                      <div className="chart-tooltip">
+                        <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a" }}>{d?.fullName ?? lbl}</div>
+                        {compPlayers.map((n, i) => (
+                          <div key={n} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                            <span style={{ width: 10, height: 10, borderRadius: 2, background: COLORS[i % COLORS.length], display: "inline-block" }} />
+                            <span style={{ color: "#475569" }}>{n}:</span>
+                            <span style={{ fontWeight: 700, color: "#0f172a" }}>{(d?.[n] ?? 0) >= 1 ? "MoM" : "—"}</span>
+                            <span style={{ color: "#94a3b8", fontSize: 12 }}>({d?.[`${n}__momPick`] ?? "—"})</span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {compPlayers.map((n, i) => (
+                  <Bar key={n} dataKey={n} fill={COLORS[i % COLORS.length]} radius={[5, 5, 0, 0]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div>
+            <div style={miniChartLabel}>Cumulative MoM count</div>
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={momCharts.running} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
+                <defs>
+                  {compPlayers.map((n, i) => (
+                    <linearGradient key={n} id={`gMom${i}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0.18} />
+                      <stop offset="95%" stopColor={COLORS[i % COLORS.length]} stopOpacity={0} />
+                    </linearGradient>
+                  ))}
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                <Tooltip content={<ChartTooltip formatter={(v: number) => `${v} award${v !== 1 ? "s" : ""}`} />} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {compPlayers.map((n, i) => (
+                  <Area
+                    key={n}
+                    type="monotone"
+                    dataKey={n}
+                    {...areaSeriesProps(
+                      chartDotsOnly,
+                      COLORS[i % COLORS.length],
+                      2.5,
+                      `url(#gMom${i})`,
+                      { r: 4, fill: COLORS[i % COLORS.length], stroke: "white", strokeWidth: 2 }
+                    )}
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        {momPlayerBarData.length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <h2 style={{ ...sectionTitle, fontSize: 15, marginBottom: 4 }}>MoM per fantasy pick</h2>
+            <p style={sectionSub}>Times each playing-XI cricketer was the official MoM (all participants)</p>
+            <ResponsiveContainer width="100%" height={Math.min(420, 48 + momPlayerBarData.length * 36)}>
+              <BarChart layout="vertical" data={momPlayerBarData} margin={{ top: 8, right: 20, left: 4, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} />
+                <YAxis type="category" dataKey="axisLabel" width={148} tick={{ fontSize: 11, fill: "#64748b" }} />
+                <Tooltip
+                  content={({ active, payload }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0]?.payload;
+                    return (
+                      <div className="chart-tooltip">
+                        <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a" }}>{d?.fullName}</div>
+                        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>{d?.participant}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ width: 10, height: 10, borderRadius: 2, background: d?.fill, display: "inline-block" }} />
+                          <span style={{ color: "#475569" }}>MoM wins:</span>
+                          <span style={{ fontWeight: 700, color: "#0f172a" }}>{d?.count}</span>
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
+                <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                  {momPlayerBarData.map((e, i) => (
+                    <Cell key={`${e.axisLabel}-${i}`} fill={e.fill} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       {/* Catches & captain */}
