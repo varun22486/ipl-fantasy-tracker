@@ -1,12 +1,13 @@
 "use client";
 
 import {
-  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
   AreaChart, Area,
   ComposedChart, ReferenceLine,
 } from "recharts";
 import { areaSeriesProps } from "@/lib/use-chart-dots-only";
+import { MomAwardBars, type MomPlotRow } from "@/components/MomAwardBars";
 import type { CSSProperties } from "react";
 import Link from "next/link";
 import { DEFAULT_SCORING, isFantasyBench } from "@/lib/scoring";
@@ -238,17 +239,20 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
     };
   });
 
-  const momTotalByParticipant = [
+  const matchesWithLineup = (you: boolean) =>
+    matchStats.filter((m) => m.players.some((p) => (you ? xiYou(p, youSide) : xiOpp(p, youSide)) && !isFantasyBench(p))).length;
+
+  const momPlotRows: MomPlotRow[] = [
     {
       participant: yourName,
-      fullName: yourName,
-      count: matchStats.filter((m) => m.players.some((p) => xiYou(p, youSide) && (p.mom_bonus ?? 0) > 0)).length,
+      mom: matchStats.filter((m) => m.players.some((p) => xiYou(p, youSide) && (p.mom_bonus ?? 0) > 0)).length,
+      matches: matchesWithLineup(true),
       fill: YOU_COLOR,
     },
     {
       participant: opponentName,
-      fullName: opponentName,
-      count: matchStats.filter((m) => m.players.some((p) => xiOpp(p, youSide) && (p.mom_bonus ?? 0) > 0)).length,
+      mom: matchStats.filter((m) => m.players.some((p) => xiOpp(p, youSide) && (p.mom_bonus ?? 0) > 0)).length,
+      matches: matchesWithLineup(false),
       fill: OPP_COLOR,
     },
   ];
@@ -521,39 +525,12 @@ export default function StatsClient({ yourName, opponentName, youSide = "You", m
             </div>
           )}
 
-          {/* Man of the Match — season total per participant */}
+          {/* Man of the Match — total per side vs matches entered */}
           {(
             <div style={sectionStyle}>
               <h2 style={sectionTitle}>Man of the Match</h2>
-              <p style={sectionSub}>Season total: non-voided matches where your playing XI included the official MoM (synced scores). At most one per side per match.</p>
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={momTotalByParticipant} margin={{ top: 10, right: 20, left: 0, bottom: 0 }} barCategoryGap="35%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis dataKey="participant" tick={{ fontSize: 12, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} label={{ value: "matches", angle: -90, position: "insideLeft", fontSize: 11, fill: "#94a3b8" }} />
-                  <Tooltip
-                    content={({ active, payload }: any) => {
-                      if (!active || !payload?.length) return null;
-                      const d = payload[0]?.payload;
-                      return (
-                        <div className="chart-tooltip">
-                          <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a" }}>{d?.fullName}</div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ width: 10, height: 10, borderRadius: 2, background: d?.fill, display: "inline-block" }} />
-                            <span style={{ color: "#475569" }}>Total MoM:</span>
-                            <span style={{ fontWeight: 700, color: "#0f172a" }}>{d?.count}</span>
-                          </div>
-                        </div>
-                      );
-                    }}
-                  />
-                  <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                    {momTotalByParticipant.map((e, i) => (
-                      <Cell key={i} fill={e.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <p style={sectionSub}>Total MoM in your XIs this season, by side (bar height). Matches = weeks with a saved lineup for that side.</p>
+              <MomAwardBars rows={momPlotRows} />
             </div>
           )}
 

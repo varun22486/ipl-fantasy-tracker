@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  AreaChart, Area, BarChart, Bar, Cell,
+  AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   ComposedChart, ReferenceLine,
 } from "recharts";
@@ -9,6 +9,7 @@ import type { CSSProperties } from "react";
 import Link from "next/link";
 import { outcomeForMultiParticipantMatch } from "@/lib/multi-participant-record";
 import { areaSeriesProps } from "@/lib/use-chart-dots-only";
+import { MomAwardBars, type MomPlotRow } from "@/components/MomAwardBars";
 
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0891b2", "#db2777", "#ea580c"];
 
@@ -176,10 +177,10 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
   const stumpingsCharts = buildStatRows("stumpings");
   const capCharts = buildStatRows("captainPts");
 
-  const momTotalByParticipant = compPlayers.map((n) => ({
+  const momPlotRows: MomPlotRow[] = compPlayers.map((n) => ({
     participant: n,
-    fullName: n,
-    count: participantMomTotals[n] ?? 0,
+    mom: participantMomTotals[n] ?? 0,
+    matches: participants.find((p) => p.name === n)?.matches ?? 0,
     fill: colorFor(n, compPlayers),
   }));
 
@@ -494,38 +495,11 @@ export default function MultiStatsClient({ participants, matchStats, compPlayers
         </div>
       </div>
 
-      {/* Man of the Match — season total per participant */}
+      {/* Man of the Match — total per participant vs matches entered */}
       <div style={panel}>
         <h2 style={sectionTitle}>Man of the Match</h2>
-        <p style={sectionSub}>Total matches in this competition where each participant&apos;s playing XI included the official MoM (one per participant per match).</p>
-        <ResponsiveContainer width="100%" height={Math.max(220, 40 + compPlayers.length * 28)}>
-          <BarChart data={momTotalByParticipant} margin={{ top: 10, right: 20, left: 0, bottom: compPlayers.length > 4 ? 28 : 8 }} barCategoryGap="35%">
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-            <XAxis dataKey="participant" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} interval={0} angle={compPlayers.length > 4 ? -25 : 0} textAnchor={compPlayers.length > 4 ? "end" : "middle"} height={compPlayers.length > 4 ? 50 : undefined} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} label={{ value: "matches", angle: -90, position: "insideLeft", fontSize: 11, fill: "#94a3b8" }} />
-            <Tooltip
-              content={({ active, payload }: any) => {
-                if (!active || !payload?.length) return null;
-                const d = payload[0]?.payload;
-                return (
-                  <div className="chart-tooltip">
-                    <div style={{ fontWeight: 700, marginBottom: 6, color: "#0f172a" }}>{d?.fullName}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ width: 10, height: 10, borderRadius: 2, background: d?.fill, display: "inline-block" }} />
-                      <span style={{ color: "#475569" }}>Total MoM:</span>
-                      <span style={{ fontWeight: 700, color: "#0f172a" }}>{d?.count}</span>
-                    </div>
-                  </div>
-                );
-              }}
-            />
-            <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-              {momTotalByParticipant.map((e, i) => (
-                <Cell key={i} fill={e.fill} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <p style={sectionSub}>Total MoM in your XIs this season, by participant (bar height). Matches = competitions with synced lineups for that person.</p>
+        <MomAwardBars rows={momPlotRows} />
       </div>
 
       {/* Catches & captain */}
