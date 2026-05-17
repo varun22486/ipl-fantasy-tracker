@@ -10,7 +10,7 @@ import { hasLineupLatenessActive, matchLineupForCompetition, type MatchLineupLat
 import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
-import { pickTrackedMatchRowWithLineupPreference } from "@/lib/active-match";
+import { pickTrackedMatchRowWithLineupPreference, sameNumericId } from "@/lib/active-match";
 import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
 import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
 import {
@@ -54,7 +54,7 @@ async function getData(queryM: string | undefined, competitionId: number | null)
   const lineupMatchIds = new Set<number>();
   for (const p of (players ?? []) as FantasyPlayer[]) {
     if (fantasyRowMatchesCompetition((p as FantasyPlayer & { competition_id?: number | null }).competition_id, competitionId)) {
-      lineupMatchIds.add((p as { match_id: number }).match_id);
+      lineupMatchIds.add(Number((p as { match_id: unknown }).match_id));
     }
   }
 
@@ -70,7 +70,9 @@ async function getData(queryM: string | undefined, competitionId: number | null)
     lineupMatchIds
   );
   const currentMatch = shownRow as (typeof list)[number] | null;
-  const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
+  const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) =>
+    sameNumericId(p.match_id, currentMatch?.id),
+  );
 
   return { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope };
 }

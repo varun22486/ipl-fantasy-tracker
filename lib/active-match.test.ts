@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   pickTrackedMatchRowFromList,
   pickTrackedMatchRowWithLineupPreference,
+  sameNumericId,
   sortTrackedByRecency,
 } from "./active-match";
 
@@ -23,7 +24,23 @@ describe("sortTrackedByRecency", () => {
   });
 });
 
+describe("sameNumericId", () => {
+  it("treats string and number ids as equal", () => {
+    expect(sameNumericId("60", 60)).toBe(true);
+    expect(sameNumericId(60, 60)).toBe(true);
+  });
+});
+
 describe("pickTrackedMatchRowFromList", () => {
+  it("uses ?m= when row id is a string from Supabase", () => {
+    const rows = [
+      { id: "60" as unknown as number, is_current: true, fixture: "PBKS vs RCB, Match 61", status: "SCHEDULED" },
+      { id: "61" as unknown as number, is_current: true, fixture: "Other", status: "LIVE", last_synced_at: "2026-05-17T12:00:00Z" },
+    ];
+    const { shownRow } = pickTrackedMatchRowFromList(rows, "60");
+    expect(shownRow?.id).toBe("60");
+  });
+
   it("uses ?m= id even when that match is not is_current / not in live tabs", () => {
     const rows = [
       { id: 17, is_current: false, match_date: "2026-04-11", fixture: "PBKS vs SRH, Match 17", status: "COMPLETED" },

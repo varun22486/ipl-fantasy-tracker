@@ -7,6 +7,13 @@ import { isMatchActivelyLive, iplCalendarTodayIso, normalizeMatchDateKey } from 
 
 export { ACTIVE_MATCH_COOKIE } from "@/lib/active-match-constants";
 
+/** Supabase/JSON may return ids as strings; compare numerically for ?m= and fantasy_players.match_id. */
+export function sameNumericId(a: unknown, b: unknown): boolean {
+  const na = Number(a);
+  const nb = Number(b);
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
+}
+
 type MatchDateFields = { id: number; match_date?: unknown; fixture?: unknown; status?: unknown; last_synced_at?: unknown };
 
 function parseLastSyncedMs(v: unknown): number {
@@ -60,7 +67,7 @@ export async function getActiveMatchIdsOrdered(): Promise<number[]> {
 export function pickShownMatchId(activeIds: number[], queryM: string | undefined): number | null {
   if (activeIds.length === 0) return null;
   const q = queryM?.trim() ? parseInt(queryM, 10) : NaN;
-  if (Number.isFinite(q) && activeIds.includes(q)) return q;
+  if (Number.isFinite(q) && activeIds.some((id) => sameNumericId(id, q))) return q;
   return activeIds[0] ?? null;
 }
 
@@ -116,7 +123,7 @@ export function pickTrackedMatchRowFromList<T extends Matchish>(
 
   const q = queryM?.trim() ? parseInt(queryM.trim(), 10) : NaN;
   if (Number.isFinite(q)) {
-    const explicit = matchesDescending.find((m) => m.id === q);
+    const explicit = matchesDescending.find((m) => sameNumericId(m.id, q));
     if (explicit) {
       return { activeTracked, activeTrackedForTabs, shownRow: explicit, activeTabsScope };
     }
@@ -128,7 +135,7 @@ export function pickTrackedMatchRowFromList<T extends Matchish>(
   }
 
   const shownId = pickShownMatchId(activeIdsOrdered, undefined);
-  const shownRow = matchesDescending.find((m) => m.id === shownId) ?? activeTracked[0] ?? null;
+  const shownRow = matchesDescending.find((m) => sameNumericId(m.id, shownId)) ?? activeTracked[0] ?? null;
 
   return { activeTracked, activeTrackedForTabs, shownRow, activeTabsScope };
 }
@@ -142,7 +149,7 @@ function fixtureKey(fixture: unknown): string {
 
 function firstWithLineups<T extends Matchish>(rows: T[], lineupMatchIds: ReadonlySet<number>): T | null {
   if (lineupMatchIds.size === 0) return null;
-  const hits = sortTrackedByRecency(rows.filter((m) => lineupMatchIds.has(m.id)));
+  const hits = sortTrackedByRecency(rows.filter((m) => lineupMatchIds.has(Number(m.id))));
   return hits[0] ?? null;
 }
 
@@ -162,7 +169,7 @@ export function pickTrackedMatchRowWithLineupPreference<T extends Matchish>(
   if (Number.isFinite(q) || lineupMatchIds.size === 0) return base;
 
   const { shownRow, activeTracked, activeTrackedForTabs } = base;
-  if (shownRow && lineupMatchIds.has(shownRow.id)) return base;
+  if (shownRow && lineupMatchIds.has(Number(shownRow.id))) return base;
 
   const pools: T[][] = [activeTrackedForTabs, activeTracked, matchesDescending.filter((m) => m.is_current)];
   for (const pool of pools) {
