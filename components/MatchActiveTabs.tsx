@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { formatFixture } from "@/lib/format";
 import { writeActiveMatchIdCookie } from "@/lib/active-match-cookie-client";
+import { sameNumericId } from "@/lib/active-match";
 
 type Row = { id: number; fixture?: string | null };
 
@@ -38,7 +39,7 @@ export default function MatchActiveTabs({
       </span>
       {matches.map((m) => {
         const label = formatFixture(m.fixture ?? "") || m.fixture || `Match ${m.id}`;
-        const on = m.id === selectedId;
+        const on = sameNumericId(m.id, selectedId);
         return (
           <Link
             key={m.id}
