@@ -18,7 +18,12 @@ import { formatFixture } from "@/lib/format";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
 import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
-import { competitionParticipantList, fantasySideEquals } from "@/lib/competition-participants";
+import {
+  competitionParticipantList,
+  fantasySideEquals,
+  fantasySideMatchesParticipant,
+  type CompetitionRow,
+} from "@/lib/competition-participants";
 import {
   DEFAULT_LINEUP_LATENESS_POINTS,
   hasLineupLatenessActive,
@@ -107,6 +112,7 @@ async function getData(matchId: number, competitionId: number | null) {
     yourName,
     opponentName,
     compPlayers,
+    comp: comp as CompetitionRow | null,
     isMulti,
     rules,
     competitionId,
@@ -206,7 +212,11 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     );
   }
 
-  const { match, players, yourName, opponentName, compPlayers, isMulti, rules, competitionId: cid } = await getData(matchId, competitionId);
+  const { match, players, yourName, opponentName, compPlayers, comp, isMulti, rules, competitionId: cid } =
+    await getData(matchId, competitionId);
+
+  const sideMatches = (rowSide: unknown, label: string) =>
+    cid != null ? fantasySideMatchesParticipant(rowSide, label, comp) : fantasySideEquals(rowSide, label);
 
   const rosterPickCounts = await fetchFantasyPickCountsByCompetition(cid);
 
@@ -227,10 +237,10 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
   }
 
   const yourPlayers = sortFantasyLineupForDisplay(
-    cid == null ? players.filter((p) => p.side === "You") : players.filter((p) => fantasySideEquals(p.side, yourName)),
+    cid == null ? players.filter((p) => p.side === "You") : players.filter((p) => sideMatches(p.side, yourName)),
   );
   const oppPlayers = sortFantasyLineupForDisplay(
-    cid == null ? players.filter((p) => p.side !== "You") : players.filter((p) => fantasySideEquals(p.side, opponentName)),
+    cid == null ? players.filter((p) => p.side !== "You") : players.filter((p) => sideMatches(p.side, opponentName)),
   );
 
   const matchRow = match as typeof match & {
@@ -258,11 +268,11 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     ? compPlayers.map((name, i) => ({
         name,
         color: MULTI_COLORS[i % MULTI_COLORS.length],
-        players: sortFantasyLineupForDisplay(players.filter((p) => fantasySideEquals(p.side, name))),
+        players: sortFantasyLineupForDisplay(players.filter((p) => sideMatches(p.side, name))),
         total:
           (pointsVoided
             ? 0
-            : players.filter((p) => p.side === name).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)) +
+            : players.filter((p) => sideMatches(p.side, name)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)) +
           lineupLatenessSideAdjustment(lineupLatenessInput, name, latenessOpts),
       }))
     : null;
@@ -270,6 +280,11 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
   const hasData = !pointsVoided && (isMulti
     ? (participantBlocks ?? []).some((b) => b.total !== 0)
     : yourTotal !== 0 || oppTotal !== 0 || yourRaw > 0 || oppRaw > 0);
+
+  const hasLineup = isMulti
+    ? (participantBlocks ?? []).some((b) => b.players.length > 0)
+    : yourPlayers.length > 0 || oppPlayers.length > 0;
+  const showTeamTables = hasLineup || hasData;
 
   let winner: string | null = null;
   let diff = 0;
@@ -429,20 +444,25 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
           </div>
         )}
 
-        {!hasData ? (
+        {!showTeamTables ? (
           <div className="match-detail-empty">
-            No player scores synced yet for this match.
-            {match.is_current && (
+            No lineups saved yet for this match. Use <strong>Edit lineups</strong> above, or pick teams from Select.
+          </div>
+        ) : !hasData && hasLineup ? (
+          <p className="match-detail-empty match-detail-empty--lineup" role="status">
+            Lineups saved — sync scores to fill runs, wickets, and points.
+            {match.is_current ? (
               <>
-                <br />
-                <br />
+                {" "}
                 <Link href={matchLiveHref} className="match-detail-empty__link">
-                  → Go to Live Match to sync scores
+                  Go to live match →
                 </Link>
               </>
-            )}
-          </div>
-        ) : isMulti && participantBlocks ? (
+            ) : null}
+          </p>
+        ) : null}
+
+        {showTeamTables && isMulti && participantBlocks ? (
           <>
             {participantBlocks.map((b) => (
               <div key={b.name} className="match-detail-section" style={{ borderTop: `3px solid ${b.color}` }}>
@@ -463,7 +483,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
               </div>
             ))}
           </>
-        ) : (
+        ) : showTeamTables ? (
           <>
             <div className="match-detail-section">
               <h3 className="match-detail-section__title">{yourName}&apos;s Team</h3>
@@ -499,7 +519,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
               </div>
             </div>
           </>
-        )}
+        ) : null}
       </div>
     </main>
   );

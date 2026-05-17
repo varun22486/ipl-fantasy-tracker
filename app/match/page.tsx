@@ -17,6 +17,8 @@ import {
   competitionParticipantList,
   fantasyRowMatchesCompetition,
   fantasySideEquals,
+  fantasySideMatchesParticipant,
+  type CompetitionRow,
 } from "@/lib/competition-participants";
 
 type SquadTeam = { teamName: string; players: string[] };
@@ -73,10 +75,12 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
   let yourName: string;
   let opponentName: string;
   let compPlayers: string[] = [];
+  let compRow: CompetitionRow | null = null;
   if (competitionId != null) {
     const { supabaseAdmin } = await import("@/lib/supabase-admin");
     const { data: comp } = await supabaseAdmin
       .from("competitions").select("*").eq("id", competitionId).single();
+    compRow = comp as CompetitionRow | null;
     compPlayers = competitionParticipantList(comp);
     yourName = compPlayers[0] ?? "Player 1";
     opponentName = compPlayers[1] ?? "Player 2";
@@ -88,14 +92,19 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
   const isCompFilter = (p: FantasyPlayer) =>
     fantasyRowMatchesCompetition((p as FantasyPlayer & { competition_id?: number | null }).competition_id, competitionId);
 
+  const sideMatches = (rowSide: unknown, label: string) =>
+    competitionId != null
+      ? fantasySideMatchesParticipant(rowSide, label, compRow)
+      : fantasySideEquals(rowSide, label);
+
   const yourPlayers = sortFantasyLineupForDisplay(
     matchPlayers.filter((p) =>
-      isCompFilter(p) && (competitionId != null ? fantasySideEquals(p.side, yourName) : p.side === "You"),
+      isCompFilter(p) && (competitionId != null ? sideMatches(p.side, yourName) : p.side === "You"),
     ),
   );
   const oppPlayers = sortFantasyLineupForDisplay(
     matchPlayers.filter((p) =>
-      isCompFilter(p) && (competitionId != null ? fantasySideEquals(p.side, opponentName) : p.side !== "You"),
+      isCompFilter(p) && (competitionId != null ? sideMatches(p.side, opponentName) : p.side !== "You"),
     ),
   );
 
@@ -104,7 +113,7 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
     ? compPlayers.map((name) => ({
         name,
         players: sortFantasyLineupForDisplay(
-          matchPlayers.filter((p) => isCompFilter(p) && fantasySideEquals(p.side, name)),
+          matchPlayers.filter((p) => isCompFilter(p) && sideMatches(p.side, name)),
         ),
       }))
     : [];

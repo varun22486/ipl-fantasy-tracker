@@ -13,6 +13,8 @@ import {
   competitionParticipantList,
   fantasyRowMatchesCompetition,
   fantasySideEquals,
+  fantasySideMatchesParticipant,
+  type CompetitionRow,
 } from "@/lib/competition-participants";
 
 type SquadTeam = { teamName: string; players: string[] };
@@ -79,8 +81,10 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
   let yourName: string;
   let opponentName: string;
   let compPlayers: string[] = [];
+  let compRow: CompetitionRow | null = null;
   if (competitionId != null) {
     const { data: comp } = await supabaseAdmin.from("competitions").select("*").eq("id", competitionId).single();
+    compRow = comp as CompetitionRow | null;
     compPlayers = competitionParticipantList(comp);
     yourName = compPlayers[0] ?? "Player 1";
     opponentName = compPlayers[1] ?? "Player 2";
@@ -95,14 +99,19 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
       competitionId,
     );
 
+  const sideMatches = (rowSide: unknown, label: string) =>
+    competitionId != null
+      ? fantasySideMatchesParticipant(rowSide, label, compRow)
+      : fantasySideEquals(rowSide, label);
+
   const yourPlayersSorted = sortFantasyLineupForDisplay(
     matchPlayers.filter((p) =>
-      isCompFilter(p) && (competitionId != null ? fantasySideEquals(p.side, yourName) : p.side === "You"),
+      isCompFilter(p) && (competitionId != null ? sideMatches(p.side, yourName) : p.side === "You"),
     ),
   );
   const oppPlayersSorted = sortFantasyLineupForDisplay(
     matchPlayers.filter((p) =>
-      isCompFilter(p) && (competitionId != null ? fantasySideEquals(p.side, opponentName) : p.side !== "You"),
+      isCompFilter(p) && (competitionId != null ? sideMatches(p.side, opponentName) : p.side !== "You"),
     ),
   );
 
@@ -120,7 +129,7 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
     compPlayers.length >= 3
       ? compPlayers.map((name) =>
           sortFantasyLineupForDisplay(
-            matchPlayers.filter((p) => fantasySideEquals(p.side, name) && isCompFilter(p)),
+            matchPlayers.filter((p) => sideMatches(p.side, name) && isCompFilter(p)),
           ).map(mapRow),
         )
       : undefined;

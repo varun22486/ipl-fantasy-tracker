@@ -11,7 +11,11 @@ import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { lineupLatenessSideAdjustment, matchLineupForCompetition } from "@/lib/lineup-lateness";
 import NavBar from "@/components/NavBar";
 import Link from "next/link";
-import { competitionParticipantList, fantasySideEquals } from "@/lib/competition-participants";
+import {
+  competitionParticipantList,
+  fantasySideEquals,
+  fantasySideMatchesParticipant,
+} from "@/lib/competition-participants";
 
 const YOU_COLOR = "#2563eb";
 const OPP_COLOR = "#dc2626";
@@ -76,6 +80,10 @@ async function getData(competitionId: number | null) {
 
   const comp = competitionId != null ? (competitions ?? []).find((c: { id: number }) => c.id === competitionId) : null;
   const compPlayers: string[] = comp ? competitionParticipantList(comp) : [];
+  const sideMatches = (rowSide: unknown, label: string) =>
+    competitionId != null
+      ? fantasySideMatchesParticipant(rowSide, label, comp)
+      : fantasySideEquals(rowSide, label);
   const isMulti = compPlayers.length > 2;
 
   let yourName: string;
@@ -126,7 +134,7 @@ async function getData(competitionId: number | null) {
     if (isMulti) {
       const ptsByPlayer: Record<string, number> = {};
       for (const n of compPlayers) {
-        const rawN = voided ? 0 : mp.filter((p) => fantasySideEquals(p.side, n)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+        const rawN = voided ? 0 : mp.filter((p) => sideMatches(p.side, n)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
         ptsByPlayer[n] = rawN + (voided ? 0 : lineupLatenessSideAdjustment(lateMeta, n, latenessOptsH(compPlayers)));
       }
       if (voided) for (const n of compPlayers) ptsByPlayer[n] = 0;
@@ -160,11 +168,11 @@ async function getData(competitionId: number | null) {
     }
 
     const yourPtsRaw = competitionId != null
-      ? mp.filter((p) => fantasySideEquals(p.side, yourName)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
+      ? mp.filter((p) => sideMatches(p.side, yourName)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
       : mp.filter((p) => p.side === "You").reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     const oppPtsRaw =
       competitionId != null
-        ? mp.filter((p) => fantasySideEquals(p.side, opponentName)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
+        ? mp.filter((p) => sideMatches(p.side, opponentName)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
         : mp.filter((p) => p.side !== "You").reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     const twoNames = [yourName, opponentName];
     const yourPts =

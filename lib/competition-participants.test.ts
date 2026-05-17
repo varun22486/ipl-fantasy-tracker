@@ -4,6 +4,7 @@ import {
   competitionParticipantList,
   fantasyRowMatchesCompetition,
   fantasySideEquals,
+  fantasySideMatchesParticipant,
 } from "./competition-participants";
 
 describe("competitionParticipantList", () => {
@@ -33,6 +34,19 @@ describe("competitionH2hSides", () => {
 describe("fantasySideEquals", () => {
   it("trims whitespace", () => {
     expect(fantasySideEquals("  Rahul  ", "Rahul")).toBe(true);
+  });
+});
+
+describe("fantasySideMatchesParticipant", () => {
+  it("matches legacy player column when players json differs", () => {
+    const comp = {
+      players: ["Rahul", "Satya"],
+      player1_name: "Legacy1",
+      player2_name: "Legacy2",
+    };
+    expect(fantasySideMatchesParticipant("Legacy1", "Rahul", comp)).toBe(true);
+    expect(fantasySideMatchesParticipant("Legacy2", "Satya", comp)).toBe(true);
+    expect(fantasySideMatchesParticipant("Legacy1", "Satya", comp)).toBe(false);
   });
 });
 

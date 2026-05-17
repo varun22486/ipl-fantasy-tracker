@@ -113,7 +113,7 @@ export default function MatchClient({
   // Inline picker while no lineups exist; after the first save, show match view (pending banner for others).
   const hasAnyLineup = isMultiPlayer
     ? (allParticipants ?? []).some((p) => p.players.length > 0)
-    : yourLineupSaved || oppLineupSaved;
+    : yourLineupSaved || opponentLineupSaved;
   const needsSetup = !hasAnyLineup && hasLinkedMatch && !lineupLatenessActive;
   const [teamPickerOpen, setTeamPickerOpen] = useState(needsSetup);
   const changeTeamsPickerOpenedRef = React.useRef(false);
@@ -738,7 +738,9 @@ export default function MatchClient({
         if (!hasAnyPlayers) {
           return (
             <div style={{ textAlign: "center", padding: 32, border: "1px solid #e2e8f0", borderRadius: 16, background: "white", color: "#64748b" }}>
-              No scores yet. Each participant saves their lineup first, then click <strong>Sync Scores</strong>.
+              {hasAnyLineup
+                ? <>Lineups saved — click <strong>Sync Scores</strong> to load runs and wickets.</>
+                : <>No lineups yet. Save teams first, then click <strong>Sync Scores</strong>.</>}
             </div>
           );
         }

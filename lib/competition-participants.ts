@@ -44,6 +44,24 @@ export function fantasySideEquals(rowSide: unknown, label: unknown): boolean {
   return String(rowSide ?? "").trim() === String(label ?? "").trim();
 }
 
+/** Match DB `side` to a participant label, including legacy `player1_name` / `player2_name` rows. */
+export function fantasySideMatchesParticipant(
+  rowSide: unknown,
+  participantLabel: string,
+  comp: CompetitionRow | null | undefined
+): boolean {
+  if (fantasySideEquals(rowSide, participantLabel)) return true;
+  if (!comp) return false;
+  const list = competitionParticipantList(comp);
+  const idx = list.findIndex((n) => fantasySideEquals(n, participantLabel));
+  if (idx < 0) return false;
+  const legacy =
+    idx === 0
+      ? String(comp.player1_name ?? "").trim()
+      : String(comp.player2_name ?? "").trim();
+  return legacy.length > 0 && fantasySideEquals(rowSide, legacy);
+}
+
 export function fantasyRowMatchesCompetition(rowCompetitionId: unknown, activeCompetitionId: number | null): boolean {
   if (activeCompetitionId == null) {
     return rowCompetitionId == null || rowCompetitionId === "";
