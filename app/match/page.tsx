@@ -10,7 +10,7 @@ import { hasLineupLatenessActive, matchLineupForCompetition, type MatchLineupLat
 import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
-import { pickTrackedMatchRowFromList } from "@/lib/active-match";
+import { pickTrackedMatchRowWithLineupPreference } from "@/lib/active-match";
 import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
 import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
 import {
@@ -43,7 +43,7 @@ function parseRoster(match: unknown): { rosterNames: string[]; squads: SquadTeam
   return { rosterNames, squads, nameToId };
 }
 
-async function getData(queryM: string | undefined) {
+async function getData(queryM: string | undefined, competitionId: number | null) {
   const [{ data: matches }, { data: settings }, { data: players }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").order("id", { ascending: false }),
     supabaseAdmin.from("series_settings").select("*").limit(1).single(),
@@ -51,7 +51,14 @@ async function getData(queryM: string | undefined) {
   ]);
 
   const list = matches ?? [];
-  const { activeTrackedForTabs, shownRow, activeTabsScope } = pickTrackedMatchRowFromList(
+  const lineupMatchIds = new Set<number>();
+  for (const p of (players ?? []) as FantasyPlayer[]) {
+    if (fantasyRowMatchesCompetition((p as FantasyPlayer & { competition_id?: number | null }).competition_id, competitionId)) {
+      lineupMatchIds.add((p as { match_id: number }).match_id);
+    }
+  }
+
+  const { activeTrackedForTabs, shownRow, activeTabsScope } = pickTrackedMatchRowWithLineupPreference(
     list as {
       id: number;
       is_current?: boolean;
@@ -59,7 +66,8 @@ async function getData(queryM: string | undefined) {
       fixture?: string | null;
       status?: string | null;
     }[],
-    queryM
+    queryM,
+    lineupMatchIds
   );
   const currentMatch = shownRow as (typeof list)[number] | null;
   const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
@@ -70,7 +78,7 @@ async function getData(queryM: string | undefined) {
 export default async function MatchPage({ searchParams }: { searchParams: Promise<{ c?: string; m?: string }> }) {
   const { c, m } = await searchParams;
   const competitionId = await resolveCompetitionId(c);
-  const { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope } = await getData(m);
+  const { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope } = await getData(m, competitionId);
 
   let yourName: string;
   let opponentName: string;

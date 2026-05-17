@@ -229,6 +229,11 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
   const competitionId = await resolveCompetitionId(c);
   const { matchRows, yourName, opponentName, competitionId: cid, isMulti, compPlayers, compName } = await getData(competitionId);
   const visibleRows = matchRows.filter(includeInHistory);
+  const currentHistoryRow = visibleRows.find((r) => r.isCurrent);
+  const liveMatchHref =
+    cid != null
+      ? `/match?c=${cid}${currentHistoryRow ? `&m=${currentHistoryRow.matchId}` : ""}`
+      : `/match${currentHistoryRow ? `?m=${currentHistoryRow.matchId}` : ""}`;
   const played = visibleRows.filter((m) => m.hasData);
   const todayIst = iplCalendarTodayIso();
   const onCalendarToday = visibleRows.filter((m) =>
@@ -497,7 +502,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
       {played.length === 0 && visibleRows.length > 0 && (
         <p className="history-footnote">
           No scores synced yet.{" "}
-          <Link href={cid != null ? `/match?c=${cid}` : "/match"} className="history-footnote__link">
+          <Link href={liveMatchHref} className="history-footnote__link">
             Go to live match
           </Link>
         </p>

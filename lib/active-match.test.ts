@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { pickTrackedMatchRowFromList, sortTrackedByRecency } from "./active-match";
+import {
+  pickTrackedMatchRowFromList,
+  pickTrackedMatchRowWithLineupPreference,
+  sortTrackedByRecency,
+} from "./active-match";
 
 describe("sortTrackedByRecency", () => {
   it("orders by last_synced_at then id when match_date missing or equal", () => {
@@ -109,5 +113,66 @@ describe("pickTrackedMatchRowFromList", () => {
     ];
     const { shownRow } = pickTrackedMatchRowFromList(rows, undefined, { todayIstIso: "2026-04-11" });
     expect(shownRow?.id).toBe(17);
+  });
+});
+
+describe("pickTrackedMatchRowWithLineupPreference", () => {
+  it("prefers tracked row with saved lineups over newer duplicate fixture row", () => {
+    const fixture = "PBKS vs RCB, Match 61, Indian Premier League 2026";
+    const rows = [
+      {
+        id: 60,
+        is_current: true,
+        match_date: "2026-05-17",
+        fixture,
+        status: "SCHEDULED",
+        last_synced_at: null,
+      },
+      {
+        id: 61,
+        is_current: true,
+        match_date: "2026-05-17",
+        fixture,
+        status: "SCHEDULED",
+        last_synced_at: "2026-05-17T12:00:00Z",
+      },
+    ];
+    const { shownRow } = pickTrackedMatchRowWithLineupPreference(rows, undefined, new Set([60]), {
+      todayIstIso: "2026-05-17",
+    });
+    expect(shownRow?.id).toBe(60);
+  });
+
+  it("still honors explicit ?m= when set", () => {
+    const rows = [
+      { id: 60, is_current: true, fixture: "A", status: "SCHEDULED" },
+      { id: 61, is_current: true, fixture: "B", status: "SCHEDULED" },
+    ];
+    const { shownRow } = pickTrackedMatchRowWithLineupPreference(rows, "61", new Set([60]));
+    expect(shownRow?.id).toBe(61);
+  });
+
+  it("matches lineups by IPL league match number when fixture text differs", () => {
+    const rows = [
+      {
+        id: 60,
+        is_current: false,
+        match_date: "2026-05-17",
+        fixture: "PBKS vs RCB, Match 61",
+        status: "SCHEDULED",
+      },
+      {
+        id: 61,
+        is_current: true,
+        match_date: "2026-05-17",
+        fixture: "Punjab Kings vs Royal Challengers Bengaluru, 61st Match, Indian Premier League 2026",
+        status: "SCHEDULED",
+        last_synced_at: "2026-05-17T12:00:00Z",
+      },
+    ];
+    const { shownRow } = pickTrackedMatchRowWithLineupPreference(rows, undefined, new Set([60]), {
+      todayIstIso: "2026-05-17",
+    });
+    expect(shownRow?.id).toBe(60);
   });
 });

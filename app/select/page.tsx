@@ -7,7 +7,7 @@ import { resolveCompetitionId } from "@/lib/competition";
 import NavBar from "@/components/NavBar";
 import SelectClient from "@/components/SelectClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
-import { pickTrackedMatchRowFromList } from "@/lib/active-match";
+import { pickTrackedMatchRowWithLineupPreference } from "@/lib/active-match";
 import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
 import {
   competitionParticipantList,
@@ -48,7 +48,7 @@ function parseRosterFromMatch(match: unknown): { rosterNames: string[]; squads: 
   return { rosterNames, squads, nameToId };
 }
 
-async function getData(queryM: string | undefined) {
+async function getData(queryM: string | undefined, competitionId: number | null) {
   const [{ data: matches }, { data: settings }, { data: players }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").order("id", { ascending: false }),
     supabaseAdmin.from("series_settings").select("*").limit(1).single(),
@@ -56,7 +56,14 @@ async function getData(queryM: string | undefined) {
   ]);
 
   const list = matches ?? [];
-  const { activeTrackedForTabs, shownRow, activeTabsScope } = pickTrackedMatchRowFromList(
+  const lineupMatchIds = new Set<number>();
+  for (const p of (players ?? []) as FantasyPlayer[]) {
+    if (fantasyRowMatchesCompetition((p as FantasyPlayer & { competition_id?: number | null }).competition_id, competitionId)) {
+      lineupMatchIds.add((p as { match_id: number }).match_id);
+    }
+  }
+
+  const { activeTrackedForTabs, shownRow, activeTabsScope } = pickTrackedMatchRowWithLineupPreference(
     list as {
       id: number;
       is_current?: boolean;
@@ -64,7 +71,8 @@ async function getData(queryM: string | undefined) {
       fixture?: string | null;
       status?: string | null;
     }[],
-    queryM
+    queryM,
+    lineupMatchIds
   );
   const currentMatch = shownRow as (typeof list)[number] | null;
   const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) => p.match_id === currentMatch?.id);
@@ -75,7 +83,7 @@ async function getData(queryM: string | undefined) {
 export default async function SelectPage({ searchParams }: { searchParams: Promise<{ m?: string; c?: string }> }) {
   const { m, c } = await searchParams;
   const competitionId = await resolveCompetitionId(c);
-  const { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope } = await getData(m);
+  const { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope } = await getData(m, competitionId);
   const { rosterNames, squads, nameToId } = parseRosterFromMatch(currentMatch);
 
   let yourName: string;

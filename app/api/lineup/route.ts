@@ -12,6 +12,18 @@ import { competitionH2hSides } from "@/lib/competition-participants";
 
 type PlayerInput = { name: string; captain: boolean; bench: boolean; providerId?: string };
 
+const ACTIVE_MATCH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
+function lineupOkResponse(matchId: number, body: Record<string, unknown> = { ok: true }) {
+  const res = NextResponse.json(body);
+  res.cookies.set(ACTIVE_MATCH_COOKIE, String(matchId), {
+    path: "/",
+    maxAge: ACTIVE_MATCH_COOKIE_MAX_AGE,
+    sameSite: "lax",
+  });
+  return res;
+}
+
 function normalizePlayers(players: unknown): PlayerInput[] {
   if (!Array.isArray(players)) return [];
   return players
@@ -246,7 +258,7 @@ export async function POST(req: NextRequest) {
           });
         }
       }
-      return NextResponse.json({ ok: true });
+      return lineupOkResponse(matchId);
     }
 
     if (saveSide === "mine" || saveSide === "both") {
@@ -297,7 +309,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ok: true });
+    return lineupOkResponse(matchId);
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error?.message || "Failed to save lineup" }, { status: 400 });
   }

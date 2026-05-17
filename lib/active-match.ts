@@ -133,6 +133,76 @@ export function pickTrackedMatchRowFromList<T extends Matchish>(
   return { activeTracked, activeTrackedForTabs, shownRow, activeTabsScope };
 }
 
+function fixtureKey(fixture: unknown): string {
+  return String(fixture ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstWithLineups<T extends Matchish>(rows: T[], lineupMatchIds: ReadonlySet<number>): T | null {
+  if (lineupMatchIds.size === 0) return null;
+  const hits = sortTrackedByRecency(rows.filter((m) => lineupMatchIds.has(m.id)));
+  return hits[0] ?? null;
+}
+
+/**
+ * Like {@link pickTrackedMatchRowFromList}, but when `?m=` is omitted prefers an `is_current` (or tab-pool)
+ * row that already has saved lineups for the active competition. Falls back to another DB row with the same
+ * fixture string when the primary pick has no lineups (duplicate match rows for one IPL fixture).
+ */
+export function pickTrackedMatchRowWithLineupPreference<T extends Matchish>(
+  matchesDescending: T[],
+  queryM: string | undefined,
+  lineupMatchIds: ReadonlySet<number>,
+  options?: { todayIstIso?: string }
+): ReturnType<typeof pickTrackedMatchRowFromList<T>> {
+  const base = pickTrackedMatchRowFromList(matchesDescending, queryM, options);
+  const q = queryM?.trim() ? parseInt(queryM.trim(), 10) : NaN;
+  if (Number.isFinite(q) || lineupMatchIds.size === 0) return base;
+
+  const { shownRow, activeTracked, activeTrackedForTabs } = base;
+  if (shownRow && lineupMatchIds.has(shownRow.id)) return base;
+
+  const pools: T[][] = [activeTrackedForTabs, activeTracked, matchesDescending.filter((m) => m.is_current)];
+  for (const pool of pools) {
+    const preferred = firstWithLineups(pool, lineupMatchIds);
+    if (preferred) return { ...base, shownRow: preferred };
+  }
+
+  if (shownRow) {
+    const fk = fixtureKey(shownRow.fixture);
+    if (fk) {
+      const sameFixture = firstWithLineups(
+        matchesDescending.filter((m) => fixtureKey(m.fixture) === fk),
+        lineupMatchIds
+      );
+      if (sameFixture) return { ...base, shownRow: sameFixture };
+    }
+
+    const leagueN = parseLeagueMatchNumberFromFixture(
+      typeof shownRow.fixture === "string" ? shownRow.fixture : String(shownRow.fixture ?? "")
+    );
+    if (leagueN != null) {
+      const sameLeague = firstWithLineups(
+        matchesDescending.filter(
+          (m) =>
+            parseLeagueMatchNumberFromFixture(
+              typeof m.fixture === "string" ? m.fixture : String(m.fixture ?? "")
+            ) === leagueN
+        ),
+        lineupMatchIds
+      );
+      if (sameLeague) return { ...base, shownRow: sameLeague };
+    }
+  }
+
+  const anyWithLineup = firstWithLineups(matchesDescending, lineupMatchIds);
+  if (anyWithLineup) return { ...base, shownRow: anyWithLineup };
+
+  return base;
+}
+
 /** Default match id for lineup / roster / refresh when body omits matchId. */
 export async function resolveDefaultMatchIdFromPreferences(
   _cookieVal: string | undefined | null

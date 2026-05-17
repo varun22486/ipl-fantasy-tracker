@@ -66,9 +66,8 @@ function NavLinks({ variant }: { variant: "sidebar" | "header" | "mobile" }) {
   function navHref(base: string) {
     const params = new URLSearchParams();
     if (navC) params.set("c", navC);
-    // Only /select carries ?m= from the cookie — /match uses server "primary" tracked fixture so a
-    // stale browser cookie cannot keep showing yesterday when today is also is_current.
-    if (base === "/select" && navM) params.set("m", navM);
+    // Carry ?m= for match/select when the cookie points at a saved fixture (set on lineup save).
+    if ((base === "/select" || base === "/match") && navM) params.set("m", navM);
     const q = params.toString();
     return q ? `${base}?${q}` : base;
   }
