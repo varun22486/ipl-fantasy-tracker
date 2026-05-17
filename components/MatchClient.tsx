@@ -110,15 +110,25 @@ export default function MatchClient({
     urlMatchId != null && urlMatchId > 0 ? urlMatchId : matchId != null && matchId > 0 ? matchId : null;
 
   const isMultiPlayer = (allParticipants?.length ?? 0) > 2;
-  // Show inline team picker only when NO ONE has saved yet (truly fresh start).
-  // Once any participant has saved, show the live view — the pending banner
-  // guides remaining participants to pick via "Pick teams →".
-  // On-time lineup bonus active: show points (bonus-only may apply) even if no lineups.
-  const nobodyHasSaved = isMultiPlayer
-    ? (allParticipants ?? []).length === 0 || (allParticipants ?? []).every(p => p.players.length === 0)
-    : !yourLineupSaved && !opponentLineupSaved;
-  const needsSetup = nobodyHasSaved && hasLinkedMatch && !lineupLatenessActive;
+  // Inline picker while no lineups exist; after the first save, show match view (pending banner for others).
+  const hasAnyLineup = isMultiPlayer
+    ? (allParticipants ?? []).some((p) => p.players.length > 0)
+    : yourLineupSaved || oppLineupSaved;
+  const needsSetup = !hasAnyLineup && hasLinkedMatch && !lineupLatenessActive;
   const [teamPickerOpen, setTeamPickerOpen] = useState(needsSetup);
+  const changeTeamsPickerOpenedRef = React.useRef(false);
+
+  const openTeamPickerManually = useCallback(() => {
+    changeTeamsPickerOpenedRef.current = true;
+    setTeamPickerOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!needsSetup && teamPickerOpen && !changeTeamsPickerOpenedRef.current) {
+      setTeamPickerOpen(false);
+    }
+  }, [needsSetup, teamPickerOpen]);
+
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
   const [showManual, setShowManual] = useState(false);
@@ -416,7 +426,10 @@ export default function MatchClient({
               <button
                 type="button"
                 className="select-btn-secondary-sm"
-                onClick={() => setTeamPickerOpen(false)}
+                onClick={() => {
+                  changeTeamsPickerOpenedRef.current = false;
+                  setTeamPickerOpen(false);
+                }}
               >
                 Cancel
               </button>
@@ -442,6 +455,10 @@ export default function MatchClient({
             provider_player_id: fp.provider_player_id ?? null,
           }))) : undefined}
           pickCounts={rosterPickCounts}
+          onLineupSaved={() => {
+            changeTeamsPickerOpenedRef.current = false;
+            router.refresh();
+          }}
         />
       </div>
     );
@@ -453,7 +470,7 @@ export default function MatchClient({
         <div style={{ fontSize: 48, marginBottom: 12 }}>🏏</div>
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>No match linked yet</div>
         <div style={{ color: "#64748b", marginBottom: 20 }}>Use the "Link IPL Match" button below to get started.</div>
-        <button onClick={() => setTeamPickerOpen(true)} style={{ ...btnPrimary, border: "none", cursor: "pointer" }}>
+        <button onClick={openTeamPickerManually} style={{ ...btnPrimary, border: "none", cursor: "pointer" }}>
           Set up teams →
         </button>
       </div>
@@ -479,7 +496,7 @@ export default function MatchClient({
           </div>
           <button
             type="button"
-            onClick={() => setTeamPickerOpen(true)}
+            onClick={openTeamPickerManually}
             style={{
               padding: "8px 16px",
               borderRadius: 12,
@@ -511,7 +528,7 @@ export default function MatchClient({
           On-time lineup bonus is on: totals show fantasy points plus the bonus for anyone who was not late. You can still{" "}
           <button
             type="button"
-            onClick={() => setTeamPickerOpen(true)}
+            onClick={openTeamPickerManually}
             style={{ padding: 0, border: "none", background: "none", color: "#15803d", fontWeight: 700, textDecoration: "underline", cursor: "pointer" }}
           >
             add lineups
@@ -534,7 +551,7 @@ export default function MatchClient({
             {currentMatch?.status ?? "—"}
           </span>
           <button
-            onClick={() => setTeamPickerOpen(true)}
+            onClick={openTeamPickerManually}
             style={{ padding: "6px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", color: "#475569", cursor: "pointer", fontSize: 12, fontWeight: 600 }}
           >
             ✏️ Change teams
