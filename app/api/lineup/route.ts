@@ -8,6 +8,7 @@ import {
 } from "@/lib/match-audit";
 import { createMatchSnapshot } from "@/lib/match-snapshot";
 import { isFantasyBench } from "@/lib/scoring";
+import { competitionH2hSides } from "@/lib/competition-participants";
 
 type PlayerInput = { name: string; captain: boolean; bench: boolean; providerId?: string };
 
@@ -157,10 +158,15 @@ export async function POST(req: NextRequest) {
       await supabaseAdmin.from("series_settings").update({ opponent_name: side2 }).eq("id", 1);
     } else {
       // Fetch competition to get player names
-      const { data: comp } = await supabaseAdmin.from("competitions").select("player1_name, player2_name").eq("id", competitionId).single();
+      const { data: comp } = await supabaseAdmin
+        .from("competitions")
+        .select("player1_name, player2_name, players")
+        .eq("id", competitionId)
+        .single();
       if (!comp) throw new Error("Competition not found.");
-      side1 = comp.player1_name;
-      side2 = comp.player2_name;
+      const h2h = competitionH2hSides(comp);
+      side1 = h2h.side1;
+      side2 = h2h.side2;
     }
 
     const baseFilter = isDefault

@@ -18,6 +18,7 @@ import { formatFixture } from "@/lib/format";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
 import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
+import { competitionParticipantList, fantasySideEquals } from "@/lib/competition-participants";
 import {
   DEFAULT_LINEUP_LATENESS_POINTS,
   hasLineupLatenessActive,
@@ -84,12 +85,7 @@ async function getData(matchId: number, competitionId: number | null) {
       : Promise.resolve({ data: null as { players?: string[]; player1_name?: string; player2_name?: string } | null }),
   ]);
 
-  const compPlayers: string[] =
-    comp && Array.isArray(comp.players)
-      ? comp.players
-      : comp
-        ? ([comp.player1_name, comp.player2_name].filter(Boolean) as string[])
-        : [];
+  const compPlayers: string[] = comp ? competitionParticipantList(comp) : [];
 
   let yourName: string;
   let opponentName: string;
@@ -231,10 +227,10 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
   }
 
   const yourPlayers = sortFantasyLineupForDisplay(
-    cid == null ? players.filter((p) => p.side === "You") : players.filter((p) => p.side === yourName)
+    cid == null ? players.filter((p) => p.side === "You") : players.filter((p) => fantasySideEquals(p.side, yourName)),
   );
   const oppPlayers = sortFantasyLineupForDisplay(
-    cid == null ? players.filter((p) => p.side !== "You") : players.filter((p) => p.side === opponentName)
+    cid == null ? players.filter((p) => p.side !== "You") : players.filter((p) => fantasySideEquals(p.side, opponentName)),
   );
 
   const matchRow = match as typeof match & {
@@ -262,7 +258,7 @@ export default async function MatchDetailPage({ params, searchParams }: PageProp
     ? compPlayers.map((name, i) => ({
         name,
         color: MULTI_COLORS[i % MULTI_COLORS.length],
-        players: sortFantasyLineupForDisplay(players.filter((p) => p.side === name)),
+        players: sortFantasyLineupForDisplay(players.filter((p) => fantasySideEquals(p.side, name))),
         total:
           (pointsVoided
             ? 0

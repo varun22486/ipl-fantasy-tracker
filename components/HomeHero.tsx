@@ -9,18 +9,21 @@ type Summary = {
   matchesPlayed: number;
 };
 
-type NextMatch = { fixture: string; date: string; venue: string | null } | null;
+type NextMatch = { matchId: number; fixture: string; date: string; venue: string | null } | null;
 
 export default function HomeHero({
   yourName,
   opponentName,
   summary,
   nextMatch,
+  pickTeamsHref,
 }: {
   yourName: string;
   opponentName: string;
   summary: Summary;
   nextMatch: NextMatch;
+  /** Full path including ?c= and ?m= for the fixture shown in “Next on the calendar”. */
+  pickTeamsHref: string;
 }) {
   return (
     <section className="home-hero" aria-labelledby="home-hero-heading">
@@ -107,7 +110,7 @@ export default function HomeHero({
               {nextMatch.date ? ` · ${nextMatch.date}` : ""}
               {nextMatch.venue ? ` · ${nextMatch.venue}` : ""}
             </span>
-            <Link href="/select" className="home-hero__cta">
+            <Link href={pickTeamsHref} className="home-hero__cta">
               Pick teams
             </Link>
           </div>

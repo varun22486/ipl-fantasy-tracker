@@ -28,9 +28,11 @@ function tierClass(i: number) {
 export default function SeriesStandingsHero({
   participants,
   nextMatch,
+  pickTeamsHref,
 }: {
   participants: Participant[];
   nextMatch: { fixture: string; date: string; venue: string | null } | null;
+  pickTeamsHref: string;
 }) {
   const lead = participants[0]?.totalPoints ?? 0;
 
@@ -112,7 +114,7 @@ export default function SeriesStandingsHero({
               {nextMatch.date ? ` · ${nextMatch.date}` : ""}
               {nextMatch.venue ? ` · ${nextMatch.venue}` : ""}
             </span>
-            <Link href="/match" className="home-hero__cta">
+            <Link href={pickTeamsHref} className="home-hero__cta">
               Pick teams
             </Link>
           </div>

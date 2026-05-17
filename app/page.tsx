@@ -7,6 +7,7 @@ import { FantasyPlayer, fantasyPointsCounted, isFantasyBench, playerPoints, scor
 import { formatFixture, parseLeagueMatchNumberFromFixture } from "@/lib/format";
 import { canonicalIstDayForIpl2026LeagueMatch } from "@/lib/ipl-2026-league-dates";
 import { pickNextUnplayedMatch } from "@/lib/next-match";
+import { competitionParticipantList, fantasySideEquals } from "@/lib/competition-participants";
 import { buildMultiParticipantSeasonRows } from "@/lib/multi-participant-record";
 import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { lineupLatenessSideAdjustment, matchLineupForCompetition } from "@/lib/lineup-lateness";
@@ -60,9 +61,7 @@ async function getData(competitionId: number | null) {
 
   // Resolve competition info
   const comp = competitionId != null ? (competitions ?? []).find((c: any) => c.id === competitionId) : null;
-  const compPlayers: string[] = comp
-    ? (Array.isArray(comp.players) ? comp.players : [comp.player1_name, comp.player2_name])
-    : [];
+  const compPlayers: string[] = comp ? competitionParticipantList(comp) : [];
   const isMultiPlayer = compPlayers.length > 2;
 
   let yourName: string;
@@ -106,8 +105,12 @@ async function getData(competitionId: number | null) {
   const matchStats: MatchStatRow[] = (matches ?? []).map((m: any) => {
     const mp = playersByMatch[m.id] ?? [];
     const voided = voidedMatchIds.has(m.id);
-    const yourPlayers = mp.filter((p) => p.side === player1Side);
-    const oppPlayers = mp.filter((p) => p.side !== player1Side);
+    const yourPlayers = mp.filter((p) =>
+      competitionId != null ? fantasySideEquals(p.side, yourName) : p.side === player1Side,
+    );
+    const oppPlayers = mp.filter((p) =>
+      competitionId != null ? fantasySideEquals(p.side, opponentName) : p.side !== player1Side,
+    );
     const yourPtsRaw = yourPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     const oppPtsRaw = oppPlayers.reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     const lateMeta = matchLineupForCompetition(m, competitionId);
@@ -270,11 +273,19 @@ async function getData(competitionId: number | null) {
     participantMatchStats,
     nextMatch: nextMatch
       ? {
+          matchId: nextMatch.id as number,
           fixture: formatFixture(nextFixture || nextMatch.fixture) || nextFixture || nextMatch.fixture || "TBD",
           date: String(nextDate ?? nextMatch.match_date ?? ""),
           venue: nextVenue ?? nextMatch.venue ?? null,
         }
       : null,
+    pickTeamsHref: (() => {
+      if (!nextMatchRow) return competitionId != null ? `/select?c=${competitionId}` : "/select";
+      const p = new URLSearchParams();
+      if (competitionId != null) p.set("c", String(competitionId));
+      p.set("m", String(nextMatchRow.id));
+      return `/select?${p.toString()}`;
+    })(),
     summary: {
       yourWins,
       oppWins,
@@ -293,13 +304,18 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ c
   return (
     <main className="page-main">
       {data.isMultiPlayer ? (
-        <SeriesStandingsHero participants={data.participantTotals} nextMatch={data.nextMatch} />
+        <SeriesStandingsHero
+          participants={data.participantTotals}
+          nextMatch={data.nextMatch}
+          pickTeamsHref={data.pickTeamsHref}
+        />
       ) : (
         <HomeHero
           yourName={data.yourName}
           opponentName={data.opponentName}
           summary={data.summary}
           nextMatch={data.nextMatch}
+          pickTeamsHref={data.pickTeamsHref}
         />
       )}
       {data.isMultiPlayer ? (

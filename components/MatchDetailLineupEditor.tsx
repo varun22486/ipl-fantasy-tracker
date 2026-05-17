@@ -3,6 +3,7 @@
 import React, { useState, type CSSProperties } from "react";
 import SelectClient from "@/components/SelectClient";
 import { FantasyPlayer } from "@/lib/scoring";
+import { fantasySideEquals } from "@/lib/competition-participants";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -63,7 +64,7 @@ export default function MatchDetailLineupEditor({
   const existingOpp = opponentPlayers.map(rowToPick);
   const existingPicks =
     isMulti && compPlayers.length > 0
-      ? compPlayers.map((name) => allPlayers.filter((p) => p.side === name).map(rowToPick))
+      ? compPlayers.map((name) => allPlayers.filter((p) => fantasySideEquals(p.side, name)).map(rowToPick))
       : undefined;
 
   if (!open) {

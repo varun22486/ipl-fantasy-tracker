@@ -13,6 +13,11 @@ import MatchActiveTabs from "@/components/MatchActiveTabs";
 import { pickTrackedMatchRowFromList } from "@/lib/active-match";
 import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
 import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
+import {
+  competitionParticipantList,
+  fantasyRowMatchesCompetition,
+  fantasySideEquals,
+} from "@/lib/competition-participants";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -72,7 +77,7 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
     const { supabaseAdmin } = await import("@/lib/supabase-admin");
     const { data: comp } = await supabaseAdmin
       .from("competitions").select("*").eq("id", competitionId).single();
-    compPlayers = Array.isArray(comp?.players) ? comp.players : [comp?.player1_name ?? "Player 1", comp?.player2_name ?? "Player 2"];
+    compPlayers = competitionParticipantList(comp);
     yourName = compPlayers[0] ?? "Player 1";
     opponentName = compPlayers[1] ?? "Player 2";
   } else {
@@ -81,19 +86,26 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
   }
 
   const isCompFilter = (p: FantasyPlayer) =>
-    competitionId != null
-      ? (p as any).competition_id === competitionId
-      : (p as any).competition_id == null;
+    fantasyRowMatchesCompetition((p as FantasyPlayer & { competition_id?: number | null }).competition_id, competitionId);
 
-  const p1Side = competitionId != null ? yourName : "You";
-  const yourPlayers = sortFantasyLineupForDisplay(matchPlayers.filter((p) => p.side === p1Side && isCompFilter(p)));
-  const oppPlayers = sortFantasyLineupForDisplay(matchPlayers.filter((p) => p.side !== p1Side && isCompFilter(p)));
+  const yourPlayers = sortFantasyLineupForDisplay(
+    matchPlayers.filter((p) =>
+      isCompFilter(p) && (competitionId != null ? fantasySideEquals(p.side, yourName) : p.side === "You"),
+    ),
+  );
+  const oppPlayers = sortFantasyLineupForDisplay(
+    matchPlayers.filter((p) =>
+      isCompFilter(p) && (competitionId != null ? fantasySideEquals(p.side, opponentName) : p.side !== "You"),
+    ),
+  );
 
   // For multi-player competitions, collect all participants' picks
   const allParticipantPlayers = compPlayers.length > 2
     ? compPlayers.map((name) => ({
         name,
-        players: sortFantasyLineupForDisplay(matchPlayers.filter((p) => p.side === name && isCompFilter(p))),
+        players: sortFantasyLineupForDisplay(
+          matchPlayers.filter((p) => isCompFilter(p) && fantasySideEquals(p.side, name)),
+        ),
       }))
     : [];
 

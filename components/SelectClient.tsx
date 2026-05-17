@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { formatFixture } from "@/lib/format";
 import { formatUiCalendarDate } from "@/lib/ui-time";
 import type { CSSProperties } from "react";
@@ -165,6 +166,7 @@ export default function SelectClient({
   afterLineupSaveHref,
   pickCounts = null,
 }: Props) {
+  const router = useRouter();
   // Multi-player mode: 3+ participants
   const isMulti = (compPlayers?.length ?? 0) >= 3;
   const multiPlayers = compPlayers ?? [];
@@ -224,13 +226,19 @@ export default function SelectClient({
       const json = await res.json();
       setSavingIdx(null);
       if (json.ok) {
+        router.refresh();
         const newSaved = new Set(savedSet).add(idx);
         setSavedSet(newSaved);
         const allDone = newSaved.size >= multiPlayers.length;
         if (allDone) {
-          // All participants saved — go to live view
-          setApiMsg({ type: "success", title: "All teams saved! Loading match…" });
-          window.setTimeout(() => window.location.reload(), 1000);
+          setApiMsg({ type: "success", title: "All teams saved! Opening match…" });
+          const p = new URLSearchParams();
+          if (competitionId != null) p.set("c", String(competitionId));
+          if (matchId != null) p.set("m", String(matchId));
+          const dest = p.toString() ? `/match?${p.toString()}` : "/match";
+          window.setTimeout(() => {
+            window.location.href = dest;
+          }, 900);
         } else {
           // Mark saved, auto-advance to next unsaved participant
           const nextUnsaved = multiPlayers.findIndex((_, i) => !newSaved.has(i));
@@ -540,6 +548,7 @@ export default function SelectClient({
       const json = await res.json();
       setSaving(null);
       if (json.ok) {
+        router.refresh();
         const minePay = slotsToLineupPayload(mine);
         const theirsPay = slotsToLineupPayload(theirs);
         let nextMineBl = mineBaseline;

@@ -11,6 +11,7 @@ import { isPointsVoidedMatchStatus } from "@/lib/match-void";
 import { lineupLatenessSideAdjustment, matchLineupForCompetition } from "@/lib/lineup-lateness";
 import NavBar from "@/components/NavBar";
 import Link from "next/link";
+import { competitionParticipantList, fantasySideEquals } from "@/lib/competition-participants";
 
 const YOU_COLOR = "#2563eb";
 const OPP_COLOR = "#dc2626";
@@ -23,6 +24,8 @@ type HistoryMatchRow = {
   fixture: string;
   date: string;
   hasData: boolean;
+  /** At least one fantasy_players row for this competition on this match (lineups saved). */
+  hasLineup: boolean;
   isCurrent: boolean;
   status: string;
   /** Washout / NR / manual void — points excluded from totals */
@@ -48,12 +51,13 @@ function isFinishedMatchStatus(status: string): boolean {
   return low.includes("won by") || /\bbeat\b/.test(low) || low.includes("match tied") || low.includes("match drawn");
 }
 
-/** History: only live or finished — hide upcoming / SCHEDULED / DRAFT with no play data. */
+/** History: live, finished, scored — or any match where lineups are already saved. */
 function includeInHistory(m: HistoryMatchRow): boolean {
   if (m.isCurrent) return true;
   if (isLiveMatchStatus(m.status)) return true;
   if (isFinishedMatchStatus(m.status)) return true;
   if (m.hasData) return true;
+  if (m.hasLineup) return true;
   return false;
 }
 
@@ -71,11 +75,7 @@ async function getData(competitionId: number | null) {
   ]);
 
   const comp = competitionId != null ? (competitions ?? []).find((c: { id: number }) => c.id === competitionId) : null;
-  const compPlayers: string[] = comp
-    ? Array.isArray(comp.players)
-      ? (comp.players as string[])
-      : [comp.player1_name, comp.player2_name].filter(Boolean)
-    : [];
+  const compPlayers: string[] = comp ? competitionParticipantList(comp) : [];
   const isMulti = compPlayers.length > 2;
 
   let yourName: string;
@@ -118,6 +118,7 @@ async function getData(competitionId: number | null) {
     lineup_lateness_by_comp?: unknown;
   }) => {
     const mp = playersByMatch[m.id] ?? [];
+    const hasLineup = mp.length > 0;
     const voided = isPointsVoidedMatchStatus(m.status, m.live_summary, m.fantasy_voided);
     const lateMeta = matchLineupForCompetition(m, competitionId);
     const latenessOptsH = (names: string[]) => ({ voided, allParticipantNames: names });
@@ -125,7 +126,7 @@ async function getData(competitionId: number | null) {
     if (isMulti) {
       const ptsByPlayer: Record<string, number> = {};
       for (const n of compPlayers) {
-        const rawN = voided ? 0 : mp.filter((p) => p.side === n).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
+        const rawN = voided ? 0 : mp.filter((p) => fantasySideEquals(p.side, n)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
         ptsByPlayer[n] = rawN + (voided ? 0 : lineupLatenessSideAdjustment(lateMeta, n, latenessOptsH(compPlayers)));
       }
       if (voided) for (const n of compPlayers) ptsByPlayer[n] = 0;
@@ -142,6 +143,7 @@ async function getData(competitionId: number | null) {
         fixture: formatFixture(m.fixture) || m.fixture || "TBD",
         date: m.match_date ?? "",
         hasData,
+        hasLineup,
         isCurrent: Boolean(m.is_current),
         status: m.status ?? "",
         voided,
@@ -158,12 +160,11 @@ async function getData(competitionId: number | null) {
     }
 
     const yourPtsRaw = competitionId != null
-      ? mp.filter((p) => p.side === yourName).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
+      ? mp.filter((p) => fantasySideEquals(p.side, yourName)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
       : mp.filter((p) => p.side === "You").reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
-    // Default league rows use side "You" vs anything else (not necessarily === settings.opponent_name).
     const oppPtsRaw =
       competitionId != null
-        ? mp.filter((p) => p.side === opponentName).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
+        ? mp.filter((p) => fantasySideEquals(p.side, opponentName)).reduce((s, p) => s + fantasyPointsCounted(p, rules), 0)
         : mp.filter((p) => p.side !== "You").reduce((s, p) => s + fantasyPointsCounted(p, rules), 0);
     const twoNames = [yourName, opponentName];
     const yourPts =
@@ -187,6 +188,7 @@ async function getData(competitionId: number | null) {
       fixture: formatFixture(m.fixture) || m.fixture || "TBD",
       date: m.match_date ?? "",
       hasData,
+      hasLineup,
       isCurrent: Boolean(m.is_current),
       status: m.status ?? "",
       voided,
@@ -387,6 +389,8 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                           })}
                         </div>
                       </>
+                    ) : m.hasLineup ? (
+                      <p className="history-card__pending">Lineups saved — sync scores on the match page</p>
                     ) : (
                       <p className="history-card__pending">Not yet played — open for details</p>
                     )}
@@ -469,6 +473,8 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
                         />
                       </div>
                     </>
+                  ) : m.hasLineup ? (
+                    <p className="history-card__pending">Lineups saved — sync scores on the match page</p>
                   ) : (
                     <p className="history-card__pending">Not yet played — open for details</p>
                   )}

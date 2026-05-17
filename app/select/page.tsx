@@ -9,6 +9,11 @@ import SelectClient from "@/components/SelectClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
 import { pickTrackedMatchRowFromList } from "@/lib/active-match";
 import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
+import {
+  competitionParticipantList,
+  fantasyRowMatchesCompetition,
+  fantasySideEquals,
+} from "@/lib/competition-participants";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -76,7 +81,7 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
   let compPlayers: string[] = [];
   if (competitionId != null) {
     const { data: comp } = await supabaseAdmin.from("competitions").select("*").eq("id", competitionId).single();
-    compPlayers = Array.isArray(comp?.players) ? comp.players : [comp?.player1_name ?? "Player 1", comp?.player2_name ?? "Player 2"];
+    compPlayers = competitionParticipantList(comp);
     yourName = compPlayers[0] ?? "Player 1";
     opponentName = compPlayers[1] ?? "Player 2";
   } else {
@@ -85,16 +90,20 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
   }
 
   const isCompFilter = (p: FantasyPlayer) =>
-    competitionId != null
-      ? (p as FantasyPlayer & { competition_id?: number | null }).competition_id === competitionId
-      : (p as FantasyPlayer & { competition_id?: number | null }).competition_id == null;
+    fantasyRowMatchesCompetition(
+      (p as FantasyPlayer & { competition_id?: number | null }).competition_id,
+      competitionId,
+    );
 
-  const p1Side = competitionId != null ? yourName : "You";
   const yourPlayersSorted = sortFantasyLineupForDisplay(
-    matchPlayers.filter((p) => p.side === p1Side && isCompFilter(p)),
+    matchPlayers.filter((p) =>
+      isCompFilter(p) && (competitionId != null ? fantasySideEquals(p.side, yourName) : p.side === "You"),
+    ),
   );
   const oppPlayersSorted = sortFantasyLineupForDisplay(
-    matchPlayers.filter((p) => p.side !== p1Side && isCompFilter(p)),
+    matchPlayers.filter((p) =>
+      isCompFilter(p) && (competitionId != null ? fantasySideEquals(p.side, opponentName) : p.side !== "You"),
+    ),
   );
 
   const mapRow = (p: FantasyPlayer) => ({
@@ -110,7 +119,9 @@ export default async function SelectPage({ searchParams }: { searchParams: Promi
   const existingPicks =
     compPlayers.length >= 3
       ? compPlayers.map((name) =>
-          sortFantasyLineupForDisplay(matchPlayers.filter((p) => p.side === name && isCompFilter(p))).map(mapRow),
+          sortFantasyLineupForDisplay(
+            matchPlayers.filter((p) => fantasySideEquals(p.side, name) && isCompFilter(p)),
+          ).map(mapRow),
         )
       : undefined;
 
