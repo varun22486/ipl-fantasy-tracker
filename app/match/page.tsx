@@ -10,16 +10,22 @@ import { hasLineupLatenessActive, matchLineupForCompetition, type MatchLineupLat
 import NavBar from "@/components/NavBar";
 import MatchClient from "@/components/MatchClient";
 import MatchActiveTabs from "@/components/MatchActiveTabs";
-import { pickTrackedMatchRowWithLineupPreference, sameNumericId } from "@/lib/active-match";
+import { pickTrackedMatchRowWithLineupPreference } from "@/lib/active-match";
 import { isAppUsingCricapiProvider } from "@/lib/cricket-provider";
 import { fetchFantasyPickCountsByCompetition } from "@/lib/fantasy-pick-counts";
 import {
   competitionParticipantList,
-  fantasyRowMatchesCompetition,
-  fantasySideEquals,
   fantasySideMatchesParticipant,
   type CompetitionRow,
 } from "@/lib/competition-participants";
+import {
+  fetchMatchIdsWithLineups,
+  fetchPlayersForMatch,
+  findMatchInList,
+  parseExplicitMatchId,
+  pickMatchRowWithLineups,
+  splitH2hLineup,
+} from "@/lib/match-fantasy-load";
 
 type SquadTeam = { teamName: string; players: string[] };
 
@@ -43,38 +49,46 @@ function parseRoster(match: unknown): { rosterNames: string[]; squads: SquadTeam
   return { rosterNames, squads, nameToId };
 }
 
+type MatchListRow = {
+  id: number;
+  is_current?: boolean;
+  match_date?: string | null;
+  fixture?: string | null;
+  status?: string | null;
+};
+
 async function getData(queryM: string | undefined, competitionId: number | null) {
-  const [{ data: matches }, { data: settings }, { data: players }] = await Promise.all([
+  const [{ data: matches }, { data: settings }, lineupMatchIds] = await Promise.all([
     supabaseAdmin.from("matches").select("*").order("id", { ascending: false }),
     supabaseAdmin.from("series_settings").select("*").limit(1).single(),
-    supabaseAdmin.from("fantasy_players").select("*").order("id", { ascending: true }),
+    fetchMatchIdsWithLineups(competitionId),
   ]);
 
-  const list = matches ?? [];
-  const lineupMatchIds = new Set<number>();
-  for (const p of (players ?? []) as FantasyPlayer[]) {
-    if (fantasyRowMatchesCompetition((p as FantasyPlayer & { competition_id?: number | null }).competition_id, competitionId)) {
-      lineupMatchIds.add(Number((p as { match_id: unknown }).match_id));
-    }
+  const list = (matches ?? []) as MatchListRow[];
+  const explicitId = parseExplicitMatchId(queryM);
+  const tabPick = pickTrackedMatchRowWithLineupPreference(list, queryM, lineupMatchIds);
+
+  let currentMatch: MatchListRow | null = null;
+  if (explicitId != null) {
+    currentMatch = findMatchInList(list, explicitId) ?? tabPick.shownRow;
+  } else {
+    currentMatch = tabPick.shownRow;
   }
+  currentMatch = pickMatchRowWithLineups(list, currentMatch, lineupMatchIds);
 
-  const { activeTrackedForTabs, shownRow, activeTabsScope } = pickTrackedMatchRowWithLineupPreference(
-    list as {
-      id: number;
-      is_current?: boolean;
-      match_date?: string | null;
-      fixture?: string | null;
-      status?: string | null;
-    }[],
-    queryM,
-    lineupMatchIds
-  );
-  const currentMatch = shownRow as (typeof list)[number] | null;
-  const matchPlayers = ((players ?? []) as FantasyPlayer[]).filter((p) =>
-    sameNumericId(p.match_id, currentMatch?.id),
-  );
+  const matchIdNum = Number(currentMatch?.id);
+  const rawPlayers =
+    Number.isFinite(matchIdNum) && matchIdNum > 0
+      ? await fetchPlayersForMatch(matchIdNum, competitionId)
+      : [];
 
-  return { currentMatch, matchPlayers, settings, activeTrackedForTabs, activeTabsScope };
+  return {
+    currentMatch,
+    matchPlayers: rawPlayers,
+    settings,
+    activeTrackedForTabs: tabPick.activeTrackedForTabs,
+    activeTabsScope: tabPick.activeTabsScope,
+  };
 }
 
 export default async function MatchPage({ searchParams }: { searchParams: Promise<{ c?: string; m?: string }> }) {
@@ -87,58 +101,51 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
   let compPlayers: string[] = [];
   let compRow: CompetitionRow | null = null;
   if (competitionId != null) {
-    const { supabaseAdmin } = await import("@/lib/supabase-admin");
-    const { data: comp } = await supabaseAdmin
-      .from("competitions").select("*").eq("id", competitionId).single();
+    const { data: comp } = await supabaseAdmin.from("competitions").select("*").eq("id", competitionId).single();
     compRow = comp as CompetitionRow | null;
     compPlayers = competitionParticipantList(comp);
     yourName = compPlayers[0] ?? "Player 1";
     opponentName = compPlayers[1] ?? "Player 2";
   } else {
-    yourName = (settings as any)?.your_name ?? "Varun";
+    yourName = (settings as { your_name?: string })?.your_name ?? "Varun";
     opponentName = settings?.opponent_name ?? "Rahul";
   }
 
-  const isCompFilter = (p: FantasyPlayer) =>
-    fantasyRowMatchesCompetition((p as FantasyPlayer & { competition_id?: number | null }).competition_id, competitionId);
-
   const sideMatches = (rowSide: unknown, label: string) =>
-    competitionId != null
-      ? fantasySideMatchesParticipant(rowSide, label, compRow)
-      : fantasySideEquals(rowSide, label);
+    competitionId != null ? fantasySideMatchesParticipant(rowSide, label, compRow) : String(rowSide) === label;
 
-  const yourPlayers = sortFantasyLineupForDisplay(
-    matchPlayers.filter((p) =>
-      isCompFilter(p) && (competitionId != null ? sideMatches(p.side, yourName) : p.side === "You"),
-    ),
-  );
-  const oppPlayers = sortFantasyLineupForDisplay(
-    matchPlayers.filter((p) =>
-      isCompFilter(p) && (competitionId != null ? sideMatches(p.side, opponentName) : p.side !== "You"),
-    ),
+  const { your: yourRaw, opp: oppRaw } = splitH2hLineup(
+    matchPlayers as FantasyPlayer[],
+    yourName,
+    opponentName,
+    competitionId,
+    compRow
   );
 
-  // For multi-player competitions, collect all participants' picks
-  const allParticipantPlayers = compPlayers.length > 2
-    ? compPlayers.map((name) => ({
-        name,
-        players: sortFantasyLineupForDisplay(
-          matchPlayers.filter((p) => isCompFilter(p) && sideMatches(p.side, name)),
-        ),
-      }))
-    : [];
+  const yourPlayers = sortFantasyLineupForDisplay(yourRaw);
+  const oppPlayers = sortFantasyLineupForDisplay(oppRaw);
+
+  const allParticipantPlayers =
+    compPlayers.length > 2
+      ? compPlayers.map((name) => ({
+          name,
+          players: sortFantasyLineupForDisplay(
+            matchPlayers.filter((p) => sideMatches((p as FantasyPlayer).side, name))
+          ),
+        }))
+      : [];
 
   const { rosterNames, squads, nameToId } = parseRoster(currentMatch);
 
   const currentMatchData = currentMatch
     ? {
         fixture: currentMatch.fixture ?? undefined,
-        label: currentMatch.label ?? undefined,
+        label: (currentMatch as { label?: string }).label ?? undefined,
         status: currentMatch.status ?? undefined,
-        venue: currentMatch.venue ?? null,
-        toss_winner: currentMatch.toss_winner ?? null,
-        live_summary: currentMatch.live_summary ?? null,
-        last_synced_at: currentMatch.last_synced_at ?? null,
+        venue: (currentMatch as { venue?: string | null }).venue ?? null,
+        toss_winner: (currentMatch as { toss_winner?: string | null }).toss_winner ?? null,
+        live_summary: (currentMatch as { live_summary?: string | null }).live_summary ?? null,
+        last_synced_at: (currentMatch as { last_synced_at?: string | null }).last_synced_at ?? null,
       }
     : null;
 
@@ -176,14 +183,14 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
     ? "No match linked"
     : nobodySavedBoth && !lineupLatenessActive
       ? `${String(currentMatch.fixture)} — pick your teams to start`
-      : currentMatch.fixture;
+      : String(currentMatch.fixture ?? "");
 
   const competitionSuffix = competitionId != null ? `&c=${encodeURIComponent(String(competitionId))}` : "";
-  const selectedTabId = currentMatch?.id ?? 0;
+  const selectedTabId = Number(currentMatch?.id) || 0;
 
   const cricbuzzScoreSyncEnabled =
     isAppUsingCricapiProvider() &&
-    Boolean(currentMatch && String((currentMatch as { fixture?: string | null }).fixture ?? "").trim()) &&
+    Boolean(currentMatch && String(currentMatch.fixture ?? "").trim()) &&
     !pointsVoided;
 
   const pickCounts = await fetchFantasyPickCountsByCompetition(competitionId);
@@ -200,37 +207,38 @@ export default async function MatchPage({ searchParams }: { searchParams: Promis
       />
       <Suspense fallback={null}>
         <MatchClient
-        yourName={yourName}
-        opponentName={opponentName}
-        yourFantasyPlayers={yourPlayers}
-        opponentFantasyPlayers={oppPlayers}
-        matchId={currentMatch?.id ?? null}
-        currentMatch={currentMatchData}
-        hasLinkedMatch={Boolean(currentMatch)}
-        yourLineupSaved={yourLineupSaved}
-        opponentLineupSaved={oppLineupSaved}
-        rosterNames={rosterNames}
-        squads={squads}
-        nameToId={nameToId}
-        existingYourPlayers={yourPlayers.map((p) => ({
-          name: p.name,
-          captain: p.captain,
-          bench: p.bench,
-          provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
-        }))}
-        existingOppPlayers={oppPlayers.map((p) => ({
-          name: p.name,
-          captain: p.captain,
-          bench: p.bench,
-          provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
-        }))}
-        competitionId={competitionId}
-        allParticipants={allParticipantPlayers}
-        pointsVoided={pointsVoided}
-        lineupLatenessMeta={lineupLatenessInput}
-        lineupLatenessActive={lineupLatenessActive}
-        cricbuzzScoreSyncEnabled={cricbuzzScoreSyncEnabled}
-        rosterPickCounts={pickCounts}
+          key={`${selectedTabId}-${yourPlayers.length}-${oppPlayers.length}-${competitionId ?? "d"}`}
+          yourName={yourName}
+          opponentName={opponentName}
+          yourFantasyPlayers={yourPlayers}
+          opponentFantasyPlayers={oppPlayers}
+          matchId={currentMatch?.id ?? null}
+          currentMatch={currentMatchData}
+          hasLinkedMatch={Boolean(currentMatch)}
+          yourLineupSaved={yourLineupSaved}
+          opponentLineupSaved={oppLineupSaved}
+          rosterNames={rosterNames}
+          squads={squads}
+          nameToId={nameToId}
+          existingYourPlayers={yourPlayers.map((p) => ({
+            name: p.name,
+            captain: p.captain,
+            bench: p.bench,
+            provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
+          }))}
+          existingOppPlayers={oppPlayers.map((p) => ({
+            name: p.name,
+            captain: p.captain,
+            bench: p.bench,
+            provider_player_id: (p as FantasyPlayer).provider_player_id ?? null,
+          }))}
+          competitionId={competitionId}
+          allParticipants={allParticipantPlayers}
+          pointsVoided={pointsVoided}
+          lineupLatenessMeta={lineupLatenessInput}
+          lineupLatenessActive={lineupLatenessActive}
+          cricbuzzScoreSyncEnabled={cricbuzzScoreSyncEnabled}
+          rosterPickCounts={pickCounts}
         />
       </Suspense>
     </main>

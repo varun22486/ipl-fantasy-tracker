@@ -585,7 +585,7 @@ export default function SelectClient({
             setApiMsg({ type: "success", title: "Both teams saved! Opening the match…" });
             // Full navigation reloads RSC props and exits the inline picker (router.refresh alone is not enough).
             window.setTimeout(() => {
-              window.location.href = matchDest;
+              window.location.assign(dest);
             }, 500);
           } else {
             const other = side === "mine" ? rival : yourName;

@@ -124,10 +124,9 @@ export default function MatchClient({
   }, []);
 
   useEffect(() => {
-    if (hasAnyLineup && teamPickerOpen && !changeTeamsPickerOpenedRef.current) {
-      setTeamPickerOpen(false);
-    }
-  }, [hasAnyLineup, teamPickerOpen]);
+    if (changeTeamsPickerOpenedRef.current) return;
+    setTeamPickerOpen(needsSetup);
+  }, [needsSetup]);
 
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");

@@ -76,11 +76,8 @@ const MULTI_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed", "#0
 const TABLE_HEAD = ["Player", "Runs", "Wkts", "CT/RO/ST", "Bonuses", "Points", ""] as const;
 
 async function getData(matchId: number, competitionId: number | null) {
-  const playersBase = supabaseAdmin.from("fantasy_players").select("*").eq("match_id", matchId).order("id", { ascending: true });
-  const { data: players } =
-    competitionId != null
-      ? await playersBase.eq("competition_id", competitionId)
-      : await playersBase.is("competition_id", null);
+  const { fetchPlayersForMatch } = await import("@/lib/match-fantasy-load");
+  const players = await fetchPlayersForMatch(matchId, competitionId);
 
   const [{ data: match }, { data: settings }, { data: comp }] = await Promise.all([
     supabaseAdmin.from("matches").select("*").eq("id", matchId).single(),
