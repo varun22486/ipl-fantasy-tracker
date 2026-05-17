@@ -143,8 +143,6 @@ type Props = {
   existingPicks?: Array<Array<{ name: string; captain: boolean; bench?: boolean | null; provider_player_id?: string | null }>>;
   /** When set (e.g. history detail editor), navigate here after save instead of /match?m=… */
   afterLineupSaveHref?: string | null;
-  /** Parent (e.g. MatchClient inline picker) can refresh RSC + close picker after save. */
-  onLineupSaved?: () => void;
   /**
    * Keys from `rosterNameKey(name)` → times this player was saved in any lineup for this competition.
    * When set, roster chips list most-picked names first (then A–Z).
@@ -166,7 +164,6 @@ export default function SelectClient({
   compPlayers,
   existingPicks,
   afterLineupSaveHref,
-  onLineupSaved,
   pickCounts = null,
 }: Props) {
   const router = useRouter();
@@ -230,7 +227,6 @@ export default function SelectClient({
       setSavingIdx(null);
       if (json.ok) {
         router.refresh();
-        onLineupSaved?.();
         const newSaved = new Set(savedSet).add(idx);
         setSavedSet(newSaved);
         const allDone = newSaved.size >= multiPlayers.length;
@@ -553,7 +549,6 @@ export default function SelectClient({
       setSaving(null);
       if (json.ok) {
         router.refresh();
-        onLineupSaved?.();
         const minePay = slotsToLineupPayload(mine);
         const theirsPay = slotsToLineupPayload(theirs);
         let nextMineBl = mineBaseline;
@@ -588,13 +583,10 @@ export default function SelectClient({
             JSON.stringify(theirsPay) === JSON.stringify(nextTheirsBl);
           if (bothSynced) {
             setApiMsg({ type: "success", title: "Both teams saved! Opening the match…" });
-            if (onLineupSaved) {
-              window.setTimeout(() => onLineupSaved(), 400);
-            } else {
-              window.setTimeout(() => {
-                window.location.href = matchDest;
-              }, 900);
-            }
+            // Full navigation reloads RSC props and exits the inline picker (router.refresh alone is not enough).
+            window.setTimeout(() => {
+              window.location.href = matchDest;
+            }, 500);
           } else {
             const other = side === "mine" ? rival : yourName;
             setApiMsg({

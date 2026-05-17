@@ -124,10 +124,10 @@ export default function MatchClient({
   }, []);
 
   useEffect(() => {
-    if (!needsSetup && teamPickerOpen && !changeTeamsPickerOpenedRef.current) {
+    if (hasAnyLineup && teamPickerOpen && !changeTeamsPickerOpenedRef.current) {
       setTeamPickerOpen(false);
     }
-  }, [needsSetup, teamPickerOpen]);
+  }, [hasAnyLineup, teamPickerOpen]);
 
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
@@ -455,10 +455,6 @@ export default function MatchClient({
             provider_player_id: fp.provider_player_id ?? null,
           }))) : undefined}
           pickCounts={rosterPickCounts}
-          onLineupSaved={() => {
-            changeTeamsPickerOpenedRef.current = false;
-            router.refresh();
-          }}
         />
       </div>
     );
